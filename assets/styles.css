@@ -13,8 +13,6 @@
   --accent-soft: #e8f0ff;
   --success: #0b8c4a;
   --warning: #d44b3a;
-  --company-icon-bg: rgba(15, 31, 54, 0.05);
-  --company-icon-border: rgba(15, 31, 54, 0.12);
   --shadow: 0 10px 26px rgba(19, 43, 77, 0.08);
   --radius-xl: 20px;
   --radius-lg: 14px;
@@ -37,8 +35,6 @@ html[data-theme="dark"] {
   --accent-soft: rgba(115, 164, 255, 0.12);
   --success: #5cd28f;
   --warning: #ff886f;
-  --company-icon-bg: rgba(236, 244, 255, 0.16);
-  --company-icon-border: rgba(236, 244, 255, 0.32);
   --shadow: 0 14px 32px rgba(0, 0, 0, 0.35);
 }
 
@@ -449,15 +445,6 @@ h1 {
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  display: block;
-  object-fit: contain;
-  padding: 2px;
-  border: 1px solid var(--company-icon-border);
-  background: var(--company-icon-bg);
-}
-
-html[data-theme="dark"] .company-icon[data-icon-source="remote"] {
-  filter: brightness(0) invert(0.92);
 }
 
 .company-link {
