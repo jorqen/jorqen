@@ -2,6 +2,86 @@ const SUPPORTED_LANGS = ["en", "ru"];
 const LANGUAGE_STORAGE_KEY = "jorqen.language";
 const THEME_STORAGE_KEY = "jorqen.theme";
 const SUPPORTED_THEMES = ["light", "dark"];
+const THEMED_ICON_MAP = {
+  "briefcase": {
+    light: "assets/icons/light/briefcase.svg",
+    dark: "assets/icons/dark/briefcase.svg",
+  },
+  "download": {
+    light: "assets/icons/light/download.svg",
+    dark: "assets/icons/dark/download.svg",
+  },
+  "education": {
+    light: "assets/icons/light/education.svg",
+    dark: "assets/icons/dark/education.svg",
+  },
+  "external-link": {
+    light: "assets/icons/light/external-link.svg",
+    dark: "assets/icons/dark/external-link.svg",
+  },
+  "layers": {
+    light: "assets/icons/light/layers.svg",
+    dark: "assets/icons/dark/layers.svg",
+  },
+  "location": {
+    light: "assets/icons/light/location.svg",
+    dark: "assets/icons/dark/location.svg",
+  },
+  "star": {
+    light: "assets/icons/light/star.svg",
+    dark: "assets/icons/dark/star.svg",
+  },
+  "sun": {
+    light: "assets/icons/light/sun.svg",
+    dark: "assets/icons/dark/sun.svg",
+  },
+  "moon": {
+    light: "assets/icons/light/moon.svg",
+    dark: "assets/icons/dark/moon.svg",
+  },
+  "github": {
+    light: "assets/icons/light/github.svg",
+    dark: "assets/icons/dark/github.svg",
+  },
+  "telegram": {
+    light: "assets/icons/light/telegram.svg",
+    dark: "assets/icons/dark/telegram.svg",
+  },
+};
+const STATIC_THEME_ICON_BINDINGS = [
+  {
+    selector: '[data-theme-switch="light"] img',
+    icon: "sun",
+  },
+  {
+    selector: '[data-theme-switch="dark"] img',
+    icon: "moon",
+  },
+  {
+    selector: "#resume .panel-icon img",
+    icon: "download",
+  },
+  {
+    selector: "#experience .panel-icon img",
+    icon: "briefcase",
+  },
+  {
+    selector: "#education .panel-icon img",
+    icon: "education",
+  },
+  {
+    selector: "#strengths .panel-icon img",
+    icon: "star",
+  },
+  {
+    selector: "#skills .panel-icon img",
+    icon: "layers",
+  },
+  {
+    selector: "#preferences .panel-icon img",
+    icon: "star",
+  },
+];
 
 const CONTENT = {
   en: {
@@ -33,26 +113,26 @@ const CONTENT = {
       links: {
         linkedin: "LinkedIn",
         github: "GitHub",
-        telegram: "Telegram @jorqen",
+        telegram: "Telegram",
       },
       facts: [
         {
-          icon: "assets/icons/location.svg",
+          icon: "location",
           label: "Location",
           value: "Moscow, Russia",
         },
         {
-          icon: "assets/icons/briefcase.svg",
+          icon: "briefcase",
           label: "Experience",
           value: "4+ years commercial",
         },
         {
-          icon: "assets/icons/star.svg",
+          icon: "star",
           label: "Current focus",
           value: "High-load Go services",
         },
         {
-          icon: "assets/icons/layers.svg",
+          icon: "layers",
           label: "Readiness",
           value: "Remote / Relocation",
         },
@@ -86,7 +166,7 @@ const CONTENT = {
       items: [
         {
           company: "ATOM",
-          companyIcon: "assets/companies/atom.svg",
+          companyIcon: "assets/icons/atom.svg",
           companyUrl: "https://atom.auto",
           role: "Senior Software Engineer",
           period: "February 2025 - Present",
@@ -121,7 +201,8 @@ const CONTENT = {
         },
         {
           company: "SBERTECH",
-          companyIcon: "assets/companies/sbertech.svg",
+          companyIcon: "assets/icons/light/sbertech.png",
+          companyIconDark: "assets/icons/dark/sbertech.png",
           companyUrl: "https://sbertech.ru",
           role: "Software Engineer, Service Mesh & Platform Infrastructure",
           period: "January 2024 - February 2025",
@@ -150,7 +231,7 @@ const CONTENT = {
         },
         {
           company: "MAGNUS TECH",
-          companyIcon: "assets/companies/magnus.svg",
+          companyIcon: "assets/icons/magnus.svg",
           companyUrl: "https://magnustech.com",
           role: "Backend Engineer",
           period: "March 2023 - January 2024",
@@ -165,22 +246,23 @@ const CONTENT = {
           stack: ["Go", "MinIO", "Redis", "PostgreSQL", "Kafka", "REST", "gRPC", "Prometheus", "CI/CD"],
         },
         {
-          company: "BLACKWALL",
-          companyIcon: "assets/companies/blackwall.svg",
-          companyUrl: "",
+          company: "EXNODE",
+          companyIcon: "assets/icons/exnode.png",
+          companyUrl: "https://exnode.ru",
           role: "Backend Engineer",
           period: "September 2022 - March 2023",
           location: "Russia",
-          intro: "BlackWall developed crypto exchange and P2P trading products.",
+          intro: "Exnode developed crypto exchange and P2P trading products.",
           bullets: [
             "Implemented core backend flows for P2P crypto exchange, including exchange-rate logic and integration between trading-related product components.",
             "Worked closely with another backend engineer to deliver end-to-end exchange functionality in a fast-moving product environment.",
+            "After an early-career pricing incident, introduced stricter validation and safer rollout discipline.",
           ],
           stack: ["Go", "Redis", "PostgreSQL", "RabbitMQ", "REST", "gRPC", "Prometheus", "CI/CD"],
         },
         {
           company: "LUKYANOV TECH",
-          companyIcon: "assets/companies/lukyanov.svg",
+          companyIcon: "assets/icons/lukyanov.png",
           companyUrl: "https://lukyanov.tech",
           role: "Part-Time Mentor / Mock Interviewer",
           period: "January 2024 - Present",
@@ -188,12 +270,13 @@ const CONTENT = {
           intro: "Part-time mentoring and mock interview practice alongside core engineering roles.",
           bullets: [
             "Conduct mock interviews, mentor students, and provide structured feedback on backend interview performance, technical communication, and problem-solving.",
+            "Coach candidates on technical communication, concise answer structure, and tradeoff reasoning.",
           ],
           stack: ["Mentoring", "Mock interviews", "Technical communication"],
         },
         {
           company: "Kaluga Power Sale Company",
-          companyIcon: "assets/companies/kaluga.svg",
+          companyIcon: "assets/icons/kaluga.png",
           companyUrl: "https://kskkaluga.ru",
           role: "Backend Engineer",
           period: "October 2021 - March 2022",
@@ -206,7 +289,7 @@ const CONTENT = {
         },
         {
           company: "Center for Regional Management of Lipetsk Oblast",
-          companyIcon: "assets/companies/lipetsk.svg",
+          companyIcon: "",
           companyUrl: "",
           role: "Java Developer",
           period: "June 2021 - November 2021",
@@ -320,26 +403,26 @@ const CONTENT = {
       links: {
         linkedin: "LinkedIn",
         github: "GitHub",
-        telegram: "Telegram @jorqen",
+        telegram: "Telegram",
       },
       facts: [
         {
-          icon: "assets/icons/location.svg",
+          icon: "location",
           label: "Локация",
           value: "Москва, Россия",
         },
         {
-          icon: "assets/icons/briefcase.svg",
+          icon: "briefcase",
           label: "Опыт",
           value: "4+ года коммерчески",
         },
         {
-          icon: "assets/icons/star.svg",
+          icon: "star",
           label: "Фокус",
           value: "High-load Go сервисы",
         },
         {
-          icon: "assets/icons/layers.svg",
+          icon: "layers",
           label: "Формат",
           value: "Удаленно / релокация",
         },
@@ -373,121 +456,139 @@ const CONTENT = {
       items: [
         {
           company: "Атом",
-          companyIcon: "assets/companies/atom.svg",
+          companyIcon: "assets/icons/atom.svg",
           companyUrl: "https://atom.auto",
-          role: "Senior Software Engineer (Communication & Telemetry)",
+          role: "Senior Software Engineer",
           period: "фев 2025 - настоящее время",
           location: "Москва, Россия",
           intro:
-            "«Атом» развивает экосистему электромобиля. Я отвечаю за безопасные и постоянно доступные сервисы связи автомобиля с облаком.",
+            "Atom развивает платформу электромобиля. Я работал в направлении коммуникаций и телеметрии над backend-сервисами, отвечающими за vehicle-to-cloud связность и операционную надежность.",
           bullets: [
-            "Спроектировал и соразработал mTLS-защищенный MQTT-брокер для постоянной car-to-cloud коммуникации.",
-            "Помог переработать нечеткие требования вместе с инженерным и продуктовым руководством, чтобы довести решение до релиза.",
-            "Обеспечил профиль сервиса около 70K req/s при p99 latency ниже 50 мс.",
-            "Собрал observability с нуля: метрики, логи, трассировки, дашборды и алерты.",
-            "Взял ownership за CI/CD и деплой после ухода DevOps-поддержки.",
+            "Спроектировал и соразработал mTLS-защищенный MQTT-брокер для постоянной vehicle-to-cloud коммуникации, упростив изначально переусложненную концепцию до более чистой брокер-ориентированной архитектуры с восстановлением состояния через Redis.",
+            "Помог прояснить неоднозначные и частично нереалистичные требования вместе с инженерным и продуктовым руководством, превратив проект в релизопригодную первую версию и повлияв на итоговую архитектуру.",
+            "Собрал production observability с нуля после потери выделенной DevOps-поддержки: метрики, дашборды, алерты, логи, трейсы, мониторинг latency/throughput и бизнес-сигналы здоровья.",
+            "Взял ownership за CI/CD и настройку деплоя, включая manifests/charts и автоматизацию поставки для high-load backend-сервиса.",
+            "Усилил безопасность и надежность за счет обязательной certificate-based аутентификации клиентов и topic-level контроля доступа.",
+            "Поддерживал сервис с нагрузкой 70K req/s при p99 latency ниже ~50 мс.",
           ],
           stack: [
             "Go",
             "MQTT",
+            "Mochi MQTT",
             "Redis",
             "PostgreSQL",
+            "Kafka",
             "gRPC",
             "mTLS",
             "Prometheus",
             "Grafana",
+            "Loki",
+            "Sentry",
+            "Docker",
             "Kubernetes",
+            "CI/CD",
           ],
         },
         {
           company: "Сбертех",
-          companyIcon: "assets/companies/sbertech.svg",
+          companyIcon: "assets/icons/light/sbertech.png",
+          companyIconDark: "assets/icons/dark/sbertech.png",
           companyUrl: "https://sbertech.ru",
           role: "Software Engineer, Service Mesh & Platform Infrastructure",
           period: "янв 2024 - фев 2025",
           location: "Москва, Россия",
           intro:
-            "Работал с сильно модифицированным форком Istio в Platform V.",
+            "Сбертех развивает Platform V, крупную enterprise-платформу. Я работал с сильно модифицированным форком Istio и смежными инфраструктурными компонентами для управления workload, политиками и платформенной интеграцией.",
           bullets: [
-            "Восстановил сломанное автотестирование и повысил покрытие юнит-тестами до 80%.",
-            "Разработал Go-фреймворк интеграционных тестов для изолированных Kubernetes-окружений.",
-            "Сместил поиск дефектов влево за счет стабилизации CI и тестового контура.",
-            "Наставлял стажеров и масштабировал автоматизацию через переиспользуемые паттерны фреймворка.",
+            "Восстановил сломанное автотестирование в сильно модифицированном форке Istio, вернув юнит-тесты в регулярный инженерный процесс и повысив покрытие до 80%.",
+            "Спроектировал и реализовал Go-фреймворк интеграционного тестирования, который поднимал изолированные Kubernetes-ресурсы и позволил масштабировать автотесты с интеграцией в CI и Allure-отчетами.",
+            "Восстановил надежность CI-пайплайнов и сдвинул поиск дефектов на более ранние этапы цикла разработки, повысив безопасность релизов инфраструктурных изменений.",
+            "Наставлял стажеров из Школы 21 по фреймворку тестирования и процессу автоматизации, помогая переводить QA-сценарии в масштабируемые автотесты.",
+            "Самостоятельно спроектировал и реализовал custom Kubernetes resource для управления связями control plane и data plane в Istio.",
           ],
-          stack: ["Go", "Kubernetes", "Istio", "gRPC", "REST", "PostgreSQL", "Allure", "CI/CD"],
+          stack: [
+            "Go",
+            "Kubernetes",
+            "Istio",
+            "controllers",
+            "REST API",
+            "gRPC",
+            "PostgreSQL",
+            "CI/CD",
+            "Allure",
+            "Bitbucket",
+          ],
         },
         {
           company: "Magnus Tech",
-          companyIcon: "assets/companies/magnus.svg",
+          companyIcon: "assets/icons/magnus.svg",
           companyUrl: "https://magnustech.com",
           role: "Backend Engineer",
           period: "мар 2023 - янв 2024",
           location: "Россия",
           intro:
-            "Разрабатывал backend платформы контроля цен для сети «Бристоль».",
+            "Magnus Tech — компания заказной разработки. Я работал над платформой контроля цен для сети «Бристоль», которая объединяла данные по ценникам из магазинов, фотографии и ML-результаты в единую операционную систему.",
           bullets: [
-            "Реализовал backend-потоки сбора и нормализации данных по ценникам.",
-            "Объединил данные сотрудников, продуктовых систем и ML-аналитики в единый операционный контур.",
-            "Довел набор функциональности от разработки до production-запуска.",
+            "Разрабатывал backend-сервисы и внутренние инструменты для платформы контроля цен, используемой для цифровизации процессов проверки ценников в магазинах.",
+            "Помог структурировать данные от сотрудников магазинов, продуктовых систем и ML-аналитики в единый backend-контур для мониторинга, валидации и операционных решений.",
+            "Участвовал в поставке продукта от активной фазы разработки до релиза в рамках проекта длительностью около года.",
           ],
-          stack: ["Go", "PostgreSQL", "Redis", "Kafka", "MinIO", "gRPC", "Prometheus"],
+          stack: ["Go", "MinIO", "Redis", "PostgreSQL", "Kafka", "REST", "gRPC", "Prometheus", "CI/CD"],
         },
         {
           company: "Exnode",
-          companyIcon: "assets/companies/exnode.svg",
+          companyIcon: "assets/icons/exnode.png",
           companyUrl: "https://exnode.ru",
           role: "Backend Engineer",
           period: "сен 2022 - мар 2023",
           location: "Россия",
-          intro: "Разрабатывал backend для криптобиржи и P2P-обмена.",
+          intro: "Exnode разрабатывал продукты криптобиржи и P2P-обмена.",
           bullets: [
-            "Реализовал ключевые потоки P2P-обмена и логику управления курсами.",
-            "Работал в небольшой команде и поставлял end-to-end функциональность обмена.",
-            "После критического инцидента с курсами внедрил более строгие проверки и безопасный rollout-подход.",
+            "Реализовал ключевые backend-потоки для P2P-криптообмена, включая логику курсов и интеграцию между связанными продуктовыми компонентами.",
+            "В тесной связке с другим backend-инженером поставлял end-to-end функциональность обмена в быстро меняющейся продуктовой среде.",
+            "После раннего карьерного инцидента с курсами внедрил более строгую валидацию и безопасную дисциплину rollout.",
           ],
-          stack: ["Go", "PostgreSQL", "Redis", "RabbitMQ", "REST", "gRPC"],
-        },
-        {
-          company: "Калужская сбытовая компания",
-          companyIcon: "assets/companies/kaluga.svg",
-          companyUrl: "https://kskkaluga.ru",
-          role: "Backend Engineer",
-          period: "окт 2021 - мар 2022",
-          location: "Россия",
-          intro: "Разработал backend личного кабинета и админ-системы для биллинга.",
-          bullets: [
-            "Реализовал функции управления аккаунтом и оплатой.",
-            "Построил админ-контур для операций с клиентами и статусами начислений.",
-          ],
-          stack: ["Backend", "Базы данных", "Админ-системы"],
-        },
-        {
-          company: "Центр управления регионом Липецкой области",
-          companyIcon: "assets/companies/lipetsk.svg",
-          companyUrl: "",
-          role: "Java Developer",
-          period: "июн 2021 - ноя 2021",
-          location: "Россия",
-          intro: "Участвовал в разработке цифровых сервисов государственного уровня.",
-          bullets: [
-            "Разрабатывал модули для мониторинга сервисов и социально-ориентированных систем.",
-            "Получил первый production-опыт, совмещая работу и учебу.",
-          ],
-          stack: ["Java", "Backend"],
+          stack: ["Go", "Redis", "PostgreSQL", "RabbitMQ", "REST", "gRPC", "Prometheus", "CI/CD"],
         },
         {
           company: "Lukyanov Tech",
-          companyIcon: "assets/companies/lukyanov.svg",
+          companyIcon: "assets/icons/lukyanov.png",
           companyUrl: "https://lukyanov.tech",
           role: "Part-Time Mentor / Mock Interviewer",
           period: "янв 2024 - настоящее время",
           location: "Удаленно",
-          intro: "Параллельно с основной работой провожу менторство backend-кандидатов.",
+          intro: "Part-time менторство и практика mock-собеседований параллельно с основной инженерной работой.",
           bullets: [
-            "Провожу структурированные mock-собеседования.",
-            "Помогаю улучшать техническую коммуникацию и аргументацию решений.",
+            "Провожу mock-собеседования, менторю студентов и даю структурированную обратную связь по backend-интервью, технической коммуникации и решению задач.",
+            "Помогаю кандидатам улучшать техническую коммуникацию, структуру ответов и аргументацию trade-off решений.",
           ],
-          stack: ["Менторство", "Интервью-коучинг"],
+          stack: ["Менторство", "Mock-собеседования", "Техническая коммуникация"],
+        },
+        {
+          company: "Калужская сбытовая компания",
+          companyIcon: "assets/icons/kaluga.png",
+          companyUrl: "https://kskkaluga.ru",
+          role: "Backend Engineer",
+          period: "окт 2021 - мар 2022",
+          location: "Россия",
+          intro: "Ранняя backend-роль в системах коммунальных платежей и управления личными кабинетами.",
+          bullets: [
+            "Реализовал backend-функциональность клиентского личного кабинета и админ-системы, связанной с коммунальными платежами и управлением аккаунтами.",
+          ],
+          stack: ["Backend", "Базы данных", "Админ-системы", "Платежи"],
+        },
+        {
+          company: "Центр управления регионом Липецкой области",
+          companyIcon: "",
+          companyUrl: "",
+          role: "Java Developer",
+          period: "июн 2021 - ноя 2021",
+          location: "Россия",
+          intro: "Участвовал в разработке государственных цифровых и мониторинговых систем.",
+          bullets: [
+            "Участвовал в разработке государственных цифровых продуктов, включая сервисные и операционные системы мониторинга.",
+          ],
+          stack: ["Java", "Backend"],
         },
       ],
     },
@@ -571,35 +672,28 @@ function setText(id, value) {
   }
 }
 
-function getFaviconUrl(siteUrl) {
-  if (!siteUrl) {
-    return "";
+function getThemedIcon(iconPath, theme) {
+  const mapping = THEMED_ICON_MAP[iconPath];
+  if (!mapping) {
+    return iconPath;
   }
 
-  try {
-    const parsed = new URL(siteUrl);
-    return `${parsed.origin}/favicon.ico`;
-  } catch (_error) {
-    return "";
-  }
+  return mapping[theme] || iconPath;
 }
 
-function setIconWithFallback(imgElement, remoteIconUrl, fallbackIconUrl) {
-  if (!imgElement) {
+function setImageSource(selector, source) {
+  const image = document.querySelector(selector);
+  if (!image) {
     return;
   }
 
-  if (!remoteIconUrl) {
-    imgElement.src = fallbackIconUrl;
-    return;
-  }
+  image.src = source;
+}
 
-  imgElement.onerror = () => {
-    imgElement.onerror = null;
-    imgElement.src = fallbackIconUrl;
-  };
-
-  imgElement.src = remoteIconUrl;
+function syncStaticThemeIcons(theme) {
+  STATIC_THEME_ICON_BINDINGS.forEach((binding) => {
+    setImageSource(binding.selector, getThemedIcon(binding.icon, theme));
+  });
 }
 
 function setLinkLabel(id, text) {
@@ -690,7 +784,7 @@ function setTheme(theme) {
   }
 }
 
-function renderFacts(items) {
+function renderFacts(items, theme) {
   const container = document.getElementById("hero-facts");
   if (!container) {
     return;
@@ -707,7 +801,7 @@ function renderFacts(items) {
 
     if (item.icon) {
       const icon = document.createElement("img");
-      icon.src = item.icon;
+      icon.src = getThemedIcon(item.icon, theme);
       icon.alt = "";
       icon.setAttribute("aria-hidden", "true");
       icon.className = "fact-icon";
@@ -728,7 +822,7 @@ function renderFacts(items) {
   });
 }
 
-function renderExperience(content) {
+function renderExperience(content, theme) {
   const container = document.getElementById("experience-list");
   if (!container) {
     return;
@@ -746,11 +840,6 @@ function renderExperience(content) {
     const companyMain = document.createElement("div");
     companyMain.className = "timeline-company-main";
 
-    const companyIcon = document.createElement("img");
-    companyIcon.className = "company-icon";
-    companyIcon.alt = `${item.company} icon`;
-    setIconWithFallback(companyIcon, getFaviconUrl(item.companyUrl), item.companyIcon);
-
     let companyLink = null;
     if (item.companyUrl) {
       companyLink = document.createElement("a");
@@ -765,7 +854,15 @@ function renderExperience(content) {
       companyLink.textContent = item.company;
     }
 
-    companyMain.append(companyIcon, companyLink);
+    const companyIconPath = theme === "dark" && item.companyIconDark ? item.companyIconDark : item.companyIcon;
+    if (companyIconPath) {
+      const companyIcon = document.createElement("img");
+      companyIcon.className = "company-icon";
+      companyIcon.alt = `${item.company} icon`;
+      companyIcon.src = companyIconPath;
+      companyMain.append(companyIcon);
+    }
+    companyMain.append(companyLink);
     companyRow.append(companyMain);
 
     if (item.companyUrl) {
@@ -776,7 +873,7 @@ function renderExperience(content) {
       companySiteLink.rel = "noopener noreferrer";
 
       const extIcon = document.createElement("img");
-      extIcon.src = "assets/icons/external-link.svg";
+      extIcon.src = getThemedIcon("external-link", theme);
       extIcon.alt = "";
       extIcon.setAttribute("aria-hidden", "true");
 
@@ -937,17 +1034,16 @@ function updateThemeSwitcher(lang, theme) {
   const data = CONTENT[lang] || CONTENT.en;
   const switcher = document.getElementById("theme-switch");
 
-  if (!switcher) {
-    return;
+  if (switcher) {
+    switcher.setAttribute("aria-label", data.theme.switcherLabel);
+    document.querySelectorAll("[data-theme-switch]").forEach((button) => {
+      const buttonTheme = button.getAttribute("data-theme-switch");
+      const label = buttonTheme === "dark" ? data.theme.toDark : data.theme.toLight;
+      button.setAttribute("aria-label", label);
+    });
   }
 
-  switcher.setAttribute("aria-label", data.theme.switcherLabel);
-  document.querySelectorAll("[data-theme-switch]").forEach((button) => {
-    const buttonTheme = button.getAttribute("data-theme-switch");
-    const label = buttonTheme === "dark" ? data.theme.toDark : data.theme.toLight;
-    button.setAttribute("aria-label", label);
-  });
-
+  syncStaticThemeIcons(theme);
   setThemeButtonsState(theme);
 }
 
@@ -996,11 +1092,11 @@ function renderLanguage(lang) {
   setLinkLabel("hero-linkedin", data.hero.links.linkedin);
   setLinkLabel("hero-github", data.hero.links.github);
   setLinkLabel("hero-telegram", data.hero.links.telegram);
-  setIconWithFallback(document.querySelector("#hero-linkedin img"), "https://www.linkedin.com/favicon.ico", "assets/icons/linkedin.svg");
-  setIconWithFallback(document.querySelector("#hero-github img"), "https://github.com/favicon.ico", "assets/icons/github.svg");
-  setIconWithFallback(document.querySelector("#hero-telegram img"), "https://t.me/favicon.ico", "assets/icons/telegram.svg");
+  setImageSource("#hero-linkedin img", "assets/icons/linkedin.svg");
+  setImageSource("#hero-github img", getThemedIcon("github", theme));
+  setImageSource("#hero-telegram img", getThemedIcon("telegram", theme));
 
-  renderFacts(data.hero.facts);
+  renderFacts(data.hero.facts, theme);
 
   setText("resume-title", data.resume.title);
   setText("resume-subtitle", data.resume.subtitle);
@@ -1009,7 +1105,7 @@ function renderLanguage(lang) {
 
   setText("experience-title", data.experience.title);
   setText("experience-subtitle", data.experience.subtitle);
-  renderExperience(data.experience);
+  renderExperience(data.experience, theme);
 
   setText("education-title", data.education.title);
   setText("education-subtitle", data.education.subtitle);
@@ -1062,7 +1158,7 @@ function setupThemeSwitcher() {
       setTheme(nextTheme);
 
       const currentLang = document.documentElement.lang || detectLanguage();
-      updateThemeSwitcher(currentLang, nextTheme);
+      renderLanguage(currentLang);
       updateHeaderOffset();
     });
   });

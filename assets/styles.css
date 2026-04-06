@@ -445,6 +445,10 @@ h1 {
   width: 28px;
   height: 28px;
   border-radius: 8px;
+  object-fit: contain;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  padding: 2px;
 }
 
 .company-link {
