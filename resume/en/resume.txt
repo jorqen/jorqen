@@ -1,0 +1,119 @@
+MATVEY SIZOV
+
+Moscow, Russia | Open to remote work and relocation
+Website: https://jorqen.github.io/jorqen/ | GitHub:
+https://github.com/jorqen | LinkedIn: https://www.linkedin.com/in/jorqen
+| Telegram: https://t.me/jorqen
+
+4+ years building high-load backend and distributed systems in Go | from
+EV vehicle-to-cloud communication to service-mesh platform
+infrastructure.
+
+EXPERIENCE
+
+Atom | Senior Software Engineer, Communications & Telemetry (Russia, Feb 2025 - Present)
+
+Atom is developing an electric vehicle ecosystem in Russia. I work on
+secure and always-on backend communication between vehicles and cloud
+services.
+
+- Designed and co-developed an mTLS-secured MQTT broker for persistent
+  car-to-cloud connectivity.
+- Reframed ambiguous requirements with engineering and product
+  leadership, converting a risky initiative into a releasable
+  architecture.
+- Delivered high-load performance around 70K req/s with p99 latency
+  below 50 ms.
+- Built observability from scratch (metrics, logs, traces, dashboards,
+  alerts) after DevOps ownership gap.
+- Owned CI/CD and deployment setup to keep delivery stable in
+  production.
+
+Stack: Go, MQTT, Redis, PostgreSQL, gRPC, mTLS, Prometheus, Grafana,
+Loki, Sentry, Docker, Kubernetes, CI/CD
+
+SberTech | Software Engineer, Service Mesh & Platform Infrastructure (Russia, Jan 2024 - Feb 2025)
+
+SberTech builds enterprise platform infrastructure. I worked on a
+heavily customized Istio fork used in Platform V.
+
+- Restored broken test pipeline and increased unit-test coverage to 80%.
+- Designed and implemented a Go integration-testing framework for
+  isolated Kubernetes environments.
+- Repaired CI reliability and shifted defect detection to earlier
+  development stages.
+- Mentored interns and scaled automation output by standardizing
+  framework-based test delivery.
+- Implemented custom Kubernetes resource logic for
+  control-plane/data-plane relationship management in Istio.
+
+Stack: Go, Kubernetes, Istio, gRPC, REST, PostgreSQL, Allure, CI/CD
+
+Magnus Tech | Backend Engineer (Russia, Mar 2023 - Jan 2024)
+
+Magnus Tech is a custom software development company. I worked on a
+retail pricing platform for Bristol stores.
+
+- Implemented backend data collection and normalization for in-store
+  pricing evidence.
+- Integrated employee input, product metadata, and ML outputs into one
+  operational pipeline.
+- Delivered production features from development phase to release.
+
+Stack: Go, PostgreSQL, Redis, Kafka, MinIO, gRPC, Prometheus, CI/CD
+
+Exnode | Backend Engineer (Russia, Sep 2022 - Mar 2023)
+
+Exnode developed crypto exchange and P2P trading products.
+
+- Implemented core P2P exchange flows and exchange-rate management
+  logic.
+- Delivered end-to-end exchange functionality in a lean engineering
+  team.
+- After an early-career pricing incident, introduced stricter validation
+  and safer rollout discipline.
+
+Stack: Go, PostgreSQL, Redis, RabbitMQ, gRPC, REST
+
+Lukyanov Tech | Part-Time Mentor / Mock Interviewer (Remote, Jan 2024 - Present)
+
+- Conduct mock interviews and backend mentoring sessions.
+- Coach candidates on technical communication, concise answer structure,
+  and tradeoff reasoning.
+
+EARLIER EXPERIENCE
+
+Kaluga Power Sale Company | Backend Engineer (Russia, Oct 2021 - Mar 2022)
+
+- Built backend for utility customer account and admin workflows.
+
+Center for Regional Management of Lipetsk Oblast | Java Developer (Russia, Jun 2021 - Nov 2021)
+
+- Contributed to public-sector digital and operational tracking
+  services.
+
+SKILLS
+
+- Languages: Go, Java, Python, SQL
+- Data and Messaging: PostgreSQL, Redis, Kafka, RabbitMQ, NATS, MQTT
+- Platform: Docker, Kubernetes, Helm, Istio, Linux, Git, CI/CD
+- Observability: Prometheus, Grafana, Loki, Sentry, tracing, alerting
+- Focus Areas: distributed systems, high-load backend, service
+  reliability, testing infrastructure, mentoring
+
+EDUCATION
+
+Voronezh State Technical University
+
+B.S. in Intelligent Automated Systems (part-time) | Expected 2030
+
+Voronezh State Technical University
+
+Secondary Vocational Diploma in Information Technology and Programming
+(with honors) | 2021 - 2025
+
+LANGUAGES
+
+- Russian: Native
+- English: B2 (working proficiency; actively improving spoken
+  communication)

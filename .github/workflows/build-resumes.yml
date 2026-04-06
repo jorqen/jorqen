@@ -1,0 +1,33 @@
+name: Build Resume Formats
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "resume/**/resume.md"
+      - "scripts/build_resume_formats.sh"
+      - ".github/workflows/build-resumes.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc texlive-xetex texlive-fonts-recommended fonts-dejavu-core
+
+      - name: Generate resume files
+        run: ./scripts/build_resume_formats.sh
+
+      - name: Commit generated files
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: regenerate resume formats"
+          file_pattern: "resume/**/*.txt resume/**/*.docx resume/**/*.pdf"
