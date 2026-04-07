@@ -140,8 +140,6 @@ const CONTENT = {
     },
     resume: {
       title: "Download resume",
-      subtitle: "The resume language always follows the current website language.",
-      note: "Formats: PDF, DOCX, TXT.",
       labels: {
         pdf: "Print and share",
         docx: "Editable source",
@@ -153,15 +151,13 @@ const CONTENT = {
         txt: "resume/en/resume.txt",
       },
       downloadNames: {
-        pdf: "Matvey_Sizov_Resume_EN.pdf",
-        docx: "Matvey_Sizov_Resume_EN.docx",
-        txt: "Matvey_Sizov_Resume_EN.txt",
+        pdf: "Matvey_Sizov_EN.pdf",
+        docx: "Matvey_Sizov_EN.docx",
+        txt: "Matvey_Sizov_EN.txt",
       },
     },
     experience: {
       title: "Experience",
-      subtitle:
-        "Backend and distributed systems roles with production ownership, delivery impact, and reliability focus.",
       companySiteLabel: "Company site",
       items: [
         {
@@ -170,7 +166,7 @@ const CONTENT = {
           companyUrl: "https://atom.auto",
           role: "Senior Software Engineer",
           period: "February 2025 - Present",
-          location: "Moscow, Russia",
+          location: "Remote",
           intro:
             "Atom develops an electric vehicle platform. I worked in the communications and telemetry area on backend services responsible for vehicle-to-cloud connectivity and operational reliability.",
           bullets: [
@@ -200,7 +196,7 @@ const CONTENT = {
           ],
         },
         {
-          company: "SBERTECH",
+          company: "Sber Tech",
           companyIcon: "assets/icons/light/sbertech.png",
           companyIconDark: "assets/icons/dark/sbertech.png",
           companyUrl: "https://sbertech.ru",
@@ -230,38 +226,7 @@ const CONTENT = {
           ],
         },
         {
-          company: "MAGNUS TECH",
-          companyIcon: "assets/icons/magnus.svg",
-          companyUrl: "https://magnustech.com",
-          role: "Backend Engineer",
-          period: "March 2023 - January 2024",
-          location: "Russia",
-          intro:
-            "Magnus Tech is a custom software development company. I worked on a retail pricing platform for Bristol that aggregated in-store pricing data, photos, and ML outputs into a unified operational system.",
-          bullets: [
-            "Built backend services and internal tooling for a pricing platform used to digitize in-store price-control workflows.",
-            "Helped structure data coming from store employees, product systems, and ML analysis into a central backend for monitoring, validation, and operational decision-making.",
-            "Contributed to product delivery from active development through release over an approximately one-year engagement.",
-          ],
-          stack: ["Go", "MinIO", "Redis", "PostgreSQL", "Kafka", "REST", "gRPC", "Prometheus", "CI/CD"],
-        },
-        {
-          company: "EXNODE",
-          companyIcon: "assets/icons/exnode.png",
-          companyUrl: "https://exnode.ru",
-          role: "Backend Engineer",
-          period: "September 2022 - March 2023",
-          location: "Russia",
-          intro: "Exnode developed crypto exchange and P2P trading products.",
-          bullets: [
-            "Implemented core backend flows for P2P crypto exchange, including exchange-rate logic and integration between trading-related product components.",
-            "Worked closely with another backend engineer to deliver end-to-end exchange functionality in a fast-moving product environment.",
-            "After an early-career pricing incident, introduced stricter validation and safer rollout discipline.",
-          ],
-          stack: ["Go", "Redis", "PostgreSQL", "RabbitMQ", "REST", "gRPC", "Prometheus", "CI/CD"],
-        },
-        {
-          company: "LUKYANOV TECH",
+          company: "Lukyanov Tech",
           companyIcon: "assets/icons/lukyanov.png",
           companyUrl: "https://lukyanov.tech",
           role: "Part-Time Mentor / Mock Interviewer",
@@ -275,12 +240,43 @@ const CONTENT = {
           stack: ["Mentoring", "Mock interviews", "Technical communication"],
         },
         {
+          company: "Magnus Tech",
+          companyIcon: "assets/icons/magnus.svg",
+          companyUrl: "https://magnustech.com",
+          role: "Backend Engineer",
+          period: "March 2023 - January 2024",
+          location: "Remote",
+          intro:
+            "Magnus Tech is a custom software development company. I worked on a retail pricing platform for Bristol that aggregated in-store pricing data, photos, and ML outputs into a unified operational system.",
+          bullets: [
+            "Built backend services and internal tooling for a pricing platform used to digitize in-store price-control workflows.",
+            "Helped structure data coming from store employees, product systems, and ML analysis into a central backend for monitoring, validation, and operational decision-making.",
+            "Contributed to product delivery from active development through release over an approximately one-year engagement.",
+          ],
+          stack: ["Go", "MinIO", "Redis", "PostgreSQL", "Kafka", "REST", "gRPC", "Prometheus", "CI/CD"],
+        },
+        {
+          company: "Exnode",
+          companyIcon: "assets/icons/exnode.png",
+          companyUrl: "https://exnode.ru",
+          role: "Backend Engineer",
+          period: "September 2022 - March 2023",
+          location: "Moscow, Russia",
+          intro: "Exnode developed crypto exchange and P2P trading products.",
+          bullets: [
+            "Implemented core backend flows for P2P crypto exchange, including exchange-rate logic and integration between trading-related product components.",
+            "Worked closely with another backend engineer to deliver end-to-end exchange functionality in a fast-moving product environment.",
+            "After an early-career pricing incident, introduced stricter validation and safer rollout discipline.",
+          ],
+          stack: ["Go", "Redis", "PostgreSQL", "RabbitMQ", "REST", "gRPC", "Prometheus", "CI/CD"],
+        },
+        {
           company: "Kaluga Power Sale Company",
           companyIcon: "assets/icons/kaluga.png",
           companyUrl: "https://kskkaluga.ru",
           role: "Backend Engineer",
           period: "October 2021 - March 2022",
-          location: "Russia",
+          location: "Remote",
           intro: "Early backend role in utility payments and account management systems.",
           bullets: [
             "Built backend functionality for a customer account and admin system related to utility payments and account management.",
@@ -288,12 +284,12 @@ const CONTENT = {
           stack: ["Backend", "Databases", "Admin systems", "Payments"],
         },
         {
-          company: "Center for Regional Management of Lipetsk Oblast",
+          company: "Center for Regional Management of Lipetsk Oblast (CUR)",
           companyIcon: "",
           companyUrl: "",
           role: "Java Developer",
           period: "June 2021 - November 2021",
-          location: "Russia",
+          location: "Lipetsk, Russia",
           intro: "Contributed to public-sector digital and monitoring systems.",
           bullets: [
             "Contributed to public-sector digital products, including service and operational tracking systems.",
@@ -304,7 +300,6 @@ const CONTENT = {
     },
     education: {
       title: "Education",
-      subtitle: "Formal education and academic track.",
       items: [
         {
           institution: "Voronezh State Technical University",
@@ -313,14 +308,13 @@ const CONTENT = {
         },
         {
           institution: "Voronezh State Technical University",
-          degree: "Secondary Vocational Diploma in Information Technology and Programming (with honors)",
+          degree: "Secondary Vocational Diploma in Information Technology and Programming",
           period: "2021 - 2025",
         },
       ],
     },
     strengths: {
       title: "What I bring",
-      subtitle: "Senior-level behaviors I consistently demonstrate in delivery.",
       cards: [
         {
           title: "Clarity under ambiguity",
@@ -358,7 +352,7 @@ const CONTENT = {
         },
         {
           title: "Observability",
-          items: ["Prometheus", "Grafana", "Loki", "Sentry", "Tracing", "Alerting"],
+          items: ["Prometheus", "Grafana", "Loki", "Sentry"],
         },
       ],
     },
@@ -430,8 +424,6 @@ const CONTENT = {
     },
     resume: {
       title: "Скачать резюме",
-      subtitle: "Язык файла всегда совпадает с текущим языком сайта.",
-      note: "Форматы: PDF, DOCX, TXT.",
       labels: {
         pdf: "Для отправки и печати",
         docx: "Редактируемый источник",
@@ -443,24 +435,22 @@ const CONTENT = {
         txt: "resume/ru/resume.txt",
       },
       downloadNames: {
-        pdf: "Matvey_Sizov_Resume_RU.pdf",
-        docx: "Matvey_Sizov_Resume_RU.docx",
-        txt: "Matvey_Sizov_Resume_RU.txt",
+        pdf: "Matvey_Sizov_RU.pdf",
+        docx: "Matvey_Sizov_RU.docx",
+        txt: "Matvey_Sizov_RU.txt",
       },
     },
     experience: {
       title: "Опыт",
-      subtitle:
-        "Роли, где я отвечал за production-результат, а не только за реализацию кода. В каждой карточке есть ссылка на компанию.",
       companySiteLabel: "Сайт компании",
       items: [
         {
-          company: "Атом",
+          company: "ATOM",
           companyIcon: "assets/icons/atom.svg",
           companyUrl: "https://atom.auto",
           role: "Senior Software Engineer",
           period: "фев 2025 - настоящее время",
-          location: "Москва, Россия",
+          location: "Удаленно",
           intro:
             "Atom развивает платформу электромобиля. Я работал в направлении коммуникаций и телеметрии над backend-сервисами, отвечающими за vehicle-to-cloud связность и операционную надежность.",
           bullets: [
@@ -490,7 +480,7 @@ const CONTENT = {
           ],
         },
         {
-          company: "Сбертех",
+          company: "Sber Tech",
           companyIcon: "assets/icons/light/sbertech.png",
           companyIconDark: "assets/icons/dark/sbertech.png",
           companyUrl: "https://sbertech.ru",
@@ -520,12 +510,26 @@ const CONTENT = {
           ],
         },
         {
+          company: "Lukyanov Tech",
+          companyIcon: "assets/icons/lukyanov.png",
+          companyUrl: "https://lukyanov.tech",
+          role: "Part-Time Mentor / Mock Interviewer",
+          period: "янв 2024 - настоящее время",
+          location: "Удаленно",
+          intro: "Part-time менторство и практика mock-собеседований параллельно с основной инженерной работой.",
+          bullets: [
+            "Провожу mock-собеседования, менторю студентов и даю структурированную обратную связь по backend-интервью, технической коммуникации и решению задач.",
+            "Помогаю кандидатам улучшать техническую коммуникацию, структуру ответов и аргументацию trade-off решений.",
+          ],
+          stack: ["Менторство", "Mock-собеседования", "Техническая коммуникация"],
+        },
+        {
           company: "Magnus Tech",
           companyIcon: "assets/icons/magnus.svg",
           companyUrl: "https://magnustech.com",
           role: "Backend Engineer",
           period: "мар 2023 - янв 2024",
-          location: "Россия",
+          location: "Удаленно",
           intro:
             "Magnus Tech — компания заказной разработки. Я работал над платформой контроля цен для сети «Бристоль», которая объединяла данные по ценникам из магазинов, фотографии и ML-результаты в единую операционную систему.",
           bullets: [
@@ -541,7 +545,7 @@ const CONTENT = {
           companyUrl: "https://exnode.ru",
           role: "Backend Engineer",
           period: "сен 2022 - мар 2023",
-          location: "Россия",
+          location: "Москва, Россия",
           intro: "Exnode разрабатывал продукты криптобиржи и P2P-обмена.",
           bullets: [
             "Реализовал ключевые backend-потоки для P2P-криптообмена, включая логику курсов и интеграцию между связанными продуктовыми компонентами.",
@@ -551,26 +555,12 @@ const CONTENT = {
           stack: ["Go", "Redis", "PostgreSQL", "RabbitMQ", "REST", "gRPC", "Prometheus", "CI/CD"],
         },
         {
-          company: "Lukyanov Tech",
-          companyIcon: "assets/icons/lukyanov.png",
-          companyUrl: "https://lukyanov.tech",
-          role: "Part-Time Mentor / Mock Interviewer",
-          period: "янв 2024 - настоящее время",
-          location: "Удаленно",
-          intro: "Part-time менторство и практика mock-собеседований параллельно с основной инженерной работой.",
-          bullets: [
-            "Провожу mock-собеседования, менторю студентов и даю структурированную обратную связь по backend-интервью, технической коммуникации и решению задач.",
-            "Помогаю кандидатам улучшать техническую коммуникацию, структуру ответов и аргументацию trade-off решений.",
-          ],
-          stack: ["Менторство", "Mock-собеседования", "Техническая коммуникация"],
-        },
-        {
           company: "Калужская сбытовая компания",
           companyIcon: "assets/icons/kaluga.png",
           companyUrl: "https://kskkaluga.ru",
           role: "Backend Engineer",
           period: "окт 2021 - мар 2022",
-          location: "Россия",
+          location: "Удаленно",
           intro: "Ранняя backend-роль в системах коммунальных платежей и управления личными кабинетами.",
           bullets: [
             "Реализовал backend-функциональность клиентского личного кабинета и админ-системы, связанной с коммунальными платежами и управлением аккаунтами.",
@@ -578,12 +568,12 @@ const CONTENT = {
           stack: ["Backend", "Базы данных", "Админ-системы", "Платежи"],
         },
         {
-          company: "Центр управления регионом Липецкой области",
+          company: "Центр Управления Регионом Липецкой области (ЦУР)",
           companyIcon: "",
           companyUrl: "",
           role: "Java Developer",
           period: "июн 2021 - ноя 2021",
-          location: "Россия",
+          location: "Липецк, Россия",
           intro: "Участвовал в разработке государственных цифровых и мониторинговых систем.",
           bullets: [
             "Участвовал в разработке государственных цифровых продуктов, включая сервисные и операционные системы мониторинга.",
@@ -594,7 +584,6 @@ const CONTENT = {
     },
     education: {
       title: "Образование",
-      subtitle: "Формальное обучение и академический трек.",
       items: [
         {
           institution: "Воронежский государственный технический университет",
@@ -603,14 +592,13 @@ const CONTENT = {
         },
         {
           institution: "Воронежский государственный технический университет",
-          degree: "СПО, информационные технологии и программирование (с отличием)",
+          degree: "СПО, информационные технологии и программирование",
           period: "2021 - 2025",
         },
       ],
     },
     strengths: {
       title: "Что я даю команде",
-      subtitle: "Поведение senior-уровня, которое стабильно демонстрирую в delivery.",
       cards: [
         {
           title: "Ясность в условиях неопределенности",
@@ -648,7 +636,7 @@ const CONTENT = {
         },
         {
           title: "Observability",
-          items: ["Prometheus", "Grafana", "Loki", "Sentry", "Tracing", "Alerting"],
+          items: ["Prometheus", "Grafana", "Loki", "Sentry"],
         },
       ],
     },

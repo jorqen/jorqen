@@ -31,6 +31,11 @@ Stack: Go, MQTT, Redis, PostgreSQL, gRPC, mTLS, Prometheus, Grafana, Loki, Sentr
 
 Stack: Go, Kubernetes, Istio, gRPC, REST, PostgreSQL, Allure, CI/CD
 
+### Lukyanov Tech | Part-Time Mentor / Mock Interviewer (Remote, Jan 2024 - Present)
+
+- Conduct mock interviews and backend mentoring sessions.
+- Coach candidates on technical communication, concise answer structure, and tradeoff reasoning.
+
 ### Magnus Tech | Backend Engineer (Russia, Mar 2023 - Jan 2024)
 
 Magnus Tech is a custom software development company. I worked on a retail pricing platform for Bristol stores.
@@ -50,11 +55,6 @@ Stack: Go, PostgreSQL, Redis, Kafka, MinIO, gRPC, Prometheus, CI/CD
 - After an early-career pricing incident, introduced stricter validation and safer rollout discipline.
 
 Stack: Go, PostgreSQL, Redis, RabbitMQ, gRPC, REST
-
-### Lukyanov Tech | Part-Time Mentor / Mock Interviewer (Remote, Jan 2024 - Present)
-
-- Conduct mock interviews and backend mentoring sessions.
-- Coach candidates on technical communication, concise answer structure, and tradeoff reasoning.
 
 ## EARLIER EXPERIENCE
 

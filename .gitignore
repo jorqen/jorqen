@@ -1,4 +1,4 @@
-resume/**/resume.pdf
-resume/**/resume.docx
-resume/**/resume.txt
+resume/**/*.pdf
+resume/**/*.docx
+resume/**/*.txt
 dist/
