@@ -6,13 +6,13 @@
     <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
     <meta
       name="description"
-      content="Matvey Sizov — Senior Backend / Software Engineer. Distributed systems, high-load services, and cloud reliability."
+      content="Matvey Sizov — Backend Developer / Software Engineer. Distributed systems, high-load services, and cloud reliability."
     />
-    <title>Matvey Sizov | Senior Backend / Software Engineer</title>
+    <title>Matvey Sizov | Backend Developer / Software Engineer</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="assets/styles.css" />
@@ -47,29 +47,38 @@
 
     <main class="container" id="top">
       <section class="hero reveal">
-        <div>
-          <p class="kicker" id="hero-kicker"></p>
-          <h1 id="hero-name"></h1>
-          <p class="hero-role" id="hero-role"></p>
-          <p class="hero-summary" id="hero-summary"></p>
+        <div class="hero-layout">
+          <div class="hero-copy">
+            <p class="kicker" id="hero-kicker"></p>
+            <h1 id="hero-name"></h1>
+            <p class="hero-role" id="hero-role"></p>
+            <p class="hero-summary" id="hero-summary"></p>
 
-          <div class="hero-links">
-            <a id="hero-linkedin" class="action-link" target="_blank" rel="noopener noreferrer" href="https://www.linkedin.com/in/jorqen">
-              <img src="assets/icons/linkedin.svg" alt="" aria-hidden="true" />
-              <span></span>
-            </a>
-            <a id="hero-github" class="action-link" target="_blank" rel="noopener noreferrer" href="https://github.com/jorqen">
-              <img src="assets/icons/light/github.svg" alt="" aria-hidden="true" />
-              <span></span>
-            </a>
-            <a id="hero-telegram" class="action-link" target="_blank" rel="noopener noreferrer" href="https://t.me/jorqen">
-              <img src="assets/icons/light/telegram.svg" alt="" aria-hidden="true" />
-              <span></span>
-            </a>
+            <div class="hero-links">
+              <a id="hero-linkedin" class="action-link" target="_blank" rel="noopener noreferrer" href="https://www.linkedin.com/in/jorqen">
+                <img src="assets/icons/linkedin.svg" alt="" aria-hidden="true" />
+                <span></span>
+              </a>
+              <a id="hero-github" class="action-link" target="_blank" rel="noopener noreferrer" href="https://github.com/jorqen">
+                <img src="assets/icons/light/github.svg" alt="" aria-hidden="true" />
+                <span></span>
+              </a>
+              <a id="hero-telegram" class="action-link" target="_blank" rel="noopener noreferrer" href="https://t.me/jorqen">
+                <img src="assets/icons/light/telegram.svg" alt="" aria-hidden="true" />
+                <span></span>
+              </a>
+            </div>
+
           </div>
-        </div>
 
-        <div id="hero-facts" class="facts-grid"></div>
+          <aside class="hero-visual">
+            <figure class="hero-photo-card">
+              <img id="hero-photo" class="hero-photo" src="assets/photos/matvey-studio.jpg" alt="" />
+              <figcaption id="hero-photo-caption"></figcaption>
+            </figure>
+          </aside>
+        </div>
+        <div id="hero-facts" class="facts-grid hero-facts"></div>
       </section>
 
       <section class="panel reveal" id="resume">
@@ -160,7 +169,34 @@
         <ul class="preferences-list" id="preferences-list"></ul>
       </section>
 
+      <section class="panel reveal" id="photos">
+        <div class="panel-header">
+          <h2>
+            <span class="panel-icon"><img src="assets/icons/light/star.svg" alt="" aria-hidden="true" /></span>
+            <span id="photos-title"></span>
+          </h2>
+          <p id="photos-subtitle"></p>
+        </div>
+        <div class="gallery-grid" id="gallery-grid"></div>
+      </section>
+
     </main>
+
+    <div class="lightbox" id="photo-lightbox" hidden>
+      <button type="button" class="lightbox-backdrop" data-lightbox-close aria-label="Close photo viewer"></button>
+      <div class="lightbox-dialog" id="lightbox-dialog" role="dialog" aria-modal="true" aria-labelledby="lightbox-caption" tabindex="-1">
+        <button type="button" class="lightbox-close" id="lightbox-close" aria-label="Close photo viewer">×</button>
+        <button type="button" class="lightbox-nav lightbox-prev" id="lightbox-prev" aria-label="Previous photo">‹</button>
+        <figure class="lightbox-figure">
+          <img id="lightbox-image" class="lightbox-image" src="" alt="" />
+          <figcaption class="lightbox-meta">
+            <p id="lightbox-caption" class="lightbox-caption"></p>
+            <p id="lightbox-counter" class="lightbox-counter"></p>
+          </figcaption>
+        </figure>
+        <button type="button" class="lightbox-nav lightbox-next" id="lightbox-next" aria-label="Next photo">›</button>
+      </div>
+    </div>
 
     <footer class="container site-footer">
       <p id="footer-text"></p>

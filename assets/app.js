@@ -81,21 +81,30 @@ const STATIC_THEME_ICON_BINDINGS = [
     selector: "#preferences .panel-icon img",
     icon: "star",
   },
+  {
+    selector: "#photos .panel-icon img",
+    icon: "star",
+  },
 ];
+const photoLightboxState = {
+  items: [],
+  index: 0,
+  opener: null,
+};
 
 const CONTENT = {
   en: {
     meta: {
-      title: "Matvey Sizov | Senior Backend / Software Engineer",
+      title: "Matvey Sizov | Backend Developer / Software Engineer",
       description:
-        "Matvey Sizov — Senior Backend / Software Engineer. Go, distributed systems, high-load services, and production reliability.",
+        "Matvey Sizov — Backend Developer / Software Engineer. Go, distributed systems, low-latency backends, and production reliability across product and platform teams.",
     },
     brand: "Matvey Sizov",
     nav: {
       resume: "Resume",
       experience: "Experience",
       education: "Education",
-      strengths: "Strengths",
+      strengths: "Profile",
       skills: "Stack",
     },
     langSwitcherLabel: "Language switcher",
@@ -105,11 +114,18 @@ const CONTENT = {
       switcherLabel: "Theme switcher",
     },
     hero: {
-      kicker: "Senior Backend / Software Engineer",
+      kicker: "Backend Developer / Software Engineer",
       name: "Matvey Sizov",
-      role: "4+ years in backend and distributed systems | from EV telematics to service-mesh infrastructure",
+      role: "4+ years in backend engineering | Go, distributed systems, product + platform backends",
       summary:
-        "I design and ship production backend systems with clear ownership: architecture, delivery, observability, and reliability. My strongest area is high-impact work under ambiguity, where teams need both technical depth and execution speed.",
+        "I started programming with Java in my early teens, entered backend professionally through Java, and later switched my main focus to Go because I enjoy clear, explicit, low-latency systems. Today I work across both infrastructure and product backends, and I am strongest when a team needs someone to turn ambiguous requirements into a production system with sane trade-offs, observability, and reliable delivery.",
+      photo: {
+        src: "assets/photos/matvey-studio.jpg",
+        alt: "Matvey Sizov studio portrait",
+        caption: "Studio portrait",
+        position: "center 18%",
+        filter: "brightness(0.94) contrast(1.04) saturate(0.9)",
+      },
       links: {
         linkedin: "LinkedIn",
         github: "GitHub",
@@ -127,19 +143,25 @@ const CONTENT = {
           value: "4+ years commercial",
         },
         {
-          icon: "star",
-          label: "Current focus",
-          value: "High-load Go services",
+          icon: "layers",
+          label: "Primary stack",
+          value: "Go, distributed systems",
         },
         {
           icon: "layers",
-          label: "Readiness",
+          label: "Recent mix",
+          value: "Product + platform",
+        },
+        {
+          icon: "star",
+          label: "Availability",
           value: "Remote / Relocation",
         },
       ],
     },
     resume: {
       title: "Download resume",
+      subtitle: "Russian and English versions stay aligned in meaning, scope, and current contact information.",
       labels: {
         pdf: "Print and share",
         docx: "Editable source",
@@ -155,32 +177,32 @@ const CONTENT = {
         docx: "Matvey_Sizov_EN.docx",
         txt: "Matvey_Sizov_EN.txt",
       },
+      note: "All downloadable versions keep the same current contacts as the site, including the website link.",
     },
     experience: {
       title: "Experience",
+      subtitle: "Commercial roles ordered by work start date, newest first.",
       companySiteLabel: "Company site",
       items: [
         {
-          company: "ATOM",
+          company: "Atom",
           companyIcon: "assets/icons/atom.svg",
           companyUrl: "https://atom.auto",
-          role: "Senior Software Engineer",
+          role: "Senior Software Engineer, Communications & Telemetry",
           period: "February 2025 - Present",
-          location: "Remote",
+          location: "Remote from Russia",
           intro:
-            "Atom develops an electric vehicle platform. I worked in the communications and telemetry area on backend services responsible for vehicle-to-cloud connectivity and operational reliability.",
+            "Atom is building a Russian electric vehicle platform. I work in the communications and telemetry area on backend services that connect the car, cloud, and external clients, with emphasis on latency, security, and operational reliability.",
           bullets: [
-            "Designed and co-developed an mTLS-secured MQTT broker for persistent vehicle-to-cloud communication, simplifying an initially overengineered concept into a cleaner broker-centered architecture with Redis-backed state recovery.",
-            "Helped clarify ambiguous and partially unrealistic requirements with engineering and product leadership, turning the project into a releasable first version and influencing the final architecture.",
-            "Built production observability from scratch after the team lost dedicated DevOps support: metrics, dashboards, alerts, logs, traces, latency and throughput monitoring, and business health signals.",
-            "Took ownership of CI/CD and deployment setup, including manifests/charts and delivery automation for a high-load backend service.",
-            "Improved security and reliability by enforcing certificate-based client authentication and topic-level access control for trusted connectivity.",
-            "Supported a service handling 70K requests per second with p99 latency below ~50 ms.",
+            "Worked with leadership, peer teams, and architects to turn ambiguous and partly unrealistic requirements into a releasable backend architecture for a zero-to-one broker initiative.",
+            "Designed and developed an mTLS-secured MQTT broker with Redis-backed state recovery for persistent vehicle-to-cloud communication and restart-safe session handling.",
+            "Challenged an initial microservice decomposition, proved it could not meet the target latency, and pushed a broker-centered design that sustained ~70K requests per second at p99 below 50 ms.",
+            "Built production observability and delivery tooling from scratch after the team lost dedicated DevOps support: metrics, logs, traces, dashboards, alerts, CI/CD, and deployment automation.",
+            "Selected key libraries and system components, including Redis for durable in-memory state and access-control mechanisms for trusted client connectivity.",
           ],
           stack: [
             "Go",
             "MQTT",
-            "Mochi MQTT",
             "Redis",
             "PostgreSQL",
             "Kafka",
@@ -196,7 +218,7 @@ const CONTENT = {
           ],
         },
         {
-          company: "Sber Tech",
+          company: "SberTech",
           companyIcon: "assets/icons/light/sbertech.png",
           companyIconDark: "assets/icons/dark/sbertech.png",
           companyUrl: "https://sbertech.ru",
@@ -204,25 +226,23 @@ const CONTENT = {
           period: "January 2024 - February 2025",
           location: "Moscow, Russia",
           intro:
-            "SberTech develops Platform V, a large enterprise platform. I worked on a heavily customized Istio fork and adjacent infrastructure components used for workload control, policies, and platform integration.",
+            "SberTech develops Platform V, a large enterprise platform. I worked on a heavily customized Istio fork and adjacent infrastructure components used for service-mesh control, policy enforcement, and platform integration.",
           bullets: [
-            "Restored broken automated testing for a heavily customized Istio fork, bringing unit tests back into regular engineering workflow and increasing unit-test coverage to 80%.",
-            "Designed and built a Go-based integration testing framework that provisioned isolated Kubernetes resources and enabled scalable automated testing with CI integration and Allure reporting.",
-            "Repaired CI pipelines and shifted defect detection earlier in the development cycle, improving release safety for infrastructure changes.",
-            "Mentored interns from School 21 on the testing framework and automation workflow, helping them convert QA scenarios into scalable automated tests.",
-            "Independently designed and implemented a custom Kubernetes resource for managing control-plane and data-plane relationships in Istio.",
+            "Restored broken automated testing for a heavily customized Istio fork, bringing unit tests back into the daily engineering workflow and raising unit coverage to 80%.",
+            "Designed and built a Go integration-testing framework that provisioned isolated Kubernetes environments, ran tests in parallel, and generated Allure reports for CI.",
+            "Expanded automation to cover ~95% of critical functionality with integration tests and fixed several high-severity defects while stabilizing release pipelines.",
+            "Mentored ~10 interns on the framework and automation workflow, helping them convert manual QA scenarios into scalable automated tests.",
+            "Independently designed and implemented a custom Kubernetes resource for managing control-plane and data-plane relationships in Istio; the solution was later presented internally as a target platform approach.",
           ],
           stack: [
             "Go",
             "Kubernetes",
             "Istio",
-            "controllers",
-            "REST API",
             "gRPC",
+            "REST",
             "PostgreSQL",
             "CI/CD",
             "Allure",
-            "Bitbucket",
           ],
         },
         {
@@ -232,12 +252,12 @@ const CONTENT = {
           role: "Part-Time Mentor / Mock Interviewer",
           period: "January 2024 - Present",
           location: "Remote",
-          intro: "Part-time mentoring and mock interview practice alongside core engineering roles.",
+          intro: "A part-time mentorship project focused on backend growth, interviews, and candidate preparation.",
           bullets: [
-            "Conduct mock interviews, mentor students, and provide structured feedback on backend interview performance, technical communication, and problem-solving.",
-            "Coach candidates on technical communication, concise answer structure, and tradeoff reasoning.",
+            "Conduct mock interviews and mentor candidates on backend fundamentals, system design, technical communication, and answer structure.",
+            "Help improve mentoring workflows, practical preparation, and feedback quality for students targeting software engineering roles.",
           ],
-          stack: ["Mentoring", "Mock interviews", "Technical communication"],
+          stack: ["Mentoring", "Mock interviews", "System design", "Technical communication"],
         },
         {
           company: "Magnus Tech",
@@ -247,13 +267,14 @@ const CONTENT = {
           period: "March 2023 - January 2024",
           location: "Remote",
           intro:
-            "Magnus Tech is a custom software development company. I worked on a retail pricing platform for Bristol that aggregated in-store pricing data, photos, and ML outputs into a unified operational system.",
+            "Magnus Tech is a custom software development company. I worked on a retail pricing platform for Bristol that brought together store data, employee workflows, ML pricing outputs, and photo evidence into one operating system.",
           bullets: [
-            "Built backend services and internal tooling for a pricing platform used to digitize in-store price-control workflows.",
-            "Helped structure data coming from store employees, product systems, and ML analysis into a central backend for monitoring, validation, and operational decision-making.",
-            "Contributed to product delivery from active development through release over an approximately one-year engagement.",
+            "Built Go backend services from scratch for the pricing platform and integrated store data, product information, ML recommendations, and employee actions into one backend flow.",
+            "Designed admin APIs and tooling for price review, manual overrides, cross-store comparison, and day-to-day operational monitoring.",
+            "Integrated notification flows across web, email, SMS, and mobile channels and maintained API contracts for frontend and mobile teams.",
+            "Wrote tests, supported observability, and helped deliver the product from active development to production release.",
           ],
-          stack: ["Go", "MinIO", "Redis", "PostgreSQL", "Kafka", "REST", "gRPC", "Prometheus", "CI/CD"],
+          stack: ["Go", "PostgreSQL", "Redis", "Kafka", "MinIO", "REST", "gRPC", "Prometheus", "CI/CD"],
         },
         {
           company: "Exnode",
@@ -262,13 +283,14 @@ const CONTENT = {
           role: "Backend Engineer",
           period: "September 2022 - March 2023",
           location: "Moscow, Russia",
-          intro: "Exnode developed crypto exchange and P2P trading products.",
+          intro: "Exnode built crypto exchange, B2B payment, and P2P trading products.",
           bullets: [
-            "Implemented core backend flows for P2P crypto exchange, including exchange-rate logic and integration between trading-related product components.",
-            "Worked closely with another backend engineer to deliver end-to-end exchange functionality in a fast-moving product environment.",
-            "After an early-career pricing incident, introduced stricter validation and safer rollout discipline.",
+            "Split a large monolithic backend into smaller services and replaced part of the internal REST communication with gRPC to reduce latency and simplify service boundaries.",
+            "Optimized payment and reporting queries using EXPLAIN ANALYZE, cutting several heavy PostgreSQL requests from 10-30 seconds to near real time.",
+            "Built core product features around online payments, pricing, email notifications, Telegram alerting, and magic-link authentication.",
+            "Resolved a critical currency-conversion incident by rolling back affected transactions and then hardening validation, observability, and release discipline.",
           ],
-          stack: ["Go", "Redis", "PostgreSQL", "RabbitMQ", "REST", "gRPC", "Prometheus", "CI/CD"],
+          stack: ["Go", "PostgreSQL", "Redis", "RabbitMQ", "REST", "gRPC", "Grafana", "Telegram Bot API"],
         },
         {
           company: "Kaluga Power Sale Company",
@@ -277,11 +299,12 @@ const CONTENT = {
           role: "Backend Engineer",
           period: "October 2021 - March 2022",
           location: "Remote",
-          intro: "Early backend role in utility payments and account management systems.",
+          intro: "Early backend role in utility payments, customer accounts, and administrative systems.",
           bullets: [
-            "Built backend functionality for a customer account and admin system related to utility payments and account management.",
+            "Built backend architecture from scratch for a customer portal and admin system integrated with 1C, payments, dashboards, and mobile/web clients.",
+            "Worked as the sole backend engineer on the project, delivering account, billing, and operational views for customers and property-level management.",
           ],
-          stack: ["Backend", "Databases", "Admin systems", "Payments"],
+          stack: ["PostgreSQL", "1C integrations", "Payments", "Dashboards"],
         },
         {
           company: "Center for Regional Management of Lipetsk Oblast (CUR)",
@@ -290,16 +313,18 @@ const CONTENT = {
           role: "Java Developer",
           period: "June 2021 - November 2021",
           location: "Lipetsk, Russia",
-          intro: "Contributed to public-sector digital and monitoring systems.",
+          intro: "My first commercial backend role in Java, focused on public-sector digital and monitoring systems.",
           bullets: [
-            "Contributed to public-sector digital products, including service and operational tracking systems.",
+            "Contributed to backend services for regional digital products and monitoring systems in a legacy-heavy environment.",
+            "Worked on business logic and service development for government workflows while building my first professional engineering habits.",
           ],
-          stack: ["Java", "Backend"],
+          stack: ["Java", "SQL", "Backend"],
         },
       ],
     },
     education: {
       title: "Education",
+      subtitle: "Formal education and current degree track.",
       items: [
         {
           institution: "Voronezh State Technical University",
@@ -314,72 +339,130 @@ const CONTENT = {
       ],
     },
     strengths: {
-      title: "What I bring",
+      title: "Profile",
+      subtitle: "The patterns that best describe my engineering style and career direction.",
       cards: [
         {
-          title: "Clarity under ambiguity",
-          body: "I can convert vague requirements into executable architecture and aligned implementation plans.",
+          title: "From Java to Go",
+          body: "I started with Java as a teenager, got my first commercial backend role in Java, and later moved to Go because I prefer explicit engineering, simpler syntax, and low-latency services.",
         },
         {
-          title: "Production ownership",
-          body: "I treat reliability, observability, deployment, and incident response as first-class engineering concerns.",
+          title: "Product + infrastructure",
+          body: "My recent work is infrastructure-heavy, but I also built product backends for retail pricing, crypto payments, utility billing, and internal admin systems.",
         },
         {
-          title: "High-load systems",
-          body: "Comfortable with distributed, message-driven backends and low-latency service paths.",
+          title: "Architecture through trade-offs",
+          body: "I care about choosing the right tool and the right system shape, whether that means Redis vs. PostgreSQL, gRPC vs. REST, or simplifying an architecture to hit latency targets.",
         },
         {
-          title: "Team leverage",
-          body: "I mentor engineers and build tooling that multiplies team velocity and quality.",
+          title: "Leadership trajectory",
+          body: "I already mentor candidates and interns, and over the next few years I want to grow into a technical leadership role without losing hands-on depth or system-design thinking.",
         },
       ],
     },
     skills: {
       title: "Core stack",
-      subtitle: "Technologies I actively use in production backend work.",
+      subtitle: "Technologies I actively use or have used in production backend work.",
       groups: [
         {
           title: "Languages",
           items: ["Go", "Java", "Python", "SQL"],
         },
         {
-          title: "Data and Messaging",
-          items: ["PostgreSQL", "Redis", "Kafka", "RabbitMQ", "NATS", "MQTT"],
+          title: "APIs & Messaging",
+          items: ["gRPC", "REST", "MQTT", "Kafka", "RabbitMQ", "NATS"],
+        },
+        {
+          title: "Data & Storage",
+          items: ["PostgreSQL", "Redis", "MinIO"],
         },
         {
           title: "Platform",
           items: ["Docker", "Kubernetes", "Helm", "Istio", "Linux", "Git", "CI/CD"],
         },
         {
-          title: "Observability",
-          items: ["Prometheus", "Grafana", "Loki", "Sentry"],
+          title: "Observability & Quality",
+          items: ["Prometheus", "Grafana", "Loki", "Sentry", "Allure", "Testing frameworks"],
         },
       ],
     },
     preferences: {
-      title: "Current focus",
+      title: "What recruiters should know",
       items: [
-        "Target role: Senior Backend / Software Engineer.",
-        "Open to remote, hybrid, and relocation opportunities.",
-        "Priority: products where backend quality directly impacts business outcomes.",
-        "Actively improving spoken English for international teams and interviews.",
+        "I see myself as a backend engineer first, strongest in Go, distributed systems, and complex backend logic.",
+        "I am comfortable in both product and platform teams and can switch between latency-sensitive infrastructure and business-facing backend features.",
+        "I am best matched with international teams solving high-load, low-latency, or technically ambiguous backend problems.",
+        "Over the next 2-5 years I want to grow into tech lead / engineering leadership while staying deeply technical.",
+        "I use English in interview and work contexts when needed and continue improving spoken fluency for international teams.",
+        "Outside work I mentor candidates, cycle, swim, go to the gym, and travel; Japan is one of the places I most want to revisit.",
       ],
+    },
+    gallery: {
+      title: "A few more photos",
+      subtitle:
+        "I keep the public photo section intentionally small: this site is primarily about my work, but I also want it to feel human and real.",
+      items: [
+        {
+          src: "assets/photos/matvey-stairs.jpg",
+          alt: "Matvey Sizov outdoors on stairs in Japan",
+          caption: "Japan street portrait",
+          position: "center 18%",
+          filter: "brightness(0.8) contrast(1.03) saturate(0.88)",
+        },
+        {
+          src: "assets/photos/matvey-japan.jpg",
+          alt: "Matvey Sizov in Japan holding a training sword",
+          caption: "Japan, 2026",
+          filter: "brightness(1.06) contrast(1.03) saturate(0.92)",
+        },
+        {
+          src: "assets/photos/matvey-cafe.jpg",
+          alt: "Matvey Sizov sitting in a cafe",
+          caption: "A more casual everyday photo",
+          filter: "brightness(0.96) contrast(1.02) saturate(0.92)",
+        },
+        {
+          src: "assets/photos/matvey-mountains.jpg",
+          alt: "Matvey Sizov in the mountains",
+          caption: "Mountain travel photo",
+          position: "center 26%",
+          filter: "brightness(0.88) contrast(1.03) saturate(0.92)",
+        },
+        {
+          src: "assets/photos/matvey-lake.jpg",
+          alt: "Matvey Sizov outdoors near a lake",
+          caption: "Another travel photo outdoors",
+          filter: "brightness(0.9) contrast(1.02) saturate(0.9)",
+        },
+        {
+          src: "assets/photos/matvey-travel.jpg",
+          alt: "Matvey Sizov outdoors in a rocky landscape",
+          caption: "A wider travel shot",
+          filter: "brightness(1.01) contrast(1.03) saturate(0.9)",
+        },
+      ],
+    },
+    lightbox: {
+      openPhoto: "Open photo",
+      close: "Close photo viewer",
+      previous: "Previous photo",
+      next: "Next photo",
     },
     footer: "© {year} Matvey Sizov. Personal website for recruiters and hiring managers.",
   },
 
   ru: {
     meta: {
-      title: "Матвей Сизов | Senior Backend / Software Engineer",
+      title: "Матвей Сизов | Backend Developer / Software Engineer",
       description:
-        "Матвей Сизов — Senior Backend / Software Engineer. Go, распределенные системы, high-load сервисы и надежность production.",
+        "Матвей Сизов — Backend Developer / Software Engineer. Go, распределенные системы, low-latency backend и надежность production в продуктовых и платформенных командах.",
     },
     brand: "Матвей Сизов",
     nav: {
       resume: "Резюме",
       experience: "Опыт",
       education: "Образование",
-      strengths: "Сильные стороны",
+      strengths: "Профиль",
       skills: "Стек",
     },
     langSwitcherLabel: "Переключение языка",
@@ -389,11 +472,18 @@ const CONTENT = {
       switcherLabel: "Переключение темы",
     },
     hero: {
-      kicker: "Senior Backend / Software Engineer",
+      kicker: "Backend Developer / Software Engineer",
       name: "Матвей Сизов",
-      role: "4+ года в backend и distributed systems | от EV-телеметрии до service-mesh инфраструктуры",
+      role: "4+ года в backend engineering | Go, распределенные системы, продуктовый и платформенный backend",
       summary:
-        "Проектирую и довожу до production backend-системы с полным ownership: архитектура, поставка, observability и надежность. Сильнее всего проявляюсь в задачах с высокой неопределенностью, где нужен и технический уровень, и скорость реализации.",
+        "Я начал программировать на Java еще в раннем подростковом возрасте, вошел в профессию backend-разработчика через Java, а затем перевел основной фокус на Go, потому что мне ближе явные, понятные и low-latency системы. Сейчас я работаю и с инфраструктурным, и с продуктовым backend, а сильнее всего проявляюсь там, где команде нужен человек, который превращает размытые требования в production-систему с разумными trade-off, observability и надежной поставкой.",
+      photo: {
+        src: "assets/photos/matvey-studio.jpg",
+        alt: "Студийный портрет Матвея Сизова",
+        caption: "Студийный портрет",
+        position: "center 18%",
+        filter: "brightness(0.94) contrast(1.04) saturate(0.9)",
+      },
       links: {
         linkedin: "LinkedIn",
         github: "GitHub",
@@ -411,12 +501,17 @@ const CONTENT = {
           value: "4+ года коммерчески",
         },
         {
-          icon: "star",
-          label: "Фокус",
-          value: "High-load Go сервисы",
+          icon: "layers",
+          label: "Основной стек",
+          value: "Go, распределенные системы",
         },
         {
           icon: "layers",
+          label: "Последний опыт",
+          value: "Продукт + платформа",
+        },
+        {
+          icon: "star",
           label: "Формат",
           value: "Удаленно / релокация",
         },
@@ -424,6 +519,7 @@ const CONTENT = {
     },
     resume: {
       title: "Скачать резюме",
+      subtitle: "Русская и английская версии синхронизированы по смыслу, объему и актуальным контактам.",
       labels: {
         pdf: "Для отправки и печати",
         docx: "Редактируемый источник",
@@ -439,32 +535,32 @@ const CONTENT = {
         docx: "Matvey_Sizov_RU.docx",
         txt: "Matvey_Sizov_RU.txt",
       },
+      note: "Во всех скачиваемых версиях сохранены те же актуальные контакты, что и на сайте, включая ссылку на сайт.",
     },
     experience: {
       title: "Опыт",
+      subtitle: "Коммерческие роли, отсортированные по дате начала работы: от более новых к более ранним.",
       companySiteLabel: "Сайт компании",
       items: [
         {
-          company: "ATOM",
+          company: "Atom",
           companyIcon: "assets/icons/atom.svg",
           companyUrl: "https://atom.auto",
-          role: "Senior Software Engineer",
+          role: "Senior Software Engineer, Communications & Telemetry",
           period: "фев 2025 - настоящее время",
-          location: "Удаленно",
+          location: "Удаленно из России",
           intro:
-            "Atom развивает платформу электромобиля. Я работал в направлении коммуникаций и телеметрии над backend-сервисами, отвечающими за vehicle-to-cloud связность и операционную надежность.",
+            "Atom строит российскую платформу электромобиля. Я работаю в направлении коммуникаций и телеметрии над backend-сервисами, которые соединяют автомобиль, облако и внешних клиентов, с фокусом на latency, безопасность и операционную надежность.",
           bullets: [
-            "Спроектировал и соразработал mTLS-защищенный MQTT-брокер для постоянной vehicle-to-cloud коммуникации, упростив изначально переусложненную концепцию до более чистой брокер-ориентированной архитектуры с восстановлением состояния через Redis.",
-            "Помог прояснить неоднозначные и частично нереалистичные требования вместе с инженерным и продуктовым руководством, превратив проект в релизопригодную первую версию и повлияв на итоговую архитектуру.",
-            "Собрал production observability с нуля после потери выделенной DevOps-поддержки: метрики, дашборды, алерты, логи, трейсы, мониторинг latency/throughput и бизнес-сигналы здоровья.",
-            "Взял ownership за CI/CD и настройку деплоя, включая manifests/charts и автоматизацию поставки для high-load backend-сервиса.",
-            "Усилил безопасность и надежность за счет обязательной certificate-based аутентификации клиентов и topic-level контроля доступа.",
-            "Поддерживал сервис с нагрузкой 70K req/s при p99 latency ниже ~50 мс.",
+            "Работал с руководством, смежными командами и архитекторами, чтобы превратить размытые и частично нереалистичные требования в релизопригодную backend-архитектуру для zero-to-one брокера.",
+            "Спроектировал и разработал MQTT-брокер с mTLS-защитой и Redis-backed восстановлением состояния для постоянной vehicle-to-cloud коммуникации и безопасного восстановления сессий после рестарта.",
+            "Оспорил первоначальную microservice-декомпозицию, показал, что она не укладывается в целевую latency, и продвинул broker-centered дизайн, который выдержал ~70K запросов в секунду при p99 ниже 50 мс.",
+            "С нуля собрал production-observability и delivery tooling после потери выделенной DevOps-поддержки: метрики, логи, трейсы, дашборды, алерты, CI/CD и автоматизацию деплоя.",
+            "Выбрал ключевые библиотеки и системные компоненты, включая Redis для durable in-memory state и механизмы контроля доступа для доверенных клиентов.",
           ],
           stack: [
             "Go",
             "MQTT",
-            "Mochi MQTT",
             "Redis",
             "PostgreSQL",
             "Kafka",
@@ -480,7 +576,7 @@ const CONTENT = {
           ],
         },
         {
-          company: "Sber Tech",
+          company: "SberTech",
           companyIcon: "assets/icons/light/sbertech.png",
           companyIconDark: "assets/icons/dark/sbertech.png",
           companyUrl: "https://sbertech.ru",
@@ -488,25 +584,23 @@ const CONTENT = {
           period: "янв 2024 - фев 2025",
           location: "Москва, Россия",
           intro:
-            "Сбертех развивает Platform V, крупную enterprise-платформу. Я работал с сильно модифицированным форком Istio и смежными инфраструктурными компонентами для управления workload, политиками и платформенной интеграцией.",
+            "Сбертех развивает Platform V, крупную enterprise-платформу. Я работал с сильно модифицированным форком Istio и смежными инфраструктурными компонентами для service mesh, политик и платформенной интеграции.",
           bullets: [
-            "Восстановил сломанное автотестирование в сильно модифицированном форке Istio, вернув юнит-тесты в регулярный инженерный процесс и повысив покрытие до 80%.",
-            "Спроектировал и реализовал Go-фреймворк интеграционного тестирования, который поднимал изолированные Kubernetes-ресурсы и позволил масштабировать автотесты с интеграцией в CI и Allure-отчетами.",
-            "Восстановил надежность CI-пайплайнов и сдвинул поиск дефектов на более ранние этапы цикла разработки, повысив безопасность релизов инфраструктурных изменений.",
-            "Наставлял стажеров из Школы 21 по фреймворку тестирования и процессу автоматизации, помогая переводить QA-сценарии в масштабируемые автотесты.",
-            "Самостоятельно спроектировал и реализовал custom Kubernetes resource для управления связями control plane и data plane в Istio.",
+            "Восстановил сломанное автотестирование в сильно модифицированном форке Istio, вернув юнит-тесты в ежедневный инженерный процесс и подняв покрытие до 80%.",
+            "Спроектировал и реализовал Go-фреймворк интеграционного тестирования, который поднимал изолированные Kubernetes-окружения, запускал тесты параллельно и генерировал Allure-отчеты для CI.",
+            "Расширил автоматизацию примерно до 95% критического функционала через интеграционные тесты и параллельно исправил несколько high-severity дефектов, стабилизируя релизные пайплайны.",
+            "Наставлял около 10 стажеров по фреймворку и процессу автоматизации, помогая переводить ручные QA-сценарии в масштабируемые автотесты.",
+            "Самостоятельно спроектировал и реализовал custom Kubernetes resource для управления связями control plane и data plane в Istio; позже решение представили внутри компании как целевой платформенный подход.",
           ],
           stack: [
             "Go",
             "Kubernetes",
             "Istio",
-            "controllers",
-            "REST API",
             "gRPC",
+            "REST",
             "PostgreSQL",
             "CI/CD",
             "Allure",
-            "Bitbucket",
           ],
         },
         {
@@ -516,12 +610,12 @@ const CONTENT = {
           role: "Part-Time Mentor / Mock Interviewer",
           period: "янв 2024 - настоящее время",
           location: "Удаленно",
-          intro: "Part-time менторство и практика mock-собеседований параллельно с основной инженерной работой.",
+          intro: "Part-time проект в области менторства, подготовки к интервью и роста backend-кандидатов.",
           bullets: [
-            "Провожу mock-собеседования, менторю студентов и даю структурированную обратную связь по backend-интервью, технической коммуникации и решению задач.",
-            "Помогаю кандидатам улучшать техническую коммуникацию, структуру ответов и аргументацию trade-off решений.",
+            "Провожу mock-собеседования и менторю кандидатов по backend-базе, system design, технической коммуникации и структуре ответов.",
+            "Помогаю улучшать сам процесс менторства, практическую подготовку и качество обратной связи для студентов, идущих в software engineering роли.",
           ],
-          stack: ["Менторство", "Mock-собеседования", "Техническая коммуникация"],
+          stack: ["Менторство", "Mock-собеседования", "System design", "Техническая коммуникация"],
         },
         {
           company: "Magnus Tech",
@@ -531,13 +625,14 @@ const CONTENT = {
           period: "мар 2023 - янв 2024",
           location: "Удаленно",
           intro:
-            "Magnus Tech — компания заказной разработки. Я работал над платформой контроля цен для сети «Бристоль», которая объединяла данные по ценникам из магазинов, фотографии и ML-результаты в единую операционную систему.",
+            "Magnus Tech — компания заказной разработки. Я работал над платформой контроля цен для сети «Бристоль», которая объединяла данные магазинов, действия сотрудников, ML-рекомендации по ценам и фотоподтверждения в единую операционную систему.",
           bullets: [
-            "Разрабатывал backend-сервисы и внутренние инструменты для платформы контроля цен, используемой для цифровизации процессов проверки ценников в магазинах.",
-            "Помог структурировать данные от сотрудников магазинов, продуктовых систем и ML-аналитики в единый backend-контур для мониторинга, валидации и операционных решений.",
-            "Участвовал в поставке продукта от активной фазы разработки до релиза в рамках проекта длительностью около года.",
+            "С нуля разрабатывал Go backend-сервисы для pricing-платформы и интегрировал данные магазинов, продуктовую информацию, ML-рекомендации и действия сотрудников в единый backend-поток.",
+            "Спроектировал admin API и внутренние инструменты для просмотра цен, ручных корректировок, сравнения между магазинами и ежедневного операционного контроля.",
+            "Интегрировал notification flows для web, email, SMS и mobile-каналов и поддерживал API-контракты для frontend и mobile команд.",
+            "Писал тесты, поддерживал observability и участвовал в доведении продукта от активной разработки до production-релиза.",
           ],
-          stack: ["Go", "MinIO", "Redis", "PostgreSQL", "Kafka", "REST", "gRPC", "Prometheus", "CI/CD"],
+          stack: ["Go", "PostgreSQL", "Redis", "Kafka", "MinIO", "REST", "gRPC", "Prometheus", "CI/CD"],
         },
         {
           company: "Exnode",
@@ -546,13 +641,14 @@ const CONTENT = {
           role: "Backend Engineer",
           period: "сен 2022 - мар 2023",
           location: "Москва, Россия",
-          intro: "Exnode разрабатывал продукты криптобиржи и P2P-обмена.",
+          intro: "Exnode развивал продукты криптобиржи, B2B-платежей и P2P-обмена.",
           bullets: [
-            "Реализовал ключевые backend-потоки для P2P-криптообмена, включая логику курсов и интеграцию между связанными продуктовыми компонентами.",
-            "В тесной связке с другим backend-инженером поставлял end-to-end функциональность обмена в быстро меняющейся продуктовой среде.",
-            "После раннего карьерного инцидента с курсами внедрил более строгую валидацию и безопасную дисциплину rollout.",
+            "Разделил большой монолитный backend на более мелкие сервисы и заменил часть внутреннего REST-взаимодействия на gRPC, чтобы снизить latency и упростить границы сервисов.",
+            "Оптимизировал платежные и отчетные запросы через EXPLAIN ANALYZE, сократив несколько тяжелых PostgreSQL-запросов с 10-30 секунд до почти real-time уровня.",
+            "Реализовал ключевые продуктовые возможности вокруг онлайн-платежей, pricing, email-уведомлений, Telegram-alerting и magic-link аутентификации.",
+            "Разобрал и локализовал критический инцидент с конвертацией валют, откатил затронутые транзакции и затем усилил валидацию, observability и release discipline.",
           ],
-          stack: ["Go", "Redis", "PostgreSQL", "RabbitMQ", "REST", "gRPC", "Prometheus", "CI/CD"],
+          stack: ["Go", "PostgreSQL", "Redis", "RabbitMQ", "REST", "gRPC", "Grafana", "Telegram Bot API"],
         },
         {
           company: "Калужская сбытовая компания",
@@ -561,11 +657,12 @@ const CONTENT = {
           role: "Backend Engineer",
           period: "окт 2021 - мар 2022",
           location: "Удаленно",
-          intro: "Ранняя backend-роль в системах коммунальных платежей и управления личными кабинетами.",
+          intro: "Ранняя backend-роль в системах коммунальных платежей, клиентских кабинетов и административных сервисов.",
           bullets: [
-            "Реализовал backend-функциональность клиентского личного кабинета и админ-системы, связанной с коммунальными платежами и управлением аккаунтами.",
+            "С нуля построил backend-архитектуру для клиентского портала и административной системы с интеграциями в 1С, платежи, дашборды и mobile/web-клиенты.",
+            "Работал единственным backend-инженером на проекте, реализуя аккаунты, биллинг и операционные представления для клиентов и управления объектами.",
           ],
-          stack: ["Backend", "Базы данных", "Админ-системы", "Платежи"],
+          stack: ["PostgreSQL", "1C integrations", "Платежи", "Дашборды"],
         },
         {
           company: "Центр Управления Регионом Липецкой области (ЦУР)",
@@ -574,16 +671,18 @@ const CONTENT = {
           role: "Java Developer",
           period: "июн 2021 - ноя 2021",
           location: "Липецк, Россия",
-          intro: "Участвовал в разработке государственных цифровых и мониторинговых систем.",
+          intro: "Моя первая коммерческая backend-роль на Java, связанная с государственными цифровыми и мониторинговыми системами.",
           bullets: [
-            "Участвовал в разработке государственных цифровых продуктов, включая сервисные и операционные системы мониторинга.",
+            "Участвовал в разработке backend-сервисов для региональных цифровых продуктов и систем мониторинга в legacy-heavy окружении.",
+            "Работал над бизнес-логикой и сервисной разработкой для государственных процессов, параллельно формируя первые профессиональные инженерные привычки.",
           ],
-          stack: ["Java", "Backend"],
+          stack: ["Java", "SQL", "Backend"],
         },
       ],
     },
     education: {
       title: "Образование",
+      subtitle: "Формальное образование и текущая степень.",
       items: [
         {
           institution: "Воронежский государственный технический университет",
@@ -598,56 +697,114 @@ const CONTENT = {
       ],
     },
     strengths: {
-      title: "Что я даю команде",
+      title: "Профиль",
+      subtitle: "Паттерны, которые лучше всего описывают мой инженерный стиль и карьерное направление.",
       cards: [
         {
-          title: "Ясность в условиях неопределенности",
-          body: "Перевожу размытые требования в исполнимую архитектуру и синхронизированный план реализации.",
+          title: "От Java к Go",
+          body: "Я начал с Java еще подростком, получил первую коммерческую backend-роль на Java, а затем перешел в Go, потому что мне ближе явная инженерия, более простой синтаксис и low-latency сервисы.",
         },
         {
-          title: "Ownership в production",
-          body: "Считаю надежность, observability, деплой и поддержку инцидентов частью инженерной ответственности.",
+          title: "Продукт + инфраструктура",
+          body: "Последние роли у меня инфраструктурные, но я также строил продуктовые backend-системы для retail pricing, crypto payments, коммунального биллинга и внутренних admin-панелей.",
         },
         {
-          title: "High-load системы",
-          body: "Уверенно работаю с распределенными и message-driven backend-сервисами с низкими задержками.",
+          title: "Архитектура через trade-off",
+          body: "Мне важно выбирать правильный инструмент и правильную форму системы: Redis или PostgreSQL, gRPC или REST, более сложная схема или упрощение архитектуры ради latency и operability.",
         },
         {
-          title: "Усиление команды",
-          body: "Наставляю инженеров и создаю инструменты, которые повышают скорость и качество всей команды.",
+          title: "Траектория в leadership",
+          body: "Я уже менторю кандидатов и стажеров, а в ближайшие годы хочу вырасти в техническое лидерство, не теряя hands-on глубину и системное мышление.",
         },
       ],
     },
     skills: {
       title: "Ключевой стек",
-      subtitle: "Технологии, которые активно использую в production backend-задачах.",
+      subtitle: "Технологии, которые я активно использую или уже использовал в production backend-задачах.",
       groups: [
         {
           title: "Языки",
           items: ["Go", "Java", "Python", "SQL"],
         },
         {
-          title: "Данные и очереди",
-          items: ["PostgreSQL", "Redis", "Kafka", "RabbitMQ", "NATS", "MQTT"],
+          title: "API и messaging",
+          items: ["gRPC", "REST", "MQTT", "Kafka", "RabbitMQ", "NATS"],
+        },
+        {
+          title: "Данные и storage",
+          items: ["PostgreSQL", "Redis", "MinIO"],
         },
         {
           title: "Платформа",
           items: ["Docker", "Kubernetes", "Helm", "Istio", "Linux", "Git", "CI/CD"],
         },
         {
-          title: "Observability",
-          items: ["Prometheus", "Grafana", "Loki", "Sentry"],
+          title: "Observability и quality",
+          items: ["Prometheus", "Grafana", "Loki", "Sentry", "Allure", "Testing frameworks"],
         },
       ],
     },
     preferences: {
-      title: "Текущий фокус",
+      title: "Что важно знать рекрутеру",
       items: [
-        "Целевая роль: Senior Backend / Software Engineer.",
-        "Открыт к удаленному, гибридному формату и релокации.",
-        "Приоритет: продукты, где качество backend напрямую влияет на бизнес-результат.",
-        "Активно улучшаю разговорный английский для международных интервью и команд.",
+        "Я в первую очередь вижу себя backend-инженером и сильнее всего чувствую себя в Go, распределенных системах и сложной backend-логике.",
+        "Мне комфортно и в продуктовых, и в платформенных командах: я умею переключаться между latency-sensitive инфраструктурой и backend-функциональностью, которая ближе к бизнесу.",
+        "Лучше всего подхожу международным командам, которые решают high-load, low-latency или просто технически неоднозначные backend-задачи.",
+        "В ближайшие 2-5 лет хочу вырасти в tech lead / engineering leadership роль, оставаясь при этом глубоко техническим инженером.",
+        "Я использую английский в рабочих и интервью-контекстах, когда это нужно, и продолжаю улучшать разговорную беглость для международных команд.",
+        "Вне работы я менторю кандидатов, катаюсь на велосипеде, плаваю, хожу в зал и люблю путешествовать; Япония — одно из мест, куда мне особенно хочется вернуться.",
       ],
+    },
+    gallery: {
+      title: "Еще несколько фото",
+      subtitle:
+        "Этот публичный фото-раздел я специально держу небольшим: сайт в первую очередь про мою работу, но мне хочется, чтобы он оставался живым и человеческим.",
+      items: [
+        {
+          src: "assets/photos/matvey-stairs.jpg",
+          alt: "Матвей Сизов на улице в Японии на лестнице",
+          caption: "Уличный портрет в Японии",
+          position: "center 18%",
+          filter: "brightness(0.8) contrast(1.03) saturate(0.88)",
+        },
+        {
+          src: "assets/photos/matvey-japan.jpg",
+          alt: "Матвей Сизов в Японии с тренировочным мечом",
+          caption: "Япония, 2026",
+          filter: "brightness(1.06) contrast(1.03) saturate(0.92)",
+        },
+        {
+          src: "assets/photos/matvey-cafe.jpg",
+          alt: "Матвей Сизов сидит в кафе",
+          caption: "Более повседневое фото",
+          filter: "brightness(0.96) contrast(1.02) saturate(0.92)",
+        },
+        {
+          src: "assets/photos/matvey-mountains.jpg",
+          alt: "Матвей Сизов в горах",
+          caption: "Фото из поездки в горах",
+          position: "center 26%",
+          filter: "brightness(0.88) contrast(1.03) saturate(0.92)",
+        },
+        {
+          src: "assets/photos/matvey-lake.jpg",
+          alt: "Матвей Сизов на улице у озера",
+          caption: "Еще одно travel-фото на природе",
+          filter: "brightness(0.9) contrast(1.02) saturate(0.9)",
+        },
+        {
+          src: "assets/photos/matvey-travel.jpg",
+          alt: "Матвей Сизов на фоне скального пейзажа",
+          caption: "Более широкий travel-кадр",
+          filter: "brightness(1.01) contrast(1.03) saturate(0.9)",
+        },
+      ],
+    },
+    lightbox: {
+      openPhoto: "Открыть фото",
+      close: "Закрыть просмотр фото",
+      previous: "Предыдущее фото",
+      next: "Следующее фото",
     },
     footer: "© {year} Матвей Сизов. Сайт-визитка для рекрутеров и hiring managers.",
   },
@@ -656,8 +813,23 @@ const CONTENT = {
 function setText(id, value) {
   const element = document.getElementById(id);
   if (element) {
-    element.textContent = value;
+    element.textContent = value || "";
   }
+}
+
+function getPhotoItems(data) {
+  return [data.hero.photo, ...(data.gallery?.items || [])];
+}
+
+function setPhotoTriggerAttributes(element, index, label) {
+  if (!element) {
+    return;
+  }
+
+  element.dataset.photoIndex = String(index);
+  element.tabIndex = 0;
+  element.setAttribute("role", "button");
+  element.setAttribute("aria-label", label || "");
 }
 
 function getThemedIcon(iconPath, theme) {
@@ -692,11 +864,11 @@ function setLinkLabel(id, text) {
 
   const span = link.querySelector("span");
   if (span) {
-    span.textContent = text;
+    span.textContent = text || "";
   } else {
-    link.textContent = text;
+    link.textContent = text || "";
   }
-  link.setAttribute("aria-label", text);
+  link.setAttribute("aria-label", text || "");
 }
 
 function detectLanguage() {
@@ -808,6 +980,27 @@ function renderFacts(items, theme) {
     card.append(heading, value);
     container.append(card);
   });
+}
+
+function renderHeroPhoto(photo, index, triggerLabel) {
+  const card = document.querySelector(".hero-photo-card");
+  const image = document.getElementById("hero-photo");
+  const caption = document.getElementById("hero-photo-caption");
+
+  if (!image) {
+    return;
+  }
+
+  image.src = photo?.src || "";
+  image.alt = photo?.alt || "";
+  image.style.objectPosition = photo?.position || "";
+  image.style.setProperty("--photo-filter", photo?.filter || "");
+
+  if (caption) {
+    caption.textContent = photo?.caption || "";
+  }
+
+  setPhotoTriggerAttributes(card, index, triggerLabel);
 }
 
 function renderExperience(content, theme) {
@@ -998,6 +1191,130 @@ function renderPreferences(items) {
   });
 }
 
+function renderGallery(items, startIndex, triggerLabel) {
+  const container = document.getElementById("gallery-grid");
+  if (!container) {
+    return;
+  }
+
+  container.innerHTML = "";
+  items.forEach((item, offset) => {
+    const card = document.createElement("article");
+    card.className = "gallery-card";
+    setPhotoTriggerAttributes(card, startIndex + offset, `${triggerLabel}: ${item.caption || item.alt || ""}`);
+
+    const image = document.createElement("img");
+    image.className = "gallery-photo";
+    image.src = item.src;
+    image.alt = item.alt || "";
+    image.loading = "lazy";
+    image.style.objectPosition = item.position || "";
+    image.style.setProperty("--photo-filter", item.filter || "");
+
+    card.append(image);
+    container.append(card);
+  });
+}
+
+function updatePhotoLightboxLabels(labels) {
+  const closeButton = document.getElementById("lightbox-close");
+  const closeBackdrop = document.querySelector("[data-lightbox-close]");
+  const prevButton = document.getElementById("lightbox-prev");
+  const nextButton = document.getElementById("lightbox-next");
+
+  if (closeButton) {
+    closeButton.setAttribute("aria-label", labels.close);
+  }
+  if (closeBackdrop) {
+    closeBackdrop.setAttribute("aria-label", labels.close);
+  }
+  if (prevButton) {
+    prevButton.setAttribute("aria-label", labels.previous);
+  }
+  if (nextButton) {
+    nextButton.setAttribute("aria-label", labels.next);
+  }
+}
+
+function renderPhotoLightbox() {
+  const item = photoLightboxState.items[photoLightboxState.index];
+  const image = document.getElementById("lightbox-image");
+  const caption = document.getElementById("lightbox-caption");
+  const counter = document.getElementById("lightbox-counter");
+  const prevButton = document.getElementById("lightbox-prev");
+  const nextButton = document.getElementById("lightbox-next");
+
+  if (!item || !image) {
+    return;
+  }
+
+  image.src = item.src;
+  image.alt = item.alt || "";
+  image.style.setProperty("--photo-filter", item.filter || "");
+  if (caption) {
+    caption.textContent = item.caption || "";
+  }
+  if (counter) {
+    counter.textContent = `${photoLightboxState.index + 1} / ${photoLightboxState.items.length}`;
+  }
+  if (prevButton) {
+    prevButton.disabled = photoLightboxState.index === 0;
+  }
+  if (nextButton) {
+    nextButton.disabled = photoLightboxState.index >= photoLightboxState.items.length - 1;
+  }
+}
+
+function syncPhotoLightboxItems(items) {
+  photoLightboxState.items = items;
+  if (photoLightboxState.index >= items.length) {
+    photoLightboxState.index = Math.max(0, items.length - 1);
+  }
+
+  const lightbox = document.getElementById("photo-lightbox");
+  if (lightbox && !lightbox.hidden) {
+    renderPhotoLightbox();
+  }
+}
+
+function openPhotoLightbox(index, opener) {
+  const lightbox = document.getElementById("photo-lightbox");
+  const dialog = document.getElementById("lightbox-dialog");
+  if (!lightbox || !dialog || !photoLightboxState.items.length) {
+    return;
+  }
+
+  photoLightboxState.index = Math.max(0, Math.min(index, photoLightboxState.items.length - 1));
+  photoLightboxState.opener = opener || null;
+  lightbox.hidden = false;
+  document.body.classList.add("lightbox-open");
+  renderPhotoLightbox();
+  window.requestAnimationFrame(() => dialog.focus());
+}
+
+function closePhotoLightbox() {
+  const lightbox = document.getElementById("photo-lightbox");
+  if (!lightbox || lightbox.hidden) {
+    return;
+  }
+
+  lightbox.hidden = true;
+  document.body.classList.remove("lightbox-open");
+  if (photoLightboxState.opener instanceof HTMLElement) {
+    photoLightboxState.opener.focus();
+  }
+}
+
+function showAdjacentPhoto(direction) {
+  const nextIndex = photoLightboxState.index + direction;
+  if (nextIndex < 0 || nextIndex >= photoLightboxState.items.length) {
+    return;
+  }
+
+  photoLightboxState.index = nextIndex;
+  renderPhotoLightbox();
+}
+
 function syncResumeLinks(resume) {
   const configs = [
     { key: "pdf", id: "resume-pdf", labelId: "resume-pdf-label" },
@@ -1051,6 +1368,7 @@ function updateHeaderOffset() {
 function renderLanguage(lang) {
   const data = CONTENT[lang] || CONTENT.en;
   const theme = document.documentElement.getAttribute("data-theme") || "light";
+  const photoItems = getPhotoItems(data);
 
   document.documentElement.lang = lang;
   document.title = data.meta.title;
@@ -1085,6 +1403,7 @@ function renderLanguage(lang) {
   setImageSource("#hero-telegram img", getThemedIcon("telegram", theme));
 
   renderFacts(data.hero.facts, theme);
+  renderHeroPhoto(data.hero.photo, 0, `${data.lightbox.openPhoto}: ${data.hero.photo.caption || data.hero.photo.alt || ""}`);
 
   setText("resume-title", data.resume.title);
   setText("resume-subtitle", data.resume.subtitle);
@@ -1109,6 +1428,12 @@ function renderLanguage(lang) {
 
   setText("preferences-title", data.preferences.title);
   renderPreferences(data.preferences.items);
+
+  setText("photos-title", data.gallery.title);
+  setText("photos-subtitle", data.gallery.subtitle);
+  renderGallery(data.gallery.items, 1, data.lightbox.openPhoto);
+  updatePhotoLightboxLabels(data.lightbox);
+  syncPhotoLightboxItems(photoItems);
 
   setText("footer-text", data.footer.replace("{year}", String(new Date().getFullYear())));
 
@@ -1152,6 +1477,65 @@ function setupThemeSwitcher() {
   });
 }
 
+function setupPhotoLightbox() {
+  document.addEventListener("click", (event) => {
+    if (!(event.target instanceof Element)) {
+      return;
+    }
+
+    const trigger = event.target.closest("[data-photo-index]");
+    if (trigger && !trigger.closest("#photo-lightbox")) {
+      openPhotoLightbox(Number(trigger.dataset.photoIndex || "0"), trigger);
+      return;
+    }
+
+    if (event.target.closest("[data-lightbox-close]") || event.target.closest("#lightbox-close")) {
+      closePhotoLightbox();
+      return;
+    }
+
+    if (event.target.closest("#lightbox-prev")) {
+      showAdjacentPhoto(-1);
+      return;
+    }
+
+    if (event.target.closest("#lightbox-next")) {
+      showAdjacentPhoto(1);
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    const lightbox = document.getElementById("photo-lightbox");
+
+    if (event.target instanceof Element) {
+      const trigger = event.target.closest("[data-photo-index]");
+      if (trigger && (event.key === "Enter" || event.key === " ")) {
+        event.preventDefault();
+        openPhotoLightbox(Number(trigger.dataset.photoIndex || "0"), trigger);
+        return;
+      }
+    }
+
+    if (!lightbox || lightbox.hidden) {
+      return;
+    }
+
+    if (event.key === "Escape") {
+      closePhotoLightbox();
+      return;
+    }
+
+    if (event.key === "ArrowLeft") {
+      showAdjacentPhoto(-1);
+      return;
+    }
+
+    if (event.key === "ArrowRight") {
+      showAdjacentPhoto(1);
+    }
+  });
+}
+
 function init() {
   const lang = detectLanguage();
   const theme = detectTheme();
@@ -1160,6 +1544,7 @@ function init() {
   updateHeaderOffset();
   setupLanguageSwitcher();
   setupThemeSwitcher();
+  setupPhotoLightbox();
   window.addEventListener("resize", updateHeaderOffset);
   window.addEventListener("load", updateHeaderOffset);
   applyLanguage(lang);
