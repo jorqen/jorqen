@@ -269,8 +269,8 @@ const CONTENT = {
         },
         {
           company: "Exnode",
-          companyIcon: "assets/icons/exnode-light.svg",
-          companyIconDark: "assets/icons/exnode-dark.svg",
+          companyIcon: "assets/icons/light/exnode.svg",
+          companyIconDark: "assets/icons/dark/exnode.svg",
           companyUrl: "https://exnode.ru",
           role: "Backend Engineer",
           period: "Sep 2022 - Mar 2023",
@@ -613,8 +613,8 @@ const CONTENT = {
         },
         {
           company: "Exnode",
-          companyIcon: "assets/icons/exnode-light.svg",
-          companyIconDark: "assets/icons/exnode-dark.svg",
+          companyIcon: "assets/icons/light/exnode.svg",
+          companyIconDark: "assets/icons/dark/exnode.svg",
           companyUrl: "https://exnode.ru",
           role: "Backend Engineer",
           period: "сен 2022 - мар 2023",
