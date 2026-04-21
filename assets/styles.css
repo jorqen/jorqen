@@ -256,7 +256,10 @@ main {
 .hero-photo-card {
   margin: 0;
   display: block;
+  position: relative;
   width: 100%;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
   cursor: zoom-in;
 }
 
@@ -265,14 +268,19 @@ main {
   aspect-ratio: 1 / 1;
   object-fit: cover;
   object-position: center top;
-  border-radius: var(--radius-lg);
+  border-radius: inherit;
   background: var(--surface);
   box-shadow: var(--shadow);
   filter: var(--photo-filter, brightness(0.94) contrast(1.03) saturate(0.92));
+  transition: transform 220ms ease, box-shadow 220ms ease, filter 220ms ease;
 }
 
 .hero-photo-card figcaption {
   display: none;
+}
+
+.hero-photo-card:hover .hero-photo {
+  transform: scale(1.02);
 }
 
 .kicker {
@@ -349,14 +357,17 @@ h1 {
   width: 100%;
   max-width: 100%;
   gap: 10px;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
 .fact-item {
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface-muted);
-  padding: 11px 12px;
+  padding: 12px;
+  display: grid;
+  align-content: start;
+  gap: 8px;
 }
 
 .fact-heading {
@@ -381,10 +392,17 @@ h1 {
 }
 
 .fact-value {
-  margin: 7px 0 0;
+  margin: 0;
   font-size: 0.97rem;
   font-weight: 700;
   color: var(--text-main);
+  line-height: 1.3;
+  display: grid;
+  gap: 4px;
+}
+
+.fact-value-line {
+  display: block;
 }
 
 .panel {

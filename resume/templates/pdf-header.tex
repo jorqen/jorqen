@@ -1,0 +1,41 @@
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+
+\definecolor{ResumeAccent}{HTML}{0B4F8A}
+
+\hypersetup{
+  colorlinks=true,
+  urlcolor=ResumeAccent,
+  linkcolor=ResumeAccent
+}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.45em}
+\setlength{\emergencystretch}{3em}
+
+\AtBeginDocument{\raggedright}
+
+\makeatletter
+
+\renewcommand\section{\@startsection{section}{1}{\z@}%
+  {-2.8ex \@plus -1ex \@minus -.2ex}%
+  {1.0ex \@plus .2ex}%
+  {\normalfont\LARGE\bfseries\color{black}}}
+
+\renewcommand\subsection{\@startsection{subsection}{2}{\z@}%
+  {-2.2ex \@plus -0.7ex \@minus -.2ex}%
+  {0.8ex \@plus .2ex}%
+  {\normalfont\large\bfseries\color{ResumeAccent}}}
+
+\renewcommand\subsubsection{\@startsection{subsubsection}{3}{\z@}%
+  {-1.6ex \@plus -0.5ex \@minus -.2ex}%
+  {0.5ex \@plus .2ex}%
+  {\normalfont\normalsize\bfseries\color{black}}}
+
+\makeatother
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0pt}
