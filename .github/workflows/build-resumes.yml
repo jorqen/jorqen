@@ -8,7 +8,7 @@ on:
     paths:
       - "index.html"
       - "assets/**"
-      - "resume/data/**"
+      - "resume/*.yaml"
       - "scripts/build_resume_formats.sh"
       - "scripts/generate_resume_outputs.py"
       - ".github/workflows/build-resumes.yml"

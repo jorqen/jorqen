@@ -30,7 +30,7 @@ EOF
 fi
 
 "$PYTHON_BIN" "${ROOT_DIR}/scripts/generate_resume_outputs.py" \
-  --data "${ROOT_DIR}/resume/data/resume.yaml" \
+  --data "${ROOT_DIR}/resume/resume.yaml" \
   --output-root "${OUTPUT_ROOT}" \
   --site-output "${SITE_OUTPUT}" \
   --build-dir "${BUILD_DIR}"

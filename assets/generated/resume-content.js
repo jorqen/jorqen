@@ -40,8 +40,8 @@ window.JORQEN_RESUME_DATA = {
       "hero": {
         "kicker": "Backend Developer / Software Engineer",
         "name": "Matvey Sizov",
-        "role": "More than 4 years in backend development. Golang, Java, distributed systems, product and infrastructure engineering.",
-        "summary": "I started programming in Java in my early teens, entered backend professionally through Java, and then shifted my primary focus to Go because explicit and understandable systems are a better fit for me. Today I work on both infrastructure and product backends, and I am strongest where a team needs someone who can turn ambiguous requirements into a production system with reasonable trade-offs, observability, and reliable delivery. Across recent roles I have built backend systems for vehicle telemetry and car-to-cloud communication, service-mesh platform infrastructure, retail pricing operations, crypto payments and exchange flows, utility billing, and public digital services.",
+        "role": "4+ years building production Go backends and distributed systems | high-load and low-latency infrastructure, service mesh, and fintech/crypto products.",
+        "summary": "I am a backend and distributed systems engineer with 4+ years of commercial experience in Go. I work across both product and infrastructure domains and am strongest where ambiguous requirements need to become a concrete production system with sound trade-offs, observability, security, testing, and reliable delivery. Across recent roles I have built backend systems for secure vehicle telemetry and car-to-cloud connectivity, service-mesh platform infrastructure and testing frameworks, retail pricing operations, crypto payments and exchange flows, utility billing, and public digital services.",
         "photo": {
           "src": "assets/photos/matvey-studio.jpg",
           "position": "center 18%",
@@ -59,7 +59,7 @@ window.JORQEN_RESUME_DATA = {
             "icon": "assets/icons/light/briefcase.svg",
             "iconDark": "assets/icons/dark/briefcase.svg",
             "label": "Experience",
-            "value": "Golang - 4+ years\nJava - 6 months"
+            "value": "Go - 4+ years\nJava - 6 months"
           },
           {
             "icon": "assets/icons/light/layers.svg",
@@ -104,17 +104,18 @@ window.JORQEN_RESUME_DATA = {
             "period": "Feb 2025 - Present",
             "duration": "1 yr 2 mos",
             "location": "Remote",
-            "intro": "ATOM is building a Russian electric vehicle platform. I work in communications and telemetry on backend services that connect the car, cloud, and external clients, with a focus on latency, security, and operational reliability.",
+            "intro": "ATOM develops an electric vehicle platform. I work in communications and telemetry on backend services responsible for secure vehicle-to-cloud connectivity, external client integration, and operational reliability under low-latency requirements.",
             "bullets": [
-              "Worked with leadership, peer teams, and architects to turn ambiguous and partially unrealistic requirements into a releasable backend architecture for a new broker.",
-              "Designed and developed an mTLS-secured MQTT broker with Redis-based state recovery for persistent vehicle-to-cloud communication and safe session restoration after restarts.",
+              "Worked with leadership, peer teams, and architects to turn ambiguous and partially unrealistic requirements into a releasable first version, simplifying an overengineered concept into a cleaner broker-centered architecture.",
+              "Designed and co-developed an mTLS-secured MQTT broker on Mochi MQTT with Redis-backed state recovery for persistent vehicle-to-cloud communication and safe session restoration after restarts.",
               "Challenged the initial microservice decomposition, showed it could not meet target latency, and advanced a central-broker design that sustained ~70K requests per second at p99 below 50 ms.",
-              "Built production observability and delivery tooling from scratch after losing dedicated DevOps support: metrics, logs, traces, dashboards, alerts, CI/CD, and deployment automation.",
-              "Selected key libraries and system components, including Redis for resilient in-memory state and access-control mechanisms for trusted clients."
+              "Built production observability and delivery tooling from scratch after losing dedicated DevOps support: metrics, logs, traces, dashboards, alerts, latency/throughput monitoring, business health signals, CI/CD, and deployment automation.",
+              "Improved security and reliability by enforcing certificate-based client authentication and topic-level access control for trusted connectivity."
             ],
             "stack": [
               "Go",
               "MQTT",
+              "Mochi MQTT",
               "Redis",
               "PostgreSQL",
               "Kafka",
@@ -125,6 +126,7 @@ window.JORQEN_RESUME_DATA = {
               "Loki",
               "Sentry",
               "Docker",
+              "Helm",
               "Kubernetes",
               "CI/CD"
             ],
@@ -133,16 +135,16 @@ window.JORQEN_RESUME_DATA = {
           },
           {
             "company": "Sber Tech",
-            "role": "Software Engineer, Service Mesh & Platform Infrastructure",
+            "role": "Software Engineer",
             "period": "Jan 2024 - Feb 2025",
             "duration": "1 yr 1 mo",
             "location": "Moscow, Russia",
-            "intro": "Sber Tech develops Platform V, a large corporate platform. I worked on a heavily modified Istio fork and adjacent infrastructure components for service-mesh control, policy enforcement, and platform integration in the Service Mesh & Platform Infrastructure team. The project itself was a platform layer for routing, policy, and control-plane/data-plane management across Kubernetes environments inside the ecosystem.",
+            "intro": "Sber Tech develops Platform V, a large enterprise platform. I worked on a heavily customized Istio fork and adjacent infrastructure components used for workload control, policy enforcement, and platform integration in the Service Mesh & Platform Infrastructure team.",
             "bullets": [
               "Restored broken automated testing in a heavily modified Istio fork, returning unit tests to the daily engineering process and raising coverage to 80%.",
               "Designed and built a Go integration-testing framework that provisioned isolated Kubernetes environments, ran tests in parallel, and generated Allure reports for CI.",
-              "Expanded automation to about 95% of critical functionality through integration tests and, in parallel, fixed several critical defects, stabilizing release pipelines.",
-              "Mentored around 10 interns on the framework and automation process, helping convert manual QA scenarios into scalable automated tests.",
+              "Repaired CI pipelines and shifted defect detection earlier in the development cycle by expanding integration-test automation to about 95% of critical functionality and fixing several critical defects.",
+              "Mentored around 10 interns - students from School 21, on the framework and automation process, helping convert manual QA scenarios into scalable automated tests.",
               "Independently designed and implemented a custom Kubernetes resource for managing control-plane and data-plane relationships in Istio; the solution was later presented internally as a target platform approach."
             ],
             "stack": [
@@ -216,7 +218,7 @@ window.JORQEN_RESUME_DATA = {
             "bullets": [
               "Split a large monolithic backend into smaller services and replaced part of internal REST communication with gRPC to reduce latency and simplify service boundaries.",
               "Optimized payment and reporting queries using EXPLAIN ANALYZE, cutting several heavy PostgreSQL queries from 10-30 seconds to near real time.",
-              "Implemented key product capabilities around online payments, pricing, email notifications, Telegram alerts, and magic-link authentication.",
+              "Implemented core product capabilities for P2P exchange and online payments, including pricing logic, service integrations, email notifications, Telegram alerts, and magic-link authentication in a lean two-engineer backend setup.",
               "Investigated and localized a critical currency-conversion incident, rolled back affected transactions, and then strengthened validation, observability, and release discipline."
             ],
             "stack": [
@@ -290,7 +292,7 @@ window.JORQEN_RESUME_DATA = {
           },
           {
             "institution": "Voronezh State Technical University",
-            "degree": "Secondary vocational education in Information Technology and Programming",
+            "degree": "Secondary vocational education in Information Technology and Programming, graduated with honors",
             "period": "2021 - 2025",
             "institutionIcon": "assets/icons/light/vstu.svg",
             "institutionIconDark": "assets/icons/dark/vstu.svg",
@@ -373,6 +375,25 @@ window.JORQEN_RESUME_DATA = {
               "Allure",
               "Testing frameworks"
             ]
+          },
+          {
+            "title": "Core areas",
+            "items": [
+              "Distributed systems",
+              "Backend architecture",
+              "High-load services",
+              "Testing infrastructure",
+              "Service reliability",
+              "Security",
+              "Mentoring"
+            ]
+          },
+          {
+            "title": "Spoken languages",
+            "items": [
+              "Russian (Native)",
+              "English (B2 / Working proficiency)"
+            ]
           }
         ]
       },
@@ -383,7 +404,7 @@ window.JORQEN_RESUME_DATA = {
           "I am comfortable in both product and platform teams: I can switch between latency-sensitive infrastructure and business-facing backend functionality.",
           "I am the best fit for teams solving high-load, low-latency, or technically ambiguous backend problems.",
           "In the next 2-5 years, I want to grow into a tech lead and broader technical leadership role while remaining a deeply technical engineer.",
-          "I use English in work and interview contexts when needed and continue improving spoken fluency for international teams.",
+          "Russian is my native language; English is B2 / working proficiency, and I use it in work when needed.",
           "Outside work, I mentor candidates, cycle, swim, go to the gym, and enjoy traveling; Japan is one of the places I especially want to revisit."
         ]
       },
@@ -455,8 +476,8 @@ window.JORQEN_RESUME_DATA = {
       "hero": {
         "kicker": "Backend Developer / Software Engineer",
         "name": "Матвей Сизов",
-        "role": "Более 4-х лет в backend-разработке. Golang, Java, распределенные системы, продуктовая и инфраструктурная разработка.",
-        "summary": "Я начал программировать на Java еще в раннем подростковом возрасте, вошел в профессию backend-разработчика через Java, а затем перевел основной фокус на Go, потому что мне ближе явные и понятные системы. Сейчас я работаю и с инфраструктурным, и с продуктовым backend, а сильнее всего проявляюсь там, где команде нужен человек, который превращает размытые требования в production-систему с разумными компромиссами, наблюдаемостью и надежной поставкой решений. Я строил backend-системы для телеметрии и связи автомобиля с облаком, платформенной service-mesh-инфраструктуры, операционного ценообразования в ритейле, криптоплатежей и обменных сценариев, коммунального биллинга и государственных цифровых сервисов.",
+        "role": "4+ года строю production backend-системы и распределенные системы на Go | high-load and low-latency инфраструктура, service mesh и fintech/crypto-продукты.",
+        "summary": "Я backend-инженер и инженер распределенных систем с 4+ годами коммерческого опыта на Go. Работаю и в продуктовых, и в инфраструктурных доменах и сильнее всего проявляюсь там, где размытые требования нужно превратить в конкретную production-систему с понятными компромиссами, наблюдаемостью, безопасностью, тестированием и надежной поставкой. В последних ролях я строил backend-системы для защищенной телеметрии и связи автомобиля с облаком, service mesh-инфраструктуры и тестовых фреймворков, операционного ценообразования в ритейле, криптоплатежей и обменных сценариев, коммунального биллинга и государственных цифровых сервисов.",
         "photo": {
           "src": "assets/photos/matvey-studio.jpg",
           "position": "center 18%",
@@ -474,7 +495,7 @@ window.JORQEN_RESUME_DATA = {
             "icon": "assets/icons/light/briefcase.svg",
             "iconDark": "assets/icons/dark/briefcase.svg",
             "label": "Опыт",
-            "value": "Golang - 4+ года\nJava - 6 месяцев"
+            "value": "Go - 4+ года\nJava - 6 месяцев"
           },
           {
             "icon": "assets/icons/light/layers.svg",
@@ -519,17 +540,18 @@ window.JORQEN_RESUME_DATA = {
             "period": "Фев 2025 - настоящее время",
             "duration": "1 г. 2 мес.",
             "location": "Удаленно",
-            "intro": "АТОМ строит российскую платформу электромобиля. Я работаю в направлении коммуникаций и телеметрии над backend-сервисами, которые соединяют автомобиль, облако и внешних клиентов, с фокусом на маленькую задержку, безопасность и операционную надежность.",
+            "intro": "АТОМ развивает платформу электромобиля. Я работаю в направлении коммуникаций и телеметрии над backend-сервисами, которые отвечают за защищенную связь автомобиля с облаком, интеграцию внешних клиентов и операционную надежность при жестких требованиях к задержке.",
             "bullets": [
-              "Работал с руководством, смежными командами и архитекторами, чтобы превратить размытые и частично нереалистичные требования в релизопригодную backend-архитектуру для нового брокера.",
-              "Спроектировал и разработал MQTT-брокер с mTLS-защитой и восстановлением состояния через Redis для постоянной коммуникации автомобиля с облаком и безопасного восстановления сессий после перезапуска.",
+              "Работал с руководством, смежными командами и архитекторами, чтобы превратить размытые и частично нереалистичные требования в релизопригодную первую версию, упростив переусложненную концепцию до более чистой архитектуры вокруг брокера.",
+              "Спроектировал и совместно разработал MQTT-брокер на Mochi MQTT с mTLS-защитой и восстановлением состояния через Redis для постоянной коммуникации автомобиля с облаком и безопасного восстановления сессий после перезапуска.",
               "Оспорил первоначальную декомпозицию на микросервисы, показал, что она не укладывается в целевую задержку, и продвинул дизайн с центральным брокером, который выдержал ~70K запросов в секунду при p99 ниже 50 мс.",
-              "С нуля собрал production-инструментарий наблюдаемости и поставки после потери выделенной DevOps-поддержки: метрики, логи, трейсы, дашборды, алерты, CI/CD и автоматизацию деплоя.",
-              "Выбрал ключевые библиотеки и системные компоненты, включая Redis для устойчивого in-memory состояния и механизмы контроля доступа для доверенных клиентов."
+              "С нуля собрал production-инструментарий наблюдаемости и поставки после потери выделенной DevOps-поддержки: метрики, логи, трейсы, дашборды, алерты, мониторинг задержек и пропускной способности, бизнесовые сигналы состояния сервиса, CI/CD и автоматизацию деплоя.",
+              "Усилил безопасность и надежность, внедрив аутентификацию клиентов по сертификатам и контроль доступа на уровне топиков для доверенного контура связи."
             ],
             "stack": [
               "Go",
               "MQTT",
+              "Mochi MQTT",
               "Redis",
               "PostgreSQL",
               "Kafka",
@@ -540,6 +562,7 @@ window.JORQEN_RESUME_DATA = {
               "Loki",
               "Sentry",
               "Docker",
+              "Helm",
               "Kubernetes",
               "CI/CD"
             ],
@@ -548,16 +571,16 @@ window.JORQEN_RESUME_DATA = {
           },
           {
             "company": "Sber Tech",
-            "role": "Software Engineer, Service Mesh & Platform Infrastructure",
+            "role": "Software Engineer",
             "period": "Янв 2024 - Фев 2025",
             "duration": "1 г. 1 мес.",
             "location": "Москва, Россия",
-            "intro": "Сбер Тех развивает Platform V, крупную корпоративную платформу. Я работал с сильно модифицированным форком Istio и смежными инфраструктурными компонентами для управления service mesh, контроля политик и платформенной интеграции в команде Service Mesh & Platform Infrastructure. Сам проект был платформенным слоем для маршрутизации, политик и управления связями control plane/data plane в Kubernetes-окружениях внутри экосистемы.",
+            "intro": "Sber Tech развивает Platform V, крупную корпоративную платформу. Я работал с сильно кастомизированным форком Istio и смежными инфраструктурными компонентами для управления рабочими нагрузками, контроля политик и платформенной интеграции в команде Service Mesh & Platform Infrastructure.",
             "bullets": [
               "Восстановил сломанное автотестирование в сильно модифицированном форке Istio, вернув юнит-тесты в ежедневный инженерный процесс и подняв покрытие до 80%.",
               "Спроектировал и реализовал Go-фреймворк интеграционного тестирования, который поднимал изолированные Kubernetes-окружения, запускал тесты параллельно и генерировал Allure-отчеты для CI.",
-              "Расширил автоматизацию примерно до 95% критического функционала через интеграционные тесты и параллельно исправил несколько критичных дефектов, стабилизируя релизные пайплайны.",
-              "Наставлял около 10 стажеров по фреймворку и процессу автоматизации, помогая переводить ручные QA-сценарии в масштабируемые автотесты.",
+              "Починил CI-пайплайны и сдвинул поиск дефектов на более ранний этап разработки, расширив автоматизацию интеграционными тестами примерно до 95% критического функционала и исправив несколько критичных дефектов.",
+              "Наставлял около 10 стажеров - студентов Школы 21, по фреймворку и процессу автоматизации, помогая переводить ручные QA-сценарии в масштабируемые автотесты.",
               "Самостоятельно спроектировал и реализовал пользовательский ресурс Kubernetes для управления связями control plane и data plane в Istio; позже решение представили внутри компании как целевой платформенный подход."
             ],
             "stack": [
@@ -631,7 +654,7 @@ window.JORQEN_RESUME_DATA = {
             "bullets": [
               "Разделил большой монолитный backend на более мелкие сервисы и заменил часть внутреннего REST-взаимодействия на gRPC, чтобы снизить задержку и упростить границы сервисов.",
               "Оптимизировал платежные и отчетные запросы через EXPLAIN ANALYZE, сократив несколько тяжелых PostgreSQL-запросов с 10-30 секунд до почти реального времени.",
-              "Реализовал ключевые продуктовые возможности вокруг онлайн-платежей, ценообразования, email-уведомлений, Telegram-оповещений и magic-link аутентификации.",
+              "Реализовал ключевые продуктовые возможности для P2P-обмена и онлайн-платежей, включая логику курсов, интеграции между сервисами, email-уведомления, Telegram-оповещения и magic-link аутентификацию в компактной backend-команде из двух инженеров.",
               "Разобрал и локализовал критический инцидент с конвертацией валют, откатил затронутые транзакции и затем усилил валидацию, наблюдаемость и дисциплину релизов."
             ],
             "stack": [
@@ -654,7 +677,7 @@ window.JORQEN_RESUME_DATA = {
             "period": "Окт 2021 - Мар 2022",
             "duration": "5 мес.",
             "location": "Удаленно",
-            "intro": "Клиентский портал и внутренняя административная система для лицевых счетов, биллинга, платежей и операционных сценариев управления теплообслуживания объектов.",
+            "intro": "Клиентский портал и внутренняя административная система для лицевых счетов, биллинга, платежей и операционных сценариев управления объектами.",
             "bullets": [
               "Разработал и запустил основную backend-архитектуру клиентского портала и административной системы с интеграциями в 1С, платежи, дашборды и веб/мобильные клиенты.",
               "Переписал на Go ключевой сервис, ранее реализованный на PHP: перенес критичные сценарии интеграции с 1С и обработки платежей без потери бизнес-функциональности.",
@@ -705,7 +728,7 @@ window.JORQEN_RESUME_DATA = {
           },
           {
             "institution": "Воронежский государственный технический университет",
-            "degree": "СПО, информационные технологии и программирование",
+            "degree": "СПО, информационные технологии и программирование, диплом с отличием",
             "period": "2021 - 2025",
             "institutionIcon": "assets/icons/light/vstu.svg",
             "institutionIconDark": "assets/icons/dark/vstu.svg",
@@ -788,6 +811,25 @@ window.JORQEN_RESUME_DATA = {
               "Allure",
               "Testing frameworks"
             ]
+          },
+          {
+            "title": "Ключевые направления",
+            "items": [
+              "Distributed systems",
+              "Backend architecture",
+              "High-load services",
+              "Testing infrastructure",
+              "Service reliability",
+              "Security",
+              "Mentoring"
+            ]
+          },
+          {
+            "title": "Разговорные языки",
+            "items": [
+              "Russian (Native)",
+              "English (B2 / Working proficiency)"
+            ]
           }
         ]
       },
@@ -798,7 +840,7 @@ window.JORQEN_RESUME_DATA = {
           "Мне комфортно и в продуктовых, и в платформенных командах: я умею переключаться между инфраструктурой, чувствительной к задержкам, и backend-функциональностью, которая ближе к бизнесу.",
           "Лучше всего подхожу командам, которые решают высоконагруженные, низколатентные или технически неоднозначные backend-задачи.",
           "В ближайшие 2-5 лет хочу вырасти в роль техлида и технического лидера, оставаясь при этом глубоко техническим инженером.",
-          "Я использую английский в рабочих и интервью-контекстах, когда это нужно, и продолжаю улучшать разговорную беглость для международных команд.",
+          "Русский - мой родной язык; английский - B2 / рабочий уровень, и я использую его в работе, когда это нужно.",
           "Вне работы я менторю кандидатов, катаюсь на велосипеде, плаваю, хожу в зал и люблю путешествовать; Япония - одно из мест, куда мне особенно хочется вернуться."
         ]
       },

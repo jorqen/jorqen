@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from calendar import monthrange
 from datetime import date
+from functools import lru_cache
 import hashlib
 import html
 import json
@@ -40,6 +41,7 @@ try:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import inch
+    from reportlab.lib.utils import ImageReader
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
     from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
@@ -280,12 +282,12 @@ def convert_svg_to_png(source: Path, build_dir: Path, size: int = 48) -> Path | 
         return None
     build_dir.mkdir(parents=True, exist_ok=True)
     relative_source = source.relative_to(ROOT)
-    cache_key = hashlib.sha1(str(relative_source).encode("utf-8")).hexdigest()[:10]
+    cache_key = hashlib.sha1(f"{relative_source}:preserve-aspect-v2".encode("utf-8")).hexdigest()[:10]
     output = build_dir / f"{source.stem}-{cache_key}-{size}.png"
     if output.exists() and output.stat().st_mtime >= source.stat().st_mtime:
         return output
     subprocess.run(
-        [rsvg, "-w", str(size), "-h", str(size), "-o", str(output), str(source)],
+        [rsvg, "-w", str(size), "-o", str(output), str(source)],
         check=True,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -333,8 +335,8 @@ def education_header_text(item: dict[str, Any]) -> str:
     return f"{item['degree']} ({item['period']})"
 
 
-def skill_group_segments(groups: list[dict[str, Any]]) -> list[str]:
-    return [f"{group['title']}: {', '.join(group['items'])}" for group in groups]
+def skill_group_segments(groups: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    return [(group["title"], ", ".join(group["items"])) for group in groups]
 
 
 def format_resume_date(value: str, month_names: list[str]) -> str:
@@ -591,8 +593,8 @@ def generate_txt(data: dict[str, Any], lang: str, output_path: Path) -> None:
     add_wrapped(lines)
     lines.append(download_section_title(lang, "skills"))
     lines.append("-" * len(download_section_title(lang, "skills")))
-    for group in content["skills"]["groups"]:
-        lines.append(f"{group['title']}: {', '.join(group['items'])}")
+    for title, values in skill_group_segments(content["skills"]["groups"]):
+        lines.append(f"{title}: {values}")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
@@ -919,10 +921,9 @@ def generate_docx(data: dict[str, Any], lang: str, output_path: Path, build_dir:
 
     document.add_paragraph(download_section_title(lang, "skills"), style="ResumeSection")
     skills_paragraph = document.add_paragraph(style="ResumeBody")
-    for index, segment in enumerate(skill_group_segments(content["skills"]["groups"])):
+    for index, (title, values) in enumerate(skill_group_segments(content["skills"]["groups"])):
         if index:
-            skills_paragraph.add_run(" | ")
-        title, values = segment.split(": ", 1)
+            skills_paragraph.add_run().add_break()
         skills_paragraph.add_run(f"{title}: ").bold = True
         skills_paragraph.add_run(values)
 
@@ -991,12 +992,28 @@ def pdf_markup(markup: str, style: ParagraphStyle) -> Paragraph:
     return Paragraph(markup, style)
 
 
+@lru_cache(maxsize=None)
+def image_dimensions(path: str) -> tuple[float, float] | None:
+    try:
+        width, height = ImageReader(path).getSize()
+    except OSError:
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return float(width), float(height)
+
+
 def pdf_icon_markup(path: Path | None, size: int = 9) -> str:
     if not path:
         return ""
+    dimensions = image_dimensions(str(path))
+    height = size
+    if dimensions:
+        intrinsic_width, intrinsic_height = dimensions
+        height = size * intrinsic_height / intrinsic_width
     return (
         f'<img src="{html.escape(str(path), quote=True)}" '
-        f'width="{size}" height="{size}" valign="middle"/>'
+        f'width="{size:.2f}" height="{height:.2f}" valign="middle"/>'
     )
 
 
@@ -1226,9 +1243,9 @@ def generate_pdf(data: dict[str, Any], lang: str, output_path: Path, build_dir: 
         ))
 
     pdf_section(story, download_section_title(lang, "skills"), styles)
-    skill_markup = " | ".join(
-        f"<b>{pdf_text(group['title'])}:</b> {pdf_text(', '.join(group['items']))}"
-        for group in content["skills"]["groups"]
+    skill_markup = "<br/>".join(
+        f"<b>{pdf_text(title)}:</b> {pdf_text(values)}"
+        for title, values in skill_group_segments(content["skills"]["groups"])
     )
     story.append(pdf_markup(skill_markup, styles["body"]))
 
@@ -1236,7 +1253,7 @@ def generate_pdf(data: dict[str, Any], lang: str, output_path: Path, build_dir: 
 
 
 def copy_public_data(data_path: Path, output_root: Path) -> None:
-    target_dir = output_root / "data"
+    target_dir = output_root
     target_dir.mkdir(parents=True, exist_ok=True)
     data_target = target_dir / data_path.name
     if data_path.resolve() != data_target.resolve():
@@ -1297,7 +1314,7 @@ def generate_outputs(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--data", type=Path, default=ROOT / "resume/data/resume.yaml")
+    parser.add_argument("--data", type=Path, default=ROOT / "resume/resume.yaml")
     parser.add_argument("--output-root", type=Path, default=ROOT / "resume")
     parser.add_argument("--site-output", type=Path, default=ROOT / "assets/generated/resume-content.js")
     parser.add_argument("--build-dir", type=Path, default=ROOT / ".build/resume-assets")

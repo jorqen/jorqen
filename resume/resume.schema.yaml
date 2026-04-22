@@ -1,7 +1,7 @@
 "$schema": "http://json-schema.org/draft-07/schema#"
-"$id": "https://jorqen.github.io/resume/data/resume.schema.yaml"
+"$id": "https://jorqen.github.io/resume/resume.schema.yaml"
 title: "Jorqen Resume Source"
-description: "JSON Schema validation contract for resume/data/resume.yaml."
+description: "JSON Schema validation contract for resume/resume.yaml."
 type: "object"
 required:
   - "schema"
