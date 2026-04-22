@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+from calendar import monthrange
+from datetime import date
 import html
 import json
 import shutil
@@ -159,20 +161,6 @@ def parse_yaml_subset(path: Path) -> dict[str, Any]:
     return parsed
 
 
-def find_forbidden_keys(value: Any, forbidden: set[str], path: str = "root") -> list[str]:
-    found: list[str] = []
-    if isinstance(value, dict):
-        for key, item in value.items():
-            item_path = f"{path}.{key}"
-            if key in forbidden:
-                found.append(item_path)
-            found.extend(find_forbidden_keys(item, forbidden, item_path))
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            found.extend(find_forbidden_keys(item, forbidden, f"{path}[{index}]"))
-    return found
-
-
 def normalize_website_candidate(value: Any) -> str:
     text = str(value or "").strip().lower()
     for prefix in ("https://", "http://"):
@@ -206,9 +194,31 @@ def format_period(item: dict[str, Any], lang: str, labels: dict[str, str]) -> st
     return f"{start} - {end}"
 
 
+def resume_date_upper_bound(value: str | None) -> date | None:
+    if not value:
+        return None
+    parts = value.split("-")
+    try:
+        year = int(parts[0])
+        if len(parts) == 1:
+            return date(year, 12, 31)
+        month = int(parts[1])
+        return date(year, month, monthrange(year, month)[1])
+    except (IndexError, TypeError, ValueError):
+        return None
+
+
+def is_expected_education(item: dict[str, Any]) -> bool:
+    end_date = resume_date_upper_bound(item.get("endDate"))
+    return bool(end_date and end_date > date.today())
+
+
 def format_education_period(item: dict[str, Any], lang: str, labels: dict[str, str]) -> str:
-    if item.get("expected"):
-        return f"{labels['expectedGraduation']}: {format_resume_date(item['endDate'], lang)}"
+    if is_expected_education(item):
+        end = f"{labels['expectedGraduation']}: {format_resume_date(item['endDate'], lang)}"
+        if item.get("startDate"):
+            return f"{format_resume_date(item['startDate'], lang)} - {end}"
+        return end
     if item.get("startDate") and item.get("endDate"):
         return f"{format_resume_date(item['startDate'], lang)} - {format_resume_date(item['endDate'], lang)}"
     return format_resume_date(item.get("endDate") or item.get("startDate") or "", lang)
@@ -218,10 +228,6 @@ def validate_source(source: dict[str, Any]) -> None:
     languages = source.get("languages") or []
     if languages != ["en", "ru"]:
         raise ValueError("Expected languages to be ['en', 'ru'].")
-
-    forbidden = find_forbidden_keys(source, {"id", "period"})
-    if forbidden:
-        raise ValueError("Resume source must not contain manual id/period fields: " + ", ".join(forbidden))
 
     contacts = source.get("contacts", {})
     missing_contacts = [key for key in CONTACT_KEYS if not contacts.get(key, {}).get("url")]
@@ -297,7 +303,6 @@ def normalize_for_language(source: dict[str, Any], lang: str) -> dict[str, Any]:
             "period": format_education_period(item, lang, labels),
             "startDate": item.get("startDate"),
             "endDate": item.get("endDate"),
-            "expected": item.get("expected", False),
         }
         for item in education["items"]
     ]

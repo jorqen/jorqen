@@ -10,7 +10,7 @@ window.JORQEN_RESUME_DATA = {
   "contacts": {
     "website": {
       "label": "Website",
-      "text": "jorqen.github.io/jorqen",
+      "text": "jorqen.github.io",
       "url": "https://jorqen.github.io"
     },
     "linkedin": {
@@ -308,18 +308,16 @@ window.JORQEN_RESUME_DATA = {
           {
             "institution": "Voronezh State Technical University",
             "degree": "B.S. in Intelligent Automated Systems (part-time)",
-            "period": "Expected graduation: 2030",
-            "startDate": null,
-            "endDate": "2030",
-            "expected": true
+            "period": "2025 - Expected graduation: 2030",
+            "startDate": "2025",
+            "endDate": "2030"
           },
           {
             "institution": "Voronezh State Technical University",
             "degree": "Secondary vocational education in Information Technology and Programming",
             "period": "2021 - 2025",
             "startDate": "2021",
-            "endDate": "2025",
-            "expected": false
+            "endDate": "2025"
           }
         ]
       },
@@ -736,18 +734,16 @@ window.JORQEN_RESUME_DATA = {
           {
             "institution": "Воронежский государственный технический университет",
             "degree": "Бакалавриат, интеллектуальные автоматизированные системы (заочно)",
-            "period": "Ожидаемое окончание: 2030",
-            "startDate": null,
-            "endDate": "2030",
-            "expected": true
+            "period": "2025 - Ожидаемое окончание: 2030",
+            "startDate": "2025",
+            "endDate": "2030"
           },
           {
             "institution": "Воронежский государственный технический университет",
             "degree": "СПО, информационные технологии и программирование",
             "period": "2021 - 2025",
             "startDate": "2021",
-            "endDate": "2025",
-            "expected": false
+            "endDate": "2025"
           }
         ]
       },

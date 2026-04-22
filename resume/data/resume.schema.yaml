@@ -390,8 +390,6 @@ definitions:
         "$ref": "#/definitions/yearOrYearMonth"
       endDate:
         "$ref": "#/definitions/yearOrYearMonth"
-      expected:
-        type: "boolean"
   strengthsSection:
     type: "object"
     required:

@@ -9,7 +9,7 @@ contacts:
     label:
       en: "Website"
       ru: "Сайт"
-    text: "jorqen.github.io/jorqen"
+    text: "jorqen.github.io"
     url: "https://jorqen.github.io"
   linkedin:
     label: "LinkedIn"
@@ -420,8 +420,8 @@ education:
       degree:
         en: "B.S. in Intelligent Automated Systems (part-time)"
         ru: "Бакалавриат, интеллектуальные автоматизированные системы (заочно)"
+      startDate: "2025"
       endDate: "2030"
-      expected: true
     -
       institution:
         en: "Voronezh State Technical University"
