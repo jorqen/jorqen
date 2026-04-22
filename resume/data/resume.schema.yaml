@@ -1,12 +1,14 @@
 "$schema": "http://json-schema.org/draft-07/schema#"
 "$id": "https://jorqen.github.io/resume/data/resume.schema.yaml"
 title: "Jorqen Resume Source"
-description: "JSON Schema for resume/data/resume.yaml. Runtime validation still checks cross-field rules such as sorting and generated fields."
+description: "JSON Schema validation contract for resume/data/resume.yaml."
 type: "object"
 required:
   - "schema"
   - "defaultLanguage"
   - "languages"
+  - "dateFormats"
+  - "downloadStyles"
   - "contacts"
   - "site"
   - "resumeLabels"
@@ -30,6 +32,10 @@ properties:
       - const: "en"
       - const: "ru"
     additionalItems: false
+  dateFormats:
+    "$ref": "#/definitions/dateFormats"
+  downloadStyles:
+    "$ref": "#/definitions/downloadStyles"
   contacts:
     type: "object"
     required:
@@ -40,7 +46,7 @@ properties:
     additionalProperties: false
     properties:
       website:
-        "$ref": "#/definitions/contact"
+        "$ref": "#/definitions/websiteContact"
       linkedin:
         "$ref": "#/definitions/contact"
       github:
@@ -97,22 +103,119 @@ definitions:
         "$ref": "#/definitions/stringValue"
       ru:
         "$ref": "#/definitions/stringValue"
+  dateFormats:
+    type: "object"
+    required:
+      - "monthNames"
+    additionalProperties: false
+    properties:
+      monthNames:
+        type: "object"
+        required:
+          - "en"
+          - "ru"
+        additionalProperties: false
+        properties:
+          en:
+            "$ref": "#/definitions/monthNameList"
+          ru:
+            "$ref": "#/definitions/monthNameList"
+  monthNameList:
+    type: "array"
+    minItems: 12
+    maxItems: 12
+    items:
+      "$ref": "#/definitions/stringValue"
+  downloadStyles:
+    type: "object"
+    required:
+      - "colors"
+      - "typography"
+    additionalProperties: false
+    properties:
+      colors:
+        type: "object"
+        required:
+          - "accent"
+          - "text"
+          - "muted"
+          - "line"
+        additionalProperties: false
+        properties:
+          accent:
+            "$ref": "#/definitions/hexColor"
+          text:
+            "$ref": "#/definitions/hexColor"
+          muted:
+            "$ref": "#/definitions/hexColor"
+          line:
+            "$ref": "#/definitions/hexColor"
+      typography:
+        type: "object"
+        required:
+          - "title"
+          - "contact"
+          - "body"
+          - "section"
+          - "company"
+          - "meta"
+          - "bullet"
+        additionalProperties: false
+        properties:
+          title:
+            "$ref": "#/definitions/textStyle"
+          contact:
+            "$ref": "#/definitions/textStyle"
+          body:
+            "$ref": "#/definitions/textStyle"
+          section:
+            "$ref": "#/definitions/textStyle"
+          company:
+            "$ref": "#/definitions/textStyle"
+          meta:
+            "$ref": "#/definitions/textStyle"
+          bullet:
+            "$ref": "#/definitions/textStyle"
+  hexColor:
+    type: "string"
+    pattern: '^#?[0-9A-Fa-f]{6}$'
+  textStyle:
+    type: "object"
+    required:
+      - "fontSize"
+      - "lineHeight"
+    additionalProperties: false
+    properties:
+      fontSize:
+        type: "number"
+        exclusiveMinimum: 0
+      lineHeight:
+        type: "number"
+        exclusiveMinimum: 0
   contact:
     type: "object"
     required:
       - "label"
-      - "text"
       - "url"
     additionalProperties: false
     properties:
       label:
         "$ref": "#/definitions/localizedString"
-      text:
-        "$ref": "#/definitions/stringValue"
       url:
         type: "string"
         minLength: 1
         format: "uri"
+      icon:
+        "$ref": "#/definitions/assetPath"
+      iconDark:
+        "$ref": "#/definitions/assetPath"
+  websiteContact:
+    allOf:
+      - "$ref": "#/definitions/contact"
+      - type: "object"
+        properties:
+          url:
+            const: "https://jorqen.github.io"
   site:
     type: "object"
     required:
@@ -241,6 +344,9 @@ definitions:
         "$ref": "#/definitions/stringValue"
       filter:
         "$ref": "#/definitions/stringValue"
+  assetPath:
+    type: "string"
+    minLength: 1
   fact:
     type: "object"
     required:
@@ -250,7 +356,9 @@ definitions:
     additionalProperties: false
     properties:
       icon:
-        "$ref": "#/definitions/stringValue"
+        "$ref": "#/definitions/assetPath"
+      iconDark:
+        "$ref": "#/definitions/assetPath"
       label:
         "$ref": "#/definitions/localizedString"
       value:
@@ -258,10 +366,13 @@ definitions:
   resumeDownloads:
     type: "object"
     required:
+      - "fileBaseName"
       - "title"
       - "labels"
     additionalProperties: false
     properties:
+      fileBaseName:
+        "$ref": "#/definitions/stringValue"
       title:
         "$ref": "#/definitions/localizedString"
       labels:
@@ -379,6 +490,7 @@ definitions:
     required:
       - "institution"
       - "degree"
+      - "startDate"
       - "endDate"
     additionalProperties: false
     properties:

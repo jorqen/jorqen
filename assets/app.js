@@ -23,10 +23,6 @@ const THEMED_ICON_MAP = {
     light: "assets/icons/light/layers.svg",
     dark: "assets/icons/dark/layers.svg",
   },
-  "location": {
-    light: "assets/icons/light/location.svg",
-    dark: "assets/icons/dark/location.svg",
-  },
   "star": {
     light: "assets/icons/light/star.svg",
     dark: "assets/icons/dark/star.svg",
@@ -38,14 +34,6 @@ const THEMED_ICON_MAP = {
   "moon": {
     light: "assets/icons/light/moon.svg",
     dark: "assets/icons/dark/moon.svg",
-  },
-  "github": {
-    light: "assets/icons/light/github.svg",
-    dark: "assets/icons/dark/github.svg",
-  },
-  "telegram": {
-    light: "assets/icons/light/telegram.svg",
-    dark: "assets/icons/dark/telegram.svg",
   },
 };
 const STATIC_THEME_ICON_BINDINGS = [
@@ -126,13 +114,21 @@ function getThemedIcon(iconPath, theme) {
   return mapping[theme] || iconPath;
 }
 
+function getThemeAwareSource(source, darkSource, theme) {
+  return theme === "dark" && darkSource ? darkSource : source || "";
+}
+
 function setImageSource(selector, source) {
   const image = document.querySelector(selector);
   if (!image) {
     return;
   }
 
-  image.src = source;
+  if (source) {
+    image.src = source;
+  } else {
+    image.removeAttribute("src");
+  }
 }
 
 function syncStaticThemeIcons(theme) {
@@ -158,6 +154,11 @@ function setLinkLabel(id, text) {
 
 function getContactUrl(key) {
   return RESUME_DATA.contacts?.[key]?.url || "";
+}
+
+function getContactIcon(key, theme) {
+  const contact = RESUME_DATA.contacts?.[key] || {};
+  return getThemeAwareSource(contact.icon, contact.iconDark, theme);
 }
 
 function setLinkHref(id, href) {
@@ -259,7 +260,7 @@ function renderFacts(items, theme) {
 
     if (item.icon) {
       const icon = document.createElement("img");
-      icon.src = getThemedIcon(item.icon, theme);
+      icon.src = getThemeAwareSource(item.icon, item.iconDark, theme);
       icon.alt = "";
       icon.setAttribute("aria-hidden", "true");
       icon.className = "fact-icon";
@@ -710,20 +711,17 @@ function renderLanguage(lang) {
   setLinkHref("hero-linkedin", getContactUrl("linkedin"));
   setLinkHref("hero-github", getContactUrl("github"));
   setLinkHref("hero-telegram", getContactUrl("telegram"));
-  setImageSource("#hero-linkedin img", "assets/icons/linkedin.svg");
-  setImageSource("#hero-github img", getThemedIcon("github", theme));
-  setImageSource("#hero-telegram img", getThemedIcon("telegram", theme));
+  setImageSource("#hero-linkedin img", getContactIcon("linkedin", theme));
+  setImageSource("#hero-github img", getContactIcon("github", theme));
+  setImageSource("#hero-telegram img", getContactIcon("telegram", theme));
 
   renderFacts(data.hero.facts, theme);
   renderHeroPhoto(data.hero.photo, 0, `${data.lightbox.openPhoto}: ${data.hero.photo.caption || ""}`);
 
   setText("resume-title", data.resume.title);
-  setText("resume-subtitle", data.resume.subtitle);
-  setText("resume-note", data.resume.note);
   syncResumeLinks(data.resume);
 
   setText("experience-title", data.experience.title);
-  setText("experience-subtitle", data.experience.subtitle);
   renderExperience(data.experience, theme);
 
   setText("education-title", data.education.title);
@@ -735,7 +733,6 @@ function renderLanguage(lang) {
   renderStrengths(data.strengths.cards);
 
   setText("skills-title", data.skills.title);
-  setText("skills-subtitle", data.skills.subtitle);
   renderSkills(data.skills.groups);
 
   setText("preferences-title", data.preferences.title);

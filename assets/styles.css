@@ -484,12 +484,6 @@ h1 {
   color: var(--text-main);
 }
 
-.resume-note {
-  margin: 12px 0 0;
-  color: var(--text-soft);
-  font-size: 0.9rem;
-}
-
 .timeline {
   margin-top: 14px;
   display: grid;

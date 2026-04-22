@@ -1,32 +1,18 @@
 window.JORQEN_RESUME_DATA = {
-  "meta": {
-    "schema": "jorqen.resume.v1",
-    "defaultLanguage": "en",
-    "languages": [
-      "en",
-      "ru"
-    ]
-  },
   "contacts": {
-    "website": {
-      "label": "Website",
-      "text": "jorqen.github.io",
-      "url": "https://jorqen.github.io"
-    },
     "linkedin": {
-      "label": "LinkedIn",
-      "text": "jorqen",
-      "url": "https://www.linkedin.com/in/jorqen"
+      "url": "https://www.linkedin.com/in/jorqen",
+      "icon": "assets/icons/linkedin.svg"
     },
     "github": {
-      "label": "GitHub",
-      "text": "jorqen",
-      "url": "https://github.com/jorqen"
+      "url": "https://github.com/jorqen",
+      "icon": "assets/icons/light/github.svg",
+      "iconDark": "assets/icons/dark/github.svg"
     },
     "telegram": {
-      "label": "Telegram",
-      "text": "jorqen",
-      "url": "https://t.me/jorqen"
+      "url": "https://t.me/jorqen",
+      "icon": "assets/icons/light/telegram.svg",
+      "iconDark": "assets/icons/dark/telegram.svg"
     }
   },
   "content": {
@@ -67,28 +53,33 @@ window.JORQEN_RESUME_DATA = {
         },
         "facts": [
           {
-            "icon": "location",
+            "icon": "assets/icons/light/location.svg",
+            "iconDark": "assets/icons/dark/location.svg",
             "label": "Location",
             "value": "Moscow, Russia"
           },
           {
-            "icon": "briefcase",
+            "icon": "assets/icons/light/briefcase.svg",
+            "iconDark": "assets/icons/dark/briefcase.svg",
             "label": "Experience",
             "value": "Golang - 4+ years\nJava - 6 months"
           },
           {
-            "icon": "layers",
+            "icon": "assets/icons/light/layers.svg",
+            "iconDark": "assets/icons/dark/layers.svg",
             "label": "Primary stack",
             "value": "Go, distributed systems"
           },
           {
-            "icon": "star",
+            "icon": "assets/icons/light/star.svg",
+            "iconDark": "assets/icons/dark/star.svg",
             "label": "Format",
             "value": "Remote / relocation"
           }
         ]
       },
       "resume": {
+        "fileBaseName": "Matvey_Sizov",
         "title": "Download resume",
         "labels": {
           "pdf": "For sharing and printing",
@@ -96,14 +87,14 @@ window.JORQEN_RESUME_DATA = {
           "txt": "Text version"
         },
         "files": {
-          "pdf": "resume/en/resume.pdf",
-          "docx": "resume/en/resume.docx",
-          "txt": "resume/en/resume.txt"
+          "pdf": "resume/en/Matvey_Sizov.pdf",
+          "docx": "resume/en/Matvey_Sizov.docx",
+          "txt": "resume/en/Matvey_Sizov.txt"
         },
         "downloadNames": {
-          "pdf": "Matvey_Sizov_EN.pdf",
-          "docx": "Matvey_Sizov_EN.docx",
-          "txt": "Matvey_Sizov_EN.txt"
+          "pdf": "Matvey_Sizov.pdf",
+          "docx": "Matvey_Sizov.docx",
+          "txt": "Matvey_Sizov.txt"
         }
       },
       "experience": {
@@ -112,9 +103,6 @@ window.JORQEN_RESUME_DATA = {
         "items": [
           {
             "company": "ATOM",
-            "companyIcon": "assets/icons/atom.svg",
-            "companyIconDark": "",
-            "companyUrl": "https://atom.auto",
             "role": "Senior Software Engineer, Communications & Telemetry",
             "period": "Feb 2025 - Present",
             "location": "Remote from Russia",
@@ -142,14 +130,11 @@ window.JORQEN_RESUME_DATA = {
               "Kubernetes",
               "CI/CD"
             ],
-            "startDate": "2025-02",
-            "endDate": null
+            "companyIcon": "assets/icons/atom.svg",
+            "companyUrl": "https://atom.auto"
           },
           {
             "company": "Sber Tech",
-            "companyIcon": "assets/icons/light/sbertech.svg",
-            "companyIconDark": "assets/icons/dark/sbertech.svg",
-            "companyUrl": "https://sbertech.ru",
             "role": "Software Engineer, Service Mesh & Platform Infrastructure",
             "period": "Jan 2024 - Feb 2025",
             "location": "Moscow, Russia",
@@ -171,14 +156,12 @@ window.JORQEN_RESUME_DATA = {
               "CI/CD",
               "Allure"
             ],
-            "startDate": "2024-01",
-            "endDate": "2025-02"
+            "companyIcon": "assets/icons/light/sbertech.svg",
+            "companyIconDark": "assets/icons/dark/sbertech.svg",
+            "companyUrl": "https://sbertech.ru"
           },
           {
             "company": "Lukyanov Tech",
-            "companyIcon": "assets/icons/lukyanov.png",
-            "companyIconDark": "",
-            "companyUrl": "https://lukyanov.tech",
             "role": "Part-Time Mentor / Mock Interviewer",
             "period": "Jan 2024 - Present",
             "location": "Remote",
@@ -193,14 +176,11 @@ window.JORQEN_RESUME_DATA = {
               "System design",
               "Technical communication"
             ],
-            "startDate": "2024-01",
-            "endDate": null
+            "companyIcon": "assets/icons/lukyanov.png",
+            "companyUrl": "https://lukyanov.tech"
           },
           {
             "company": "Magnus Tech",
-            "companyIcon": "assets/icons/magnus.svg",
-            "companyIconDark": "",
-            "companyUrl": "https://magnustech.com",
             "role": "Backend Engineer",
             "period": "Mar 2023 - Jan 2024",
             "location": "Remote",
@@ -222,14 +202,11 @@ window.JORQEN_RESUME_DATA = {
               "Prometheus",
               "CI/CD"
             ],
-            "startDate": "2023-03",
-            "endDate": "2024-01"
+            "companyIcon": "assets/icons/magnus.svg",
+            "companyUrl": "https://magnustech.com"
           },
           {
             "company": "Exnode",
-            "companyIcon": "assets/icons/light/exnode.svg",
-            "companyIconDark": "assets/icons/dark/exnode.svg",
-            "companyUrl": "https://exnode.ru",
             "role": "Backend Engineer",
             "period": "Sep 2022 - Mar 2023",
             "location": "Moscow, Russia",
@@ -250,14 +227,12 @@ window.JORQEN_RESUME_DATA = {
               "Grafana",
               "Telegram Bot API"
             ],
-            "startDate": "2022-09",
-            "endDate": "2023-03"
+            "companyIcon": "assets/icons/light/exnode.svg",
+            "companyIconDark": "assets/icons/dark/exnode.svg",
+            "companyUrl": "https://exnode.ru"
           },
           {
             "company": "Kaluga Power Supply Company",
-            "companyIcon": "assets/icons/kaluga.svg",
-            "companyIconDark": "",
-            "companyUrl": "https://kskkaluga.ru",
             "role": "Backend Engineer",
             "period": "Oct 2021 - Mar 2022",
             "location": "Remote",
@@ -275,14 +250,11 @@ window.JORQEN_RESUME_DATA = {
               "Payments",
               "Dashboards"
             ],
-            "startDate": "2021-10",
-            "endDate": "2022-03"
+            "companyIcon": "assets/icons/kaluga.svg",
+            "companyUrl": "https://kskkaluga.ru"
           },
           {
             "company": "Center for Regional Management of Lipetsk Oblast (CUR)",
-            "companyIcon": "",
-            "companyIconDark": "",
-            "companyUrl": "",
             "role": "Java Developer",
             "period": "Jun 2021 - Nov 2021",
             "location": "Lipetsk, Russia",
@@ -295,9 +267,7 @@ window.JORQEN_RESUME_DATA = {
               "Java",
               "SQL",
               "Backend"
-            ],
-            "startDate": "2021-06",
-            "endDate": "2021-11"
+            ]
           }
         ]
       },
@@ -308,16 +278,12 @@ window.JORQEN_RESUME_DATA = {
           {
             "institution": "Voronezh State Technical University",
             "degree": "B.S. in Intelligent Automated Systems (part-time)",
-            "period": "2025 - Expected graduation: 2030",
-            "startDate": "2025",
-            "endDate": "2030"
+            "period": "2025 - Expected graduation: 2030"
           },
           {
             "institution": "Voronezh State Technical University",
             "degree": "Secondary vocational education in Information Technology and Programming",
-            "period": "2021 - 2025",
-            "startDate": "2021",
-            "endDate": "2025"
+            "period": "2021 - 2025"
           }
         ]
       },
@@ -493,28 +459,33 @@ window.JORQEN_RESUME_DATA = {
         },
         "facts": [
           {
-            "icon": "location",
+            "icon": "assets/icons/light/location.svg",
+            "iconDark": "assets/icons/dark/location.svg",
             "label": "Локация",
             "value": "Москва, Россия"
           },
           {
-            "icon": "briefcase",
+            "icon": "assets/icons/light/briefcase.svg",
+            "iconDark": "assets/icons/dark/briefcase.svg",
             "label": "Опыт",
             "value": "Golang - 4+ года\nJava - 6 месяцев"
           },
           {
-            "icon": "layers",
+            "icon": "assets/icons/light/layers.svg",
+            "iconDark": "assets/icons/dark/layers.svg",
             "label": "Основной стек",
             "value": "Go, распределенные системы"
           },
           {
-            "icon": "star",
+            "icon": "assets/icons/light/star.svg",
+            "iconDark": "assets/icons/dark/star.svg",
             "label": "Формат",
             "value": "Удаленно / релокация"
           }
         ]
       },
       "resume": {
+        "fileBaseName": "Matvey_Sizov",
         "title": "Скачать резюме",
         "labels": {
           "pdf": "Для отправки и печати",
@@ -522,14 +493,14 @@ window.JORQEN_RESUME_DATA = {
           "txt": "Текстовая версия"
         },
         "files": {
-          "pdf": "resume/ru/resume.pdf",
-          "docx": "resume/ru/resume.docx",
-          "txt": "resume/ru/resume.txt"
+          "pdf": "resume/ru/Matvey_Sizov.pdf",
+          "docx": "resume/ru/Matvey_Sizov.docx",
+          "txt": "resume/ru/Matvey_Sizov.txt"
         },
         "downloadNames": {
-          "pdf": "Матвей_Сизов_RU.pdf",
-          "docx": "Матвей_Сизов_RU.docx",
-          "txt": "Матвей_Сизов_RU.txt"
+          "pdf": "Matvey_Sizov.pdf",
+          "docx": "Matvey_Sizov.docx",
+          "txt": "Matvey_Sizov.txt"
         }
       },
       "experience": {
@@ -538,11 +509,8 @@ window.JORQEN_RESUME_DATA = {
         "items": [
           {
             "company": "АТОМ",
-            "companyIcon": "assets/icons/atom.svg",
-            "companyIconDark": "",
-            "companyUrl": "https://atom.auto",
             "role": "Senior Software Engineer, Communications & Telemetry",
-            "period": "фев 2025 - настоящее время",
+            "period": "Фев 2025 - настоящее время",
             "location": "Удаленно из России",
             "intro": "АТОМ строит российскую платформу электромобиля. Я работаю в направлении коммуникаций и телеметрии над backend-сервисами, которые соединяют автомобиль, облако и внешних клиентов, с фокусом на задержку, безопасность и операционную надежность.",
             "bullets": [
@@ -568,16 +536,13 @@ window.JORQEN_RESUME_DATA = {
               "Kubernetes",
               "CI/CD"
             ],
-            "startDate": "2025-02",
-            "endDate": null
+            "companyIcon": "assets/icons/atom.svg",
+            "companyUrl": "https://atom.auto"
           },
           {
             "company": "Sber Tech",
-            "companyIcon": "assets/icons/light/sbertech.svg",
-            "companyIconDark": "assets/icons/dark/sbertech.svg",
-            "companyUrl": "https://sbertech.ru",
             "role": "Software Engineer, Service Mesh & Platform Infrastructure",
-            "period": "янв 2024 - фев 2025",
+            "period": "Янв 2024 - Фев 2025",
             "location": "Москва, Россия",
             "intro": "Сбер Тех развивает Platform V, крупную корпоративную платформу. Я работал с сильно модифицированным форком Istio и смежными инфраструктурными компонентами для управления service mesh, контроля политик и платформенной интеграции.",
             "bullets": [
@@ -597,16 +562,14 @@ window.JORQEN_RESUME_DATA = {
               "CI/CD",
               "Allure"
             ],
-            "startDate": "2024-01",
-            "endDate": "2025-02"
+            "companyIcon": "assets/icons/light/sbertech.svg",
+            "companyIconDark": "assets/icons/dark/sbertech.svg",
+            "companyUrl": "https://sbertech.ru"
           },
           {
             "company": "Lukyanov Tech",
-            "companyIcon": "assets/icons/lukyanov.png",
-            "companyIconDark": "",
-            "companyUrl": "https://lukyanov.tech",
             "role": "Part-Time Mentor / Mock Interviewer",
-            "period": "янв 2024 - настоящее время",
+            "period": "Янв 2024 - настоящее время",
             "location": "Удаленно",
             "intro": "Проект неполной занятости в области менторства, подготовки к интервью и роста backend-кандидатов.",
             "bullets": [
@@ -619,16 +582,13 @@ window.JORQEN_RESUME_DATA = {
               "System design",
               "Technical communication"
             ],
-            "startDate": "2024-01",
-            "endDate": null
+            "companyIcon": "assets/icons/lukyanov.png",
+            "companyUrl": "https://lukyanov.tech"
           },
           {
             "company": "Magnus Tech",
-            "companyIcon": "assets/icons/magnus.svg",
-            "companyIconDark": "",
-            "companyUrl": "https://magnustech.com",
             "role": "Backend Engineer",
-            "period": "мар 2023 - янв 2024",
+            "period": "Мар 2023 - Янв 2024",
             "location": "Удаленно",
             "intro": "Magnus Tech - компания заказной разработки. Я работал над платформой контроля цен для сети «Бристоль», которая объединяла данные магазинов, действия сотрудников, ML-рекомендации по ценам и фотоподтверждения в единую операционную систему.",
             "bullets": [
@@ -648,16 +608,13 @@ window.JORQEN_RESUME_DATA = {
               "Prometheus",
               "CI/CD"
             ],
-            "startDate": "2023-03",
-            "endDate": "2024-01"
+            "companyIcon": "assets/icons/magnus.svg",
+            "companyUrl": "https://magnustech.com"
           },
           {
             "company": "Exnode",
-            "companyIcon": "assets/icons/light/exnode.svg",
-            "companyIconDark": "assets/icons/dark/exnode.svg",
-            "companyUrl": "https://exnode.ru",
             "role": "Backend Engineer",
-            "period": "сен 2022 - мар 2023",
+            "period": "Сен 2022 - Мар 2023",
             "location": "Москва, Россия",
             "intro": "Exnode развивал продукты криптобиржи, B2B-платежей и P2P-обмена.",
             "bullets": [
@@ -676,16 +633,14 @@ window.JORQEN_RESUME_DATA = {
               "Grafana",
               "Telegram Bot API"
             ],
-            "startDate": "2022-09",
-            "endDate": "2023-03"
+            "companyIcon": "assets/icons/light/exnode.svg",
+            "companyIconDark": "assets/icons/dark/exnode.svg",
+            "companyUrl": "https://exnode.ru"
           },
           {
             "company": "Калужская сбытовая компания",
-            "companyIcon": "assets/icons/kaluga.svg",
-            "companyIconDark": "",
-            "companyUrl": "https://kskkaluga.ru",
             "role": "Backend Engineer",
-            "period": "окт 2021 - мар 2022",
+            "period": "Окт 2021 - Мар 2022",
             "location": "Удаленно",
             "intro": "Ранняя backend-роль в системах коммунальных платежей, клиентских кабинетов и административных сервисов.",
             "bullets": [
@@ -701,16 +656,13 @@ window.JORQEN_RESUME_DATA = {
               "Payments",
               "Dashboards"
             ],
-            "startDate": "2021-10",
-            "endDate": "2022-03"
+            "companyIcon": "assets/icons/kaluga.svg",
+            "companyUrl": "https://kskkaluga.ru"
           },
           {
             "company": "Центр Управления Регионом Липецкой области (ЦУР)",
-            "companyIcon": "",
-            "companyIconDark": "",
-            "companyUrl": "",
             "role": "Java Developer",
-            "period": "июн 2021 - ноя 2021",
+            "period": "Июн 2021 - Ноя 2021",
             "location": "Липецк, Россия",
             "intro": "Моя первая коммерческая backend-роль на Java, связанная с государственными цифровыми и мониторинговыми системами.",
             "bullets": [
@@ -721,9 +673,7 @@ window.JORQEN_RESUME_DATA = {
               "Java",
               "SQL",
               "Backend"
-            ],
-            "startDate": "2021-06",
-            "endDate": "2021-11"
+            ]
           }
         ]
       },
@@ -734,16 +684,12 @@ window.JORQEN_RESUME_DATA = {
           {
             "institution": "Воронежский государственный технический университет",
             "degree": "Бакалавриат, интеллектуальные автоматизированные системы (заочно)",
-            "period": "2025 - Ожидаемое окончание: 2030",
-            "startDate": "2025",
-            "endDate": "2030"
+            "period": "2025 - Ожидаемое окончание: 2030"
           },
           {
             "institution": "Воронежский государственный технический университет",
             "degree": "СПО, информационные технологии и программирование",
-            "period": "2021 - 2025",
-            "startDate": "2021",
-            "endDate": "2025"
+            "period": "2021 - 2025"
           }
         ]
       },
