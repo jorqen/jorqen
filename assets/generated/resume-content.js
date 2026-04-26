@@ -43,10 +43,10 @@ window.JORQEN_RESUME_DATA = {
         "role": "4+ years building production Go backend systems | distributed systems, high-load and low-latency infrastructure, service mesh, and fintech/crypto products.",
         "summary": "Backend engineer specializing in Go, distributed systems, and low-latency infrastructure. I have 4+ years of commercial experience building production services across vehicle telemetry and car-to-cloud connectivity, service-mesh platform infrastructure, retail pricing operations, crypto payments and exchange flows, utility billing, and public digital services. My strongest work is turning ambiguous requirements into reliable systems: clarifying trade-offs, choosing architecture, implementing core services, adding observability and security, and carrying delivery through CI/CD into production operation.",
         "photo": {
-          "src": "assets/photos/matvey-studio.jpg",
-          "position": "center 18%",
-          "filter": "brightness(0.94) contrast(1.04) saturate(0.9)",
-          "caption": "Studio portrait"
+          "src": "assets/photos/matvey-formal.png",
+          "position": "center 22%",
+          "filter": "brightness(0.99) contrast(1.02) saturate(0.96)",
+          "caption": "Formal portrait"
         },
         "facts": [
           {
@@ -134,6 +134,26 @@ window.JORQEN_RESUME_DATA = {
             "companyUrl": "https://atom.auto"
           },
           {
+            "company": "Lukyanov Tech",
+            "role": "Part-Time Mentor / Mock Interviewer",
+            "period": "May 2024 - Present",
+            "duration": "1 yr 11 mos",
+            "location": "Remote",
+            "intro": "Part-time mentorship project for backend candidates preparing for engineering interviews. I run practical preparation tracks and mock interviews focused on backend fundamentals, system design, technical communication, and structured feedback.",
+            "bullets": [
+              "Conduct mock interviews and mentor candidates on backend fundamentals, system design, technical communication, and answer structure.",
+              "Provide structured feedback and improve preparation materials and processes so candidates can turn weak interview signals into concrete practice tasks."
+            ],
+            "stack": [
+              "Mentoring",
+              "Mock interviews",
+              "System design",
+              "Technical communication"
+            ],
+            "companyIcon": "assets/icons/lukyanov.png",
+            "companyUrl": "https://lukyanov.tech"
+          },
+          {
             "company": "Sber Tech",
             "role": "Software Engineer",
             "period": "Jan 2024 - Feb 2025",
@@ -160,26 +180,6 @@ window.JORQEN_RESUME_DATA = {
             "companyIcon": "assets/icons/light/sbertech.svg",
             "companyIconDark": "assets/icons/dark/sbertech.svg",
             "companyUrl": "https://sbertech.ru"
-          },
-          {
-            "company": "Lukyanov Tech",
-            "role": "Part-Time Mentor / Mock Interviewer",
-            "period": "Jan 2024 - Present",
-            "duration": "2 yrs 3 mos",
-            "location": "Remote",
-            "intro": "Part-time mentorship project for backend candidates preparing for engineering interviews. I run practical preparation tracks and mock interviews focused on backend fundamentals, system design, technical communication, and structured feedback.",
-            "bullets": [
-              "Conduct mock interviews and mentor candidates on backend fundamentals, system design, technical communication, and answer structure.",
-              "Provide structured feedback and improve preparation materials and processes so candidates can turn weak interview signals into concrete practice tasks."
-            ],
-            "stack": [
-              "Mentoring",
-              "Mock interviews",
-              "System design",
-              "Technical communication"
-            ],
-            "companyIcon": "assets/icons/lukyanov.png",
-            "companyUrl": "https://lukyanov.tech"
           },
           {
             "company": "Magnus Tech",
@@ -211,8 +211,8 @@ window.JORQEN_RESUME_DATA = {
           {
             "company": "Exnode",
             "role": "Backend Engineer",
-            "period": "Sep 2022 - Mar 2023",
-            "duration": "6 mos",
+            "period": "Jun 2022 - Mar 2023",
+            "duration": "9 mos",
             "location": "Moscow, Russia",
             "intro": "Exnode develops crypto exchange, B2B payment, and P2P trading products. I worked on backend transaction flows where payments, exchange operations, and reporting had to remain consistent, fast, and accurate under real business load.",
             "bullets": [
@@ -238,8 +238,8 @@ window.JORQEN_RESUME_DATA = {
           {
             "company": "Kaluga Power Supply Company",
             "role": "Backend Engineer (Go)",
-            "period": "Oct 2021 - Mar 2022",
-            "duration": "5 mos",
+            "period": "Dec 2021 - Jun 2022",
+            "duration": "6 mos",
             "location": "Remote",
             "intro": "Customer portal and internal administrative system for personal accounts, utility billing, payments, and property-management operations.",
             "bullets": [
@@ -261,8 +261,8 @@ window.JORQEN_RESUME_DATA = {
           {
             "company": "Center for Regional Management of Lipetsk Oblast (CUR)",
             "role": "Java Developer",
-            "period": "Jun 2021 - Nov 2021",
-            "duration": "5 mos",
+            "period": "Aug 2021 - Dec 2021",
+            "duration": "4 mos",
             "location": "Lipetsk, Russia",
             "intro": "Regional digital services and monitoring tools that supported government workflows and citizen-facing operational reporting in a legacy-heavy environment.",
             "bullets": [
@@ -292,7 +292,7 @@ window.JORQEN_RESUME_DATA = {
           },
           {
             "institution": "Voronezh State Technical University",
-            "degree": "Vocational diploma in Information Technology and Programming, graduated with honors",
+            "degree": "Vocational diploma in Information Technology and Programming",
             "period": "2021 - 2025",
             "institutionIcon": "assets/icons/light/vstu.svg",
             "institutionIconDark": "assets/icons/dark/vstu.svg",
@@ -481,10 +481,10 @@ window.JORQEN_RESUME_DATA = {
         "role": "4+ года строю production backend-системы на Go | распределенные системы, высоконагруженная и низколатентная инфраструктура, service mesh и fintech/crypto-продукты.",
         "summary": "Backend-инженер, специализирующийся на Go, распределенных системах и низколатентной инфраструктуре. У меня 4+ года коммерческого опыта в разработке production-сервисов для телеметрии автомобиля и связи car-to-cloud, service mesh-инфраструктуры, операционного ценообразования в ритейле, криптоплатежей и обменных сценариев, коммунального биллинга и государственных цифровых сервисов. Моя сильная сторона - превращать неоднозначные требования в надежные системы: прояснять компромиссы, выбирать архитектуру, реализовывать ключевые сервисы, добавлять наблюдаемость и безопасность и доводить поставку через CI/CD до production-эксплуатации.",
         "photo": {
-          "src": "assets/photos/matvey-studio.jpg",
-          "position": "center 18%",
-          "filter": "brightness(0.94) contrast(1.04) saturate(0.9)",
-          "caption": "Студийный портрет"
+          "src": "assets/photos/matvey-formal.png",
+          "position": "center 22%",
+          "filter": "brightness(0.99) contrast(1.02) saturate(0.96)",
+          "caption": "Деловой портрет"
         },
         "facts": [
           {
@@ -572,6 +572,26 @@ window.JORQEN_RESUME_DATA = {
             "companyUrl": "https://atom.auto"
           },
           {
+            "company": "Lukyanov Tech",
+            "role": "Part-Time Mentor / Mock Interviewer",
+            "period": "Май 2024 - настоящее время",
+            "duration": "1 г. 11 мес.",
+            "location": "Удаленно",
+            "intro": "Проект неполной занятости по менторству backend-кандидатов, которые готовятся к инженерным интервью. Я веду практические треки подготовки и пробные собеседования с фокусом на backend-базу, system design, техническую коммуникацию и структурированную обратную связь.",
+            "bullets": [
+              "Провожу пробные собеседования и менторю кандидатов по backend-базе, проектированию систем, технической коммуникации и структуре ответов.",
+              "Даю структурированную обратную связь и улучшаю материалы и процессы подготовки, чтобы кандидаты могли превращать слабые сигналы на интервью в конкретные практические задачи."
+            ],
+            "stack": [
+              "Mentoring",
+              "Mock interviews",
+              "System design",
+              "Technical communication"
+            ],
+            "companyIcon": "assets/icons/lukyanov.png",
+            "companyUrl": "https://lukyanov.tech"
+          },
+          {
             "company": "Sber Tech",
             "role": "Software Engineer",
             "period": "Янв 2024 - Фев 2025",
@@ -598,26 +618,6 @@ window.JORQEN_RESUME_DATA = {
             "companyIcon": "assets/icons/light/sbertech.svg",
             "companyIconDark": "assets/icons/dark/sbertech.svg",
             "companyUrl": "https://sbertech.ru"
-          },
-          {
-            "company": "Lukyanov Tech",
-            "role": "Part-Time Mentor / Mock Interviewer",
-            "period": "Янв 2024 - настоящее время",
-            "duration": "2 г. 3 мес.",
-            "location": "Удаленно",
-            "intro": "Проект неполной занятости по менторству backend-кандидатов, которые готовятся к инженерным интервью. Я веду практические треки подготовки и пробные собеседования с фокусом на backend-базу, system design, техническую коммуникацию и структурированную обратную связь.",
-            "bullets": [
-              "Провожу пробные собеседования и менторю кандидатов по backend-базе, проектированию систем, технической коммуникации и структуре ответов.",
-              "Даю структурированную обратную связь и улучшаю материалы и процессы подготовки, чтобы кандидаты могли превращать слабые сигналы на интервью в конкретные практические задачи."
-            ],
-            "stack": [
-              "Mentoring",
-              "Mock interviews",
-              "System design",
-              "Technical communication"
-            ],
-            "companyIcon": "assets/icons/lukyanov.png",
-            "companyUrl": "https://lukyanov.tech"
           },
           {
             "company": "Magnus Tech",
@@ -649,8 +649,8 @@ window.JORQEN_RESUME_DATA = {
           {
             "company": "Exnode",
             "role": "Backend Engineer",
-            "period": "Сен 2022 - Мар 2023",
-            "duration": "6 мес.",
+            "period": "Июн 2022 - Мар 2023",
+            "duration": "9 мес.",
             "location": "Москва, Россия",
             "intro": "Exnode развивает продукты криптобиржи, B2B-платежей и P2P-обмена. Я работал над backend-частями транзакционных сценариев, где платежи, обменные операции и отчетность должны были оставаться консистентными, быстрыми и точными под реальной бизнес-нагрузкой.",
             "bullets": [
@@ -676,8 +676,8 @@ window.JORQEN_RESUME_DATA = {
           {
             "company": "Калужская сбытовая компания",
             "role": "Backend Engineer (Go)",
-            "period": "Окт 2021 - Мар 2022",
-            "duration": "5 мес.",
+            "period": "Дек 2021 - Июн 2022",
+            "duration": "6 мес.",
             "location": "Удаленно",
             "intro": "Клиентский портал и внутренняя административная система для лицевых счетов, коммунального биллинга, платежей и операционных сценариев управления объектами.",
             "bullets": [
@@ -699,8 +699,8 @@ window.JORQEN_RESUME_DATA = {
           {
             "company": "Центр Управления Регионом Липецкой области (ЦУР)",
             "role": "Java Developer",
-            "period": "Июн 2021 - Ноя 2021",
-            "duration": "5 мес.",
+            "period": "Авг 2021 - Дек 2021",
+            "duration": "4 мес.",
             "location": "Липецк, Россия",
             "intro": "Региональные цифровые сервисы и инструменты мониторинга, которые поддерживали государственные процессы и операционную отчетность для сценариев, связанных с гражданами, в окружении с большим количеством легаси.",
             "bullets": [
@@ -730,7 +730,7 @@ window.JORQEN_RESUME_DATA = {
           },
           {
             "institution": "Воронежский государственный технический университет",
-            "degree": "СПО, информационные технологии и программирование, диплом с отличием",
+            "degree": "СПО, информационные технологии и программирование",
             "period": "2021 - 2025",
             "institutionIcon": "assets/icons/light/vstu.svg",
             "institutionIconDark": "assets/icons/dark/vstu.svg",

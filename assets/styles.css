@@ -236,7 +236,7 @@ main {
 
 .hero-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.56fr) minmax(280px, 320px);
+  grid-template-columns: minmax(0, 1.46fr) minmax(300px, 360px);
   align-items: start;
   gap: clamp(16px, 2.8vw, 28px);
 }
@@ -246,7 +246,7 @@ main {
 }
 
 .hero-visual {
-  width: min(100%, 320px);
+  width: min(100%, 360px);
   justify-self: end;
   display: grid;
   gap: 14px;
@@ -265,7 +265,7 @@ main {
 
 .hero-photo {
   width: 100%;
-  aspect-ratio: 1 / 1;
+  aspect-ratio: 3 / 4;
   object-fit: cover;
   object-position: center top;
   border-radius: inherit;
@@ -929,7 +929,7 @@ h1 {
   }
 
   .hero-visual {
-    width: min(100%, 320px);
+    width: min(100%, 340px);
     justify-self: center;
   }
 

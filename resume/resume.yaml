@@ -49,9 +49,9 @@ assets:
         iconDark: "assets/icons/dark/vstu.svg"
   photos:
     heroStudio: &photo_hero_studio
-      src: "assets/photos/matvey-studio.jpg"
-      position: "center 18%"
-      filter: "brightness(0.94) contrast(1.04) saturate(0.9)"
+      src: "assets/photos/matvey-formal.png"
+      position: "center 22%"
+      filter: "brightness(0.99) contrast(1.02) saturate(0.96)"
     stairs: &photo_stairs
       src: "assets/photos/matvey-stairs.jpg"
       position: "center 18%"
@@ -89,8 +89,8 @@ person:
   photo:
     <<: *photo_hero_studio
     caption:
-      en: "Studio portrait"
-      ru: "Студийный портрет"
+      en: "Formal portrait"
+      ru: "Деловой портрет"
   facts:
     - <<: *icon_fact_location
       label:
@@ -233,7 +233,7 @@ experience:
     - <<: *icon_company_lukyanov
       company: "Lukyanov Tech"
       role: "Part-Time Mentor / Mock Interviewer"
-      startDate: "2024-01"
+      startDate: "2024-05"
       location:
         en: "Remote"
         ru: "Удаленно"
@@ -289,7 +289,7 @@ experience:
     - <<: *icon_company_exnode
       company: "Exnode"
       role: "Backend Engineer"
-      startDate: "2022-09"
+      startDate: "2022-06"
       endDate: "2023-03"
       location:
         en: "Moscow, Russia"
@@ -323,8 +323,8 @@ experience:
         en: "Kaluga Power Supply Company"
         ru: "Калужская сбытовая компания"
       role: "Backend Engineer (Go)"
-      startDate: "2021-10"
-      endDate: "2022-03"
+      startDate: "2021-12"
+      endDate: "2022-06"
       location:
         en: "Remote"
         ru: "Удаленно"
@@ -352,8 +352,8 @@ experience:
         en: "Center for Regional Management of Lipetsk Oblast (CUR)"
         ru: "Центр Управления Регионом Липецкой области (ЦУР)"
       role: "Java Developer"
-      startDate: "2021-06"
-      endDate: "2021-11"
+      startDate: "2021-08"
+      endDate: "2021-12"
       location:
         en: "Lipetsk, Russia"
         ru: "Липецк, Россия"
@@ -398,8 +398,8 @@ education:
         en: "Voronezh State Technical University"
         ru: "Воронежский государственный технический университет"
       degree:
-        en: "Vocational diploma in Information Technology and Programming, graduated with honors"
-        ru: "СПО, информационные технологии и программирование, диплом с отличием"
+        en: "Vocational diploma in Information Technology and Programming"
+        ru: "СПО, информационные технологии и программирование"
       startDate: "2021"
       endDate: "2025"
       url: "https://cchgeu.ru/"

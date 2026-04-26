@@ -13,7 +13,6 @@ import json
 import shutil
 import subprocess
 import sys
-import textwrap
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -557,15 +556,9 @@ def contact_parts(data: dict[str, Any], lang: str) -> list[str]:
     return parts
 
 
-def wrap_line(text: str, width: int = 100) -> list[str]:
-    if not text:
-        return []
-    return textwrap.wrap(text, width=width, break_long_words=False, break_on_hyphens=False) or [text]
-
-
-def add_wrapped(lines: list[str], text: str = "", width: int = 100) -> None:
+def add_txt_line(lines: list[str], text: str = "") -> None:
     if text:
-        lines.extend(wrap_line(text, width))
+        lines.extend(str(text).splitlines())
     else:
         lines.append("")
 
@@ -577,40 +570,40 @@ def generate_txt(data: dict[str, Any], lang: str, output_path: Path) -> None:
     lines.append(content["hero"]["name"])
     lines.append("=" * len(content["hero"]["name"]))
     lines.append(" | ".join(contact_parts(data, lang)))
-    add_wrapped(lines)
-    add_wrapped(lines, content["hero"]["role"])
+    add_txt_line(lines)
+    add_txt_line(lines, content["hero"]["role"])
 
-    add_wrapped(lines)
+    add_txt_line(lines)
     lines.append(download_section_title(lang, "profile"))
     lines.append("-" * len(download_section_title(lang, "profile")))
-    add_wrapped(lines, content["hero"]["summary"], 100)
+    add_txt_line(lines, content["hero"]["summary"])
 
-    add_wrapped(lines)
+    add_txt_line(lines)
     lines.append(download_section_title(lang, "experience"))
     lines.append("-" * len(download_section_title(lang, "experience")))
     for item in content["experience"]["items"]:
-        add_wrapped(lines)
+        add_txt_line(lines)
         lines.append(f"{item['company']} | {experience_header_text(item)}")
         if item.get("companyUrl"):
             lines.append(f"{content['experience']['companySiteLabel']}: {item['companyUrl']}")
-        add_wrapped(lines, item["intro"])
+        add_txt_line(lines, item["intro"])
         for bullet in item["bullets"]:
-            for index, wrapped in enumerate(wrap_line(bullet, 96)):
+            for index, bullet_line in enumerate(str(bullet).splitlines()):
                 prefix = "- " if index == 0 else "  "
-                lines.append(f"{prefix}{wrapped}")
+                lines.append(f"{prefix}{bullet_line}")
         lines.append(f"{data['labels'][lang]['stack']}: {', '.join(item['stack'])}")
 
-    add_wrapped(lines)
+    add_txt_line(lines)
     lines.append(download_section_title(lang, "education"))
     lines.append("-" * len(download_section_title(lang, "education")))
     for item in content["education"]["items"]:
-        add_wrapped(lines)
+        add_txt_line(lines)
         lines.append(f"{item['institution']} | {education_header_text(item)}")
         education_site_label = content["education"].get("institutionSiteLabel")
         if education_site_label and item.get("institutionUrl"):
             lines.append(f"{education_site_label}: {item['institutionUrl']}")
 
-    add_wrapped(lines)
+    add_txt_line(lines)
     lines.append(download_section_title(lang, "skills"))
     lines.append("-" * len(download_section_title(lang, "skills")))
     for title, values in skill_group_segments(content["skills"]["groups"]):
