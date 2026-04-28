@@ -39,6 +39,7 @@ properties:
     type: "object"
     required:
       - "website"
+      - "email"
       - "linkedin"
       - "github"
       - "telegram"
@@ -46,6 +47,8 @@ properties:
     properties:
       website:
         "$ref": "#/definitions/websiteContact"
+      email:
+        "$ref": "#/definitions/contact"
       linkedin:
         "$ref": "#/definitions/contact"
       github:

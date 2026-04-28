@@ -22,6 +22,8 @@ assets:
         icon: "assets/icons/light/star.svg"
         iconDark: "assets/icons/dark/star.svg"
     contacts:
+      email: &icon_contact_email
+        icon: "assets/icons/contact.svg"
       linkedin: &icon_contact_linkedin
         icon: "assets/icons/linkedin.svg"
       github: &icon_contact_github
@@ -124,6 +126,9 @@ person:
 contacts:
   website:
     value: "https://jorqen.github.io"
+  email:
+    <<: *icon_contact_email
+    value: "oxoxevi351@gmail.com"
   linkedin:
     <<: *icon_contact_linkedin
     value: "https://www.linkedin.com/in/jorqen"

@@ -75,6 +75,7 @@ const STATIC_THEME_ICON_BINDINGS = [
   },
 ];
 const HERO_CONTACT_BINDINGS = [
+  { key: "email", id: "hero-email" },
   { key: "linkedin", id: "hero-linkedin" },
   { key: "github", id: "hero-github" },
   { key: "telegram", id: "hero-telegram" },

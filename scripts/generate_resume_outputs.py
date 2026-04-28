@@ -185,7 +185,7 @@ DOWNLOAD_SECTION_TITLES = {
     },
 }
 
-HERO_CONTACT_KEYS = ("linkedin", "github", "telegram")
+HERO_CONTACT_KEYS = ("email", "linkedin", "github", "telegram")
 
 
 def localized_tree(value: Any, lang: str) -> Any:
@@ -278,9 +278,22 @@ def is_web_url(value: str) -> bool:
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
+def is_email_address(value: str) -> bool:
+    local, separator, domain = value.partition("@")
+    return (
+        bool(local and separator and domain)
+        and "." in domain
+        and not any(character.isspace() for character in value)
+    )
+
+
 def contact_href(contact: dict[str, str]) -> str | None:
     value = contact_value(contact)
-    return value if is_web_url(value) else None
+    if is_web_url(value):
+        return value
+    if is_email_address(value):
+        return f"mailto:{value}"
+    return None
 
 
 def contact_link_text(contact: dict[str, str], *, shorten_web_urls: bool = True) -> str:
