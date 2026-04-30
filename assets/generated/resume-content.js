@@ -2,7 +2,8 @@ window.JORQEN_RESUME_DATA = {
   "contacts": {
     "email": {
       "value": "oxoxevi351@gmail.com",
-      "icon": "assets/icons/contact.svg",
+      "icon": "assets/icons/light/contact.svg",
+      "iconDark": "assets/icons/dark/contact.svg",
       "href": "mailto:oxoxevi351@gmail.com"
     },
     "linkedin": {

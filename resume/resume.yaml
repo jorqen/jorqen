@@ -23,7 +23,8 @@ assets:
         iconDark: "assets/icons/dark/star.svg"
     contacts:
       email: &icon_contact_email
-        icon: "assets/icons/contact.svg"
+        icon: "assets/icons/light/contact.svg"
+        iconDark: "assets/icons/dark/contact.svg"
       linkedin: &icon_contact_linkedin
         icon: "assets/icons/linkedin.svg"
       github: &icon_contact_github
