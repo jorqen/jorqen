@@ -402,7 +402,7 @@ education:
     - <<: *icon_company_vstu
       institution:
         en: "Voronezh State Technical University"
-        ru: "Воронежский государственный технический университет"
+        ru: "Воронежский Государственный Технический Университет"
       degree:
         en: "B.S. in Intelligent Automated Systems (part-time)"
         ru: "Бакалавриат, интеллектуальные автоматизированные системы (заочно)"
@@ -412,7 +412,7 @@ education:
     - <<: *icon_company_vstu
       institution:
         en: "Voronezh State Technical University"
-        ru: "Воронежский государственный технический университет"
+        ru: "Воронежский Государственный Технический Университет"
       degree:
         en: "Vocational diploma in Information Technology and Programming"
         ru: "СПО, информационные технологии и программирование"
@@ -508,10 +508,8 @@ skills:
       items:
         - "mTLS"
         - "TLS/SSL"
-        - en: "Certificate-based authentication"
-          ru: "Аутентификация по сертификатам"
-        - en: "Identity management"
-          ru: "Identity management"
+        - "Certificate-based authentication"
+        - "Identity management"
         - "Keycloak"
         - "Active Directory"
     - title:
