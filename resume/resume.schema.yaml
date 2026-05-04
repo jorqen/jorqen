@@ -7,7 +7,6 @@ required:
   - "schema"
   - "defaultLanguage"
   - "languages"
-  - "assets"
   - "person"
   - "contacts"
   - "resumeLabels"
@@ -31,8 +30,6 @@ properties:
       - const: "en"
       - const: "ru"
     additionalItems: false
-  assets:
-    "$ref": "#/definitions/assets"
   person:
     "$ref": "#/definitions/person"
   contacts:
@@ -100,62 +97,6 @@ definitions:
         "$ref": "#/definitions/stringValue"
       ru:
         "$ref": "#/definitions/stringValue"
-  assets:
-    type: "object"
-    required:
-      - "icons"
-      - "photos"
-    additionalProperties: false
-    properties:
-      icons:
-        type: "object"
-        required:
-          - "heroFacts"
-          - "contacts"
-          - "companies"
-        additionalProperties: false
-        properties:
-          heroFacts:
-            "$ref": "#/definitions/iconAssetCollection"
-          contacts:
-            "$ref": "#/definitions/iconAssetCollection"
-          companies:
-            "$ref": "#/definitions/iconAssetCollection"
-      photos:
-        "$ref": "#/definitions/photoAssetCollection"
-  iconAssetCollection:
-    type: "object"
-    minProperties: 1
-    additionalProperties:
-      "$ref": "#/definitions/iconAsset"
-  photoAssetCollection:
-    type: "object"
-    minProperties: 1
-    additionalProperties:
-      "$ref": "#/definitions/photoAsset"
-  iconAsset:
-    type: "object"
-    required:
-      - "icon"
-    additionalProperties: false
-    properties:
-      icon:
-        "$ref": "#/definitions/assetPath"
-      iconDark:
-        "$ref": "#/definitions/assetPath"
-  photoAsset:
-    type: "object"
-    required:
-      - "src"
-      - "filter"
-    additionalProperties: false
-    properties:
-      src:
-        "$ref": "#/definitions/stringValue"
-      position:
-        "$ref": "#/definitions/stringValue"
-      filter:
-        "$ref": "#/definitions/stringValue"
   person:
     type: "object"
     required:
@@ -192,8 +133,6 @@ definitions:
         "$ref": "#/definitions/stringValue"
       icon:
         "$ref": "#/definitions/assetPath"
-      iconDark:
-        "$ref": "#/definitions/assetPath"
   websiteContact:
     allOf:
       - "$ref": "#/definitions/contact"
@@ -229,8 +168,6 @@ definitions:
     additionalProperties: false
     properties:
       icon:
-        "$ref": "#/definitions/assetPath"
-      iconDark:
         "$ref": "#/definitions/assetPath"
       label:
         "$ref": "#/definitions/localizedString"
@@ -296,8 +233,6 @@ definitions:
         format: "uri"
       icon:
         "$ref": "#/definitions/stringValue"
-      iconDark:
-        "$ref": "#/definitions/stringValue"
   educationSection:
     type: "object"
     required:
@@ -339,8 +274,6 @@ definitions:
         minLength: 1
         format: "uri"
       icon:
-        "$ref": "#/definitions/stringValue"
-      iconDark:
         "$ref": "#/definitions/stringValue"
   strengthsSection:
     type: "object"

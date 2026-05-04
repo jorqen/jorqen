@@ -1,93 +1,182 @@
-const SUPPORTED_LANGS = ["en", "ru"];
 const LANGUAGE_STORAGE_KEY = "jorqen.language";
 const THEME_STORAGE_KEY = "jorqen.theme";
+const RESUME_SOURCE_URL = "resume/resume.yaml";
+const MEDIA_ROOT = "assets/media";
 const SUPPORTED_THEMES = ["light", "dark"];
-const THEMED_ICON_MAP = {
-  "briefcase": {
-    light: "assets/icons/light/briefcase.svg",
-    dark: "assets/icons/dark/briefcase.svg",
+const THEMED_MEDIA_FILES = new Set([
+  "briefcase.svg",
+  "contact.svg",
+  "download.svg",
+  "education.svg",
+  "exnode.svg",
+  "external-link.svg",
+  "github.svg",
+  "layers.svg",
+  "location.svg",
+  "moon.svg",
+  "sbertech.svg",
+  "star.svg",
+  "sun.svg",
+  "vstu.svg",
+]);
+const SITE_UI = {
+  navResume: {
+    en: "Resume",
+    ru: "Резюме",
   },
-  "download": {
-    light: "assets/icons/light/download.svg",
-    dark: "assets/icons/dark/download.svg",
+  langSwitcherLabel: {
+    en: "Language switcher",
+    ru: "Переключение языка",
   },
-  "education": {
-    light: "assets/icons/light/education.svg",
-    dark: "assets/icons/dark/education.svg",
+  theme: {
+    toDark: {
+      en: "Dark theme",
+      ru: "Тёмная тема",
+    },
+    toLight: {
+      en: "Light theme",
+      ru: "Светлая тема",
+    },
+    switcherLabel: {
+      en: "Theme switcher",
+      ru: "Переключение темы",
+    },
   },
-  "external-link": {
-    light: "assets/icons/light/external-link.svg",
-    dark: "assets/icons/dark/external-link.svg",
+  resumeDownloads: {
+    title: {
+      en: "Download resume",
+      ru: "Скачать резюме",
+    },
+    labels: {
+      pdf: {
+        en: "For sharing and printing",
+        ru: "Для отправки и печати",
+      },
+      docx: {
+        en: "Editable source",
+        ru: "Редактируемый источник",
+      },
+      txt: {
+        en: "Text version",
+        ru: "Текстовая версия",
+      },
+    },
   },
-  "layers": {
-    light: "assets/icons/light/layers.svg",
-    dark: "assets/icons/dark/layers.svg",
+  lightbox: {
+    openPhoto: {
+      en: "Open photo",
+      ru: "Открыть фото",
+    },
+    close: {
+      en: "Close photo viewer",
+      ru: "Закрыть просмотр фото",
+    },
+    previous: {
+      en: "Previous photo",
+      ru: "Предыдущее фото",
+    },
+    next: {
+      en: "Next photo",
+      ru: "Следующее фото",
+    },
   },
-  "star": {
-    light: "assets/icons/light/star.svg",
-    dark: "assets/icons/dark/star.svg",
-  },
-  "sun": {
-    light: "assets/icons/light/sun.svg",
-    dark: "assets/icons/dark/sun.svg",
-  },
-  "moon": {
-    light: "assets/icons/light/moon.svg",
-    dark: "assets/icons/dark/moon.svg",
+  footer: {
+    en: "© {year} {name}. Personal website for recruiters and hiring managers.",
+    ru: "© {year} {name}. Сайт-визитка для рекрутеров и менеджеров по найму.",
   },
 };
-const STATIC_THEME_ICON_BINDINGS = [
-  {
-    selector: '[data-theme-switch="light"] img',
-    icon: "sun",
-  },
-  {
-    selector: '[data-theme-switch="dark"] img',
-    icon: "moon",
-  },
-  {
-    selector: "#resume .panel-icon img",
-    icon: "download",
-  },
-  {
-    selector: "#experience .panel-icon img",
-    icon: "briefcase",
-  },
-  {
-    selector: "#education .panel-icon img",
-    icon: "education",
-  },
-  {
-    selector: "#strengths .panel-icon img",
-    icon: "star",
-  },
-  {
-    selector: "#skills .panel-icon img",
-    icon: "layers",
-  },
-  {
-    selector: "#preferences .panel-icon img",
-    icon: "star",
-  },
-  {
-    selector: "#photos .panel-icon img",
-    icon: "star",
-  },
-];
-const HERO_CONTACT_BINDINGS = [
-  { key: "email", id: "hero-email" },
-  { key: "linkedin", id: "hero-linkedin" },
-  { key: "github", id: "hero-github" },
-  { key: "telegram", id: "hero-telegram" },
-];
-const photoLightboxState = {
-  items: [],
-  index: 0,
-  opener: null,
-};
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
 
-const RESUME_DATA = window.JORQEN_RESUME_DATA || { contacts: {}, content: {} };
-const CONTENT = RESUME_DATA.content || {};
+function localized(value, lang, languages) {
+  if (isPlainObject(value)) {
+    const keys = Object.keys(value);
+    const isLocalizedMap = keys.length > 0 && keys.every((key) => languages.includes(key));
+    if (isLocalizedMap) {
+      return value[lang];
+    }
+
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, localized(item, lang, languages)]));
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => localized(item, lang, languages));
+  }
+
+  return value;
+}
+
+function parseResumeDate(value, upperBound) {
+  const [yearPart, monthPart] = String(value).split("-");
+  const year = Number(yearPart);
+  const month = monthPart ? Number(monthPart) : upperBound ? 12 : 1;
+  const day = upperBound ? new Date(year, month, 0).getDate() : 1;
+  return new Date(year, month - 1, day);
+}
+
+function formatResumeDate(value, lang) {
+  const parts = String(value).split("-");
+  if (parts.length === 1) {
+    return parts[0];
+  }
+
+  return new Intl.DateTimeFormat(lang, { month: "short", year: "numeric" }).format(
+    parseResumeDate(value, false),
+  );
+}
+
+function formatPeriod(item, labels, lang) {
+  const start = formatResumeDate(item.startDate, lang);
+  const end = item.endDate ? formatResumeDate(item.endDate, lang) : labels.present;
+  return `${start} - ${end}`;
+}
+
+function resumeDateUpperBound(value) {
+  return value ? parseResumeDate(value, true) : null;
+}
+
+function isExpectedEducation(item) {
+  const endDate = resumeDateUpperBound(item.endDate);
+  return endDate ? endDate > new Date() : false;
+}
+
+function formatEducationPeriod(item, labels, lang) {
+  const start = formatResumeDate(item.startDate, lang);
+  const endDate = formatResumeDate(item.endDate, lang);
+  const end = isExpectedEducation(item) ? `${labels.expectedGraduation}: ${endDate}` : endDate;
+  return `${start} - ${end}`;
+}
+
+function fileBaseName(source) {
+  return String(localized(source.person.name, source.defaultLanguage, source.languages)).trim().split(/\s+/).join("_");
+}
+
+function fileName(source, extension) {
+  return `${fileBaseName(source)}.${extension}`;
+}
+
+function contactHref(contact) {
+  const value = String(contact?.value || "").trim();
+  return value.includes("@") ? `mailto:${value}` : value;
+}
+
+function contactLabel(contact) {
+  return String(contact?.value || "").replace(/^https?:\/\/(www\.)?/i, "").replace(/\/$/i, "");
+}
+
+async function loadResumeData() {
+  if (!window.jsyaml) {
+    throw new Error("js-yaml is not available.");
+  }
+
+  const response = await fetch(RESUME_SOURCE_URL, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`Could not load ${RESUME_SOURCE_URL}: HTTP ${response.status}.`);
+  }
+
+  return window.jsyaml.load(await response.text());
+}
 
 function setText(id, value) {
   const element = document.getElementById(id);
@@ -96,8 +185,8 @@ function setText(id, value) {
   }
 }
 
-function getPhotoItems(data) {
-  return [data.hero.photo, ...(data.gallery?.items || [])];
+function getPhotoItems(person, gallery) {
+  return [person.photo, ...(gallery?.items || [])];
 }
 
 function setPhotoTriggerAttributes(element, index, label) {
@@ -111,35 +200,33 @@ function setPhotoTriggerAttributes(element, index, label) {
   element.setAttribute("aria-label", label || "");
 }
 
-function getThemedIcon(iconPath, theme) {
-  const mapping = THEMED_ICON_MAP[iconPath];
-  if (!mapping) {
-    return iconPath;
-  }
-
-  return mapping[theme] || iconPath;
+function mediaPath(fileName, theme) {
+  return theme && THEMED_MEDIA_FILES.has(fileName)
+    ? `${MEDIA_ROOT}/${theme}/${fileName}`
+    : `${MEDIA_ROOT}/${fileName}`;
 }
 
-function getThemeAwareSource(source, darkSource, theme) {
-  return theme === "dark" && darkSource ? darkSource : source || "";
+function setMediaImage(image, fileName, theme) {
+  image.dataset.media = fileName;
+  image.onerror = () => {
+    image.onerror = null;
+    image.src = mediaPath(fileName);
+  };
+  image.src = mediaPath(fileName, theme);
 }
 
-function setImageSource(selector, source) {
+function setImageSource(selector, fileName, theme) {
   const image = document.querySelector(selector);
   if (!image) {
     return;
   }
 
-  if (source) {
-    image.src = source;
-  } else {
-    image.removeAttribute("src");
-  }
+  setMediaImage(image, fileName, theme);
 }
 
 function syncStaticThemeIcons(theme) {
-  STATIC_THEME_ICON_BINDINGS.forEach((binding) => {
-    setImageSource(binding.selector, getThemedIcon(binding.icon, theme));
+  document.querySelectorAll("img[data-media]").forEach((image) => {
+    setMediaImage(image, image.dataset.media, theme);
   });
 }
 
@@ -158,20 +245,6 @@ function setLinkLabel(id, text) {
   link.setAttribute("aria-label", text || "");
 }
 
-function getContactHref(key) {
-  return RESUME_DATA.contacts?.[key]?.href || "";
-}
-
-function getContactLabel(key) {
-  const value = String(RESUME_DATA.contacts?.[key]?.value || "");
-  return value.replace(/^https?:\/\/(www\.)?/i, "").replace(/\/$/i, "");
-}
-
-function getContactIcon(key, theme) {
-  const contact = RESUME_DATA.contacts?.[key] || {};
-  return getThemeAwareSource(contact.icon, contact.iconDark, theme);
-}
-
 function setLinkHref(id, href) {
   const link = document.getElementById(id);
   if (!link) {
@@ -185,16 +258,35 @@ function setLinkHref(id, href) {
   }
 }
 
-function detectLanguage() {
+function setMetaContent(selector, value) {
+  const element = document.querySelector(selector);
+  if (element) {
+    element.setAttribute("content", value);
+  }
+}
+
+function syncDocumentMetadata(person) {
+  const title = `${person.name} | ${person.headline}`;
+  document.title = title;
+  setMetaContent('meta[name="description"]', person.role);
+  setMetaContent('meta[property="og:title"]', title);
+  setMetaContent('meta[property="og:description"]', person.role);
+  setMetaContent('meta[property="og:image:alt"]', title);
+  setMetaContent('meta[name="twitter:title"]', title);
+  setMetaContent('meta[name="twitter:description"]', person.role);
+  setMetaContent('meta[name="twitter:image:alt"]', title);
+}
+
+function detectLanguage(source) {
   const url = new URL(window.location.href);
   const queryLang = url.searchParams.get("lang");
-  if (SUPPORTED_LANGS.includes(queryLang)) {
+  if (source.languages.includes(queryLang)) {
     return queryLang;
   }
 
   try {
     const stored = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
-    if (SUPPORTED_LANGS.includes(stored)) {
+    if (source.languages.includes(stored)) {
       return stored;
     }
   } catch (_error) {
@@ -209,8 +301,10 @@ function detectLanguage() {
     browserLanguages.push(window.navigator.language);
   }
 
-  const hasRussian = browserLanguages.some((item) => item.toLowerCase().startsWith("ru"));
-  return hasRussian ? "ru" : "en";
+  const browserLanguage = browserLanguages
+    .map((item) => item.toLowerCase().split("-")[0])
+    .find((item) => source.languages.includes(item));
+  return browserLanguage || source.defaultLanguage;
 }
 
 function detectTheme() {
@@ -275,7 +369,7 @@ function renderFacts(items, theme) {
 
     if (item.icon) {
       const icon = document.createElement("img");
-      icon.src = getThemeAwareSource(item.icon, item.iconDark, theme);
+      setMediaImage(icon, item.icon, theme);
       icon.alt = "";
       icon.setAttribute("aria-hidden", "true");
       icon.className = "fact-icon";
@@ -319,7 +413,7 @@ function renderHeroPhoto(photo, index, triggerLabel) {
     return;
   }
 
-  image.src = photo?.src || "";
+  image.src = photo?.src ? mediaPath(photo.src) : "";
   image.style.objectPosition = photo?.position || "";
   image.style.setProperty("--photo-filter", photo?.filter || "");
 
@@ -330,7 +424,13 @@ function renderHeroPhoto(photo, index, triggerLabel) {
   setPhotoTriggerAttributes(card, index, triggerLabel);
 }
 
-function renderExperience(content, theme) {
+function sortedExperienceItems(items) {
+  return [...items].sort(
+    (left, right) => resumeDateUpperBound(right.startDate) - resumeDateUpperBound(left.startDate),
+  );
+}
+
+function renderExperience(section, labels, theme, lang) {
   const container = document.getElementById("experience-list");
   if (!container) {
     return;
@@ -338,7 +438,7 @@ function renderExperience(content, theme) {
 
   container.innerHTML = "";
 
-  content.items.forEach((item) => {
+  sortedExperienceItems(section.items).forEach((item) => {
     const article = document.createElement("article");
     article.className = "timeline-item";
 
@@ -349,10 +449,10 @@ function renderExperience(content, theme) {
     companyMain.className = "timeline-company-main";
 
     let companyLink = null;
-    if (item.companyUrl) {
+    if (item.url) {
       companyLink = document.createElement("a");
       companyLink.className = "company-link";
-      companyLink.href = item.companyUrl;
+      companyLink.href = item.url;
       companyLink.target = "_blank";
       companyLink.rel = "noopener noreferrer";
       companyLink.textContent = item.company;
@@ -362,31 +462,30 @@ function renderExperience(content, theme) {
       companyLink.textContent = item.company;
     }
 
-    const companyIconPath = theme === "dark" && item.companyIconDark ? item.companyIconDark : item.companyIcon;
-    if (companyIconPath) {
-      const companyIcon = document.createElement("img");
-      companyIcon.className = "company-icon";
-      companyIcon.alt = `${item.company} icon`;
-      companyIcon.src = companyIconPath;
-      companyMain.append(companyIcon);
+    if (item.icon) {
+      const icon = document.createElement("img");
+      icon.className = "company-icon";
+      icon.alt = `${item.company} icon`;
+      setMediaImage(icon, item.icon, theme);
+      companyMain.append(icon);
     }
     companyMain.append(companyLink);
     companyRow.append(companyMain);
 
-    if (item.companyUrl) {
+    if (item.url) {
       const companySiteLink = document.createElement("a");
       companySiteLink.className = "company-site-link";
-      companySiteLink.href = item.companyUrl;
+      companySiteLink.href = item.url;
       companySiteLink.target = "_blank";
       companySiteLink.rel = "noopener noreferrer";
 
       const extIcon = document.createElement("img");
-      extIcon.src = getThemedIcon("external-link", theme);
+      setMediaImage(extIcon, "external-link.svg", theme);
       extIcon.alt = "";
       extIcon.setAttribute("aria-hidden", "true");
 
       const extLabel = document.createElement("span");
-      extLabel.textContent = content.companySiteLabel;
+      extLabel.textContent = section.companySiteLabel;
 
       companySiteLink.append(extIcon, extLabel);
       companyRow.append(companySiteLink);
@@ -398,15 +497,15 @@ function renderExperience(content, theme) {
 
     const meta = document.createElement("p");
     meta.className = "timeline-meta";
-    meta.textContent = `${item.period} · ${item.location}`;
+    meta.textContent = `${formatPeriod(item, labels, lang)} · ${item.location}`;
 
     const intro = document.createElement("p");
     intro.className = "timeline-intro";
-    intro.textContent = item.intro;
+    intro.textContent = item.summary;
 
     const list = document.createElement("ul");
     list.className = "timeline-list";
-    item.bullets.forEach((bullet) => {
+    item.highlights.forEach((bullet) => {
       const li = document.createElement("li");
       li.textContent = bullet;
       list.append(li);
@@ -426,14 +525,14 @@ function renderExperience(content, theme) {
   });
 }
 
-function renderEducation(content, theme) {
+function renderEducation(section, labels, theme, lang) {
   const container = document.getElementById("education-list");
   if (!container) {
     return;
   }
 
   container.innerHTML = "";
-  content.items.forEach((item) => {
+  section.items.forEach((item) => {
     const card = document.createElement("article");
     card.className = "education-item";
 
@@ -443,21 +542,19 @@ function renderEducation(content, theme) {
     const institution = document.createElement("h3");
     institution.className = "education-heading timeline-company-main";
 
-    const institutionIconPath =
-      theme === "dark" && item.institutionIconDark ? item.institutionIconDark : item.institutionIcon;
-    if (institutionIconPath) {
-      const institutionIcon = document.createElement("img");
-      institutionIcon.className = "company-icon";
-      institutionIcon.alt = `${item.institution} icon`;
-      institutionIcon.src = institutionIconPath;
-      institution.append(institutionIcon);
+    if (item.icon) {
+      const icon = document.createElement("img");
+      icon.className = "company-icon";
+      icon.alt = `${item.institution} icon`;
+      setMediaImage(icon, item.icon, theme);
+      institution.append(icon);
     }
 
     let institutionLink = null;
-    if (item.institutionUrl) {
+    if (item.url) {
       institutionLink = document.createElement("a");
       institutionLink.className = "company-link";
-      institutionLink.href = item.institutionUrl;
+      institutionLink.href = item.url;
       institutionLink.target = "_blank";
       institutionLink.rel = "noopener noreferrer";
       institutionLink.textContent = item.institution;
@@ -470,20 +567,20 @@ function renderEducation(content, theme) {
     institution.append(institutionLink);
     institutionRow.append(institution);
 
-    if (item.institutionUrl) {
+    if (item.url) {
       const institutionSiteLink = document.createElement("a");
       institutionSiteLink.className = "company-site-link";
-      institutionSiteLink.href = item.institutionUrl;
+      institutionSiteLink.href = item.url;
       institutionSiteLink.target = "_blank";
       institutionSiteLink.rel = "noopener noreferrer";
 
       const extIcon = document.createElement("img");
-      extIcon.src = getThemedIcon("external-link", theme);
+      setMediaImage(extIcon, "external-link.svg", theme);
       extIcon.alt = "";
       extIcon.setAttribute("aria-hidden", "true");
 
       const extLabel = document.createElement("span");
-      extLabel.textContent = content.institutionSiteLabel || "University site";
+      extLabel.textContent = section.institutionSiteLabel || "University site";
 
       institutionSiteLink.append(extIcon, extLabel);
       institutionRow.append(institutionSiteLink);
@@ -495,7 +592,7 @@ function renderEducation(content, theme) {
 
     const meta = document.createElement("p");
     meta.className = "education-meta";
-    meta.textContent = item.period;
+    meta.textContent = formatEducationPeriod(item, labels, lang);
 
     card.append(institutionRow, degree, meta);
     container.append(card);
@@ -581,7 +678,7 @@ function renderGallery(items, startIndex, triggerLabel) {
 
     const image = document.createElement("img");
     image.className = "gallery-photo";
-    image.src = item.src;
+    image.src = mediaPath(item.src);
     image.loading = "lazy";
     image.style.objectPosition = item.position || "";
     image.style.setProperty("--photo-filter", item.filter || "");
@@ -611,8 +708,8 @@ function updatePhotoLightboxLabels(labels) {
   }
 }
 
-function renderPhotoLightbox() {
-  const item = photoLightboxState.items[photoLightboxState.index];
+function renderPhotoLightbox(state) {
+  const item = state.items[state.index];
   const image = document.getElementById("lightbox-image");
   const caption = document.getElementById("lightbox-caption");
   const counter = document.getElementById("lightbox-counter");
@@ -623,50 +720,50 @@ function renderPhotoLightbox() {
     return;
   }
 
-  image.src = item.src;
+  image.src = mediaPath(item.src);
   image.style.setProperty("--photo-filter", item.filter || "");
   if (caption) {
     caption.textContent = item.caption || "";
   }
   if (counter) {
-    counter.textContent = `${photoLightboxState.index + 1} / ${photoLightboxState.items.length}`;
+    counter.textContent = `${state.index + 1} / ${state.items.length}`;
   }
   if (prevButton) {
-    prevButton.disabled = photoLightboxState.index === 0;
+    prevButton.disabled = state.index === 0;
   }
   if (nextButton) {
-    nextButton.disabled = photoLightboxState.index >= photoLightboxState.items.length - 1;
+    nextButton.disabled = state.index >= state.items.length - 1;
   }
 }
 
-function syncPhotoLightboxItems(items) {
-  photoLightboxState.items = items;
-  if (photoLightboxState.index >= items.length) {
-    photoLightboxState.index = Math.max(0, items.length - 1);
+function syncPhotoLightboxItems(state, items) {
+  state.items = items;
+  if (state.index >= items.length) {
+    state.index = Math.max(0, items.length - 1);
   }
 
   const lightbox = document.getElementById("photo-lightbox");
   if (lightbox && !lightbox.hidden) {
-    renderPhotoLightbox();
+    renderPhotoLightbox(state);
   }
 }
 
-function openPhotoLightbox(index, opener) {
+function openPhotoLightbox(state, index, opener) {
   const lightbox = document.getElementById("photo-lightbox");
   const dialog = document.getElementById("lightbox-dialog");
-  if (!lightbox || !dialog || !photoLightboxState.items.length) {
+  if (!lightbox || !dialog || !state.items.length) {
     return;
   }
 
-  photoLightboxState.index = Math.max(0, Math.min(index, photoLightboxState.items.length - 1));
-  photoLightboxState.opener = opener || null;
+  state.index = Math.max(0, Math.min(index, state.items.length - 1));
+  state.opener = opener || null;
   lightbox.hidden = false;
   document.body.classList.add("lightbox-open");
-  renderPhotoLightbox();
+  renderPhotoLightbox(state);
   window.requestAnimationFrame(() => dialog.focus());
 }
 
-function closePhotoLightbox() {
+function closePhotoLightbox(state) {
   const lightbox = document.getElementById("photo-lightbox");
   if (!lightbox || lightbox.hidden) {
     return;
@@ -674,50 +771,45 @@ function closePhotoLightbox() {
 
   lightbox.hidden = true;
   document.body.classList.remove("lightbox-open");
-  if (photoLightboxState.opener instanceof HTMLElement) {
-    photoLightboxState.opener.focus();
+  if (state.opener instanceof HTMLElement) {
+    state.opener.focus();
   }
 }
 
-function showAdjacentPhoto(direction) {
-  const nextIndex = photoLightboxState.index + direction;
-  if (nextIndex < 0 || nextIndex >= photoLightboxState.items.length) {
+function showAdjacentPhoto(state, direction) {
+  const nextIndex = state.index + direction;
+  if (nextIndex < 0 || nextIndex >= state.items.length) {
     return;
   }
 
-  photoLightboxState.index = nextIndex;
-  renderPhotoLightbox();
+  state.index = nextIndex;
+  renderPhotoLightbox(state);
 }
 
-function syncResumeLinks(resume) {
-  const configs = [
-    { key: "pdf", id: "resume-pdf", labelId: "resume-pdf-label" },
-    { key: "docx", id: "resume-docx", labelId: "resume-docx-label" },
-    { key: "txt", id: "resume-txt", labelId: "resume-txt-label" },
-  ];
-
-  configs.forEach((item) => {
-    const link = document.getElementById(item.id);
-    const label = document.getElementById(item.labelId);
+function syncResumeLinks(source, lang) {
+  Object.entries(localized(SITE_UI.resumeDownloads.labels, lang, source.languages)).forEach(([extension, text]) => {
+    const link = document.getElementById(`resume-${extension}`);
+    const label = document.getElementById(`resume-${extension}-label`);
     if (!link || !label) {
       return;
     }
 
-    link.href = resume.files[item.key];
-    link.setAttribute("download", resume.downloadNames[item.key]);
-    label.textContent = resume.labels[item.key];
+    const name = fileName(source, extension);
+    link.href = `resume/${lang}/${name}`;
+    link.setAttribute("download", name);
+    label.textContent = text;
   });
 }
 
-function updateThemeSwitcher(lang, theme) {
-  const data = CONTENT[lang] || CONTENT.en;
+function updateThemeSwitcher(source, lang, theme) {
+  const labels = localized(SITE_UI.theme, lang, source.languages);
   const switcher = document.getElementById("theme-switch");
 
   if (switcher) {
-    switcher.setAttribute("aria-label", data.theme.switcherLabel);
+    switcher.setAttribute("aria-label", labels.switcherLabel);
     document.querySelectorAll("[data-theme-switch]").forEach((button) => {
       const buttonTheme = button.getAttribute("data-theme-switch");
-      const label = buttonTheme === "dark" ? data.theme.toDark : data.theme.toLight;
+      const label = buttonTheme === "dark" ? labels.toDark : labels.toLight;
       button.setAttribute("aria-label", label);
     });
   }
@@ -739,59 +831,58 @@ function updateHeaderOffset() {
   document.documentElement.style.setProperty("--header-offset", `${offset}px`);
 }
 
-function renderLanguage(lang) {
-  const data = CONTENT[lang] || CONTENT.en;
+function renderLanguage(source, state, lang) {
+  const data = localized(source, lang, source.languages);
+  const labels = data.resumeLabels;
+  const person = data.person;
   const theme = document.documentElement.getAttribute("data-theme") || "light";
-  const photoItems = getPhotoItems(data);
+  const photoItems = getPhotoItems(person, data.gallery);
 
   document.documentElement.lang = lang;
-  document.title = data.meta.title;
+  syncDocumentMetadata(person);
 
-  const description = document.querySelector('meta[name="description"]');
-  if (description) {
-    description.setAttribute("content", data.meta.description);
-  }
-
-  setText("brand-link", data.brand);
-  setText("nav-resume", data.nav.resume);
-  setText("nav-experience", data.nav.experience);
-  setText("nav-education", data.nav.education);
-  setText("nav-strengths", data.nav.strengths);
-  setText("nav-skills", data.nav.skills);
+  setText("brand-link", person.name);
+  setText("nav-resume", localized(SITE_UI.navResume, lang, source.languages));
+  setText("nav-experience", data.experience.title);
+  setText("nav-education", data.education.title);
+  setText("nav-strengths", data.strengths.title);
+  setText("nav-skills", labels.stack);
 
   const langSwitch = document.getElementById("lang-switch");
   if (langSwitch) {
-    langSwitch.setAttribute("aria-label", data.langSwitcherLabel);
+    langSwitch.setAttribute("aria-label", localized(SITE_UI.langSwitcherLabel, lang, source.languages));
   }
 
-  setText("hero-kicker", data.hero.kicker);
-  setText("hero-name", data.hero.name);
-  setText("hero-role", data.hero.role);
-  setText("hero-summary", data.hero.summary);
+  setText("hero-kicker", person.headline);
+  setText("hero-name", person.name);
+  setText("hero-role", person.role);
+  setText("hero-summary", person.summary);
 
-  HERO_CONTACT_BINDINGS.forEach((item) => {
-    const label = getContactLabel(item.key);
-    const link = document.getElementById(item.id);
-    setLinkLabel(item.id, label);
-    setLinkHref(item.id, getContactHref(item.key));
-    setImageSource(`#${item.id} img`, getContactIcon(item.key, theme));
+  document.querySelectorAll(".hero-links .action-link").forEach((link) => {
+    const key = link.id.replace(/^hero-/, "");
+    const contact = data.contacts?.[key];
+    const label = contactLabel(contact);
+    setLinkLabel(link.id, label);
+    setLinkHref(link.id, contactHref(contact));
+    setImageSource(`#${link.id} img`, contact.icon, theme);
     if (link) {
-      link.title = String(RESUME_DATA.contacts?.[item.key]?.value || label);
+      link.title = String(contact?.value || label);
     }
   });
 
-  renderFacts(data.hero.facts, theme);
-  renderHeroPhoto(data.hero.photo, 0, `${data.lightbox.openPhoto}: ${data.hero.photo.caption || ""}`);
+  const lightboxLabels = localized(SITE_UI.lightbox, lang, source.languages);
+  renderFacts(person.facts, theme);
+  renderHeroPhoto(person.photo, 0, `${lightboxLabels.openPhoto}: ${person.photo.caption || ""}`);
 
-  setText("resume-title", data.resume.title);
-  syncResumeLinks(data.resume);
+  setText("resume-title", localized(SITE_UI.resumeDownloads.title, lang, source.languages));
+  syncResumeLinks(source, lang);
 
   setText("experience-title", data.experience.title);
-  renderExperience(data.experience, theme);
+  renderExperience(data.experience, labels, theme, lang);
 
   setText("education-title", data.education.title);
   setText("education-subtitle", data.education.subtitle);
-  renderEducation(data.education, theme);
+  renderEducation(data.education, labels, theme, lang);
 
   setText("strengths-title", data.strengths.title);
   setText("strengths-subtitle", data.strengths.subtitle);
@@ -805,19 +896,24 @@ function renderLanguage(lang) {
 
   setText("photos-title", data.gallery.title);
   setText("photos-subtitle", data.gallery.subtitle);
-  renderGallery(data.gallery.items, 1, data.lightbox.openPhoto);
-  updatePhotoLightboxLabels(data.lightbox);
-  syncPhotoLightboxItems(photoItems);
+  renderGallery(data.gallery.items, 1, lightboxLabels.openPhoto);
+  updatePhotoLightboxLabels(lightboxLabels);
+  syncPhotoLightboxItems(state, photoItems);
 
-  setText("footer-text", data.footer.replace("{year}", String(new Date().getFullYear())));
+  setText(
+    "footer-text",
+    localized(SITE_UI.footer, lang, source.languages)
+      .replace("{name}", person.name)
+      .replace("{year}", String(new Date().getFullYear())),
+  );
 
   setLanguageButtonsState(lang);
-  updateThemeSwitcher(lang, theme);
+  updateThemeSwitcher(source, lang, theme);
   updateHeaderOffset();
 }
 
-function applyLanguage(lang) {
-  const safeLang = SUPPORTED_LANGS.includes(lang) ? lang : "en";
+function applyLanguage(source, state, lang) {
+  const safeLang = source.languages.includes(lang) ? lang : source.defaultLanguage;
 
   try {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, safeLang);
@@ -826,32 +922,31 @@ function applyLanguage(lang) {
   }
 
   updateLanguageQuery(safeLang);
-  renderLanguage(safeLang);
+  renderLanguage(source, state, safeLang);
 }
 
-function setupLanguageSwitcher() {
+function setupLanguageSwitcher(source, state) {
   document.querySelectorAll("[data-lang-switch]").forEach((button) => {
     button.addEventListener("click", () => {
-      const lang = button.getAttribute("data-lang-switch") || "en";
-      applyLanguage(lang);
+      applyLanguage(source, state, button.getAttribute("data-lang-switch"));
     });
   });
 }
 
-function setupThemeSwitcher() {
+function setupThemeSwitcher(source, state) {
   document.querySelectorAll("[data-theme-switch]").forEach((button) => {
     button.addEventListener("click", () => {
       const nextTheme = button.getAttribute("data-theme-switch") || "light";
       setTheme(nextTheme);
 
-      const currentLang = document.documentElement.lang || detectLanguage();
-      renderLanguage(currentLang);
+      const currentLang = document.documentElement.lang || detectLanguage(source);
+      renderLanguage(source, state, currentLang);
       updateHeaderOffset();
     });
   });
 }
 
-function setupPhotoLightbox() {
+function setupPhotoLightbox(state) {
   document.addEventListener("click", (event) => {
     if (!(event.target instanceof Element)) {
       return;
@@ -859,22 +954,22 @@ function setupPhotoLightbox() {
 
     const trigger = event.target.closest("[data-photo-index]");
     if (trigger && !trigger.closest("#photo-lightbox")) {
-      openPhotoLightbox(Number(trigger.dataset.photoIndex || "0"), trigger);
+      openPhotoLightbox(state, Number(trigger.dataset.photoIndex || "0"), trigger);
       return;
     }
 
     if (event.target.closest("[data-lightbox-close]") || event.target.closest("#lightbox-close")) {
-      closePhotoLightbox();
+      closePhotoLightbox(state);
       return;
     }
 
     if (event.target.closest("#lightbox-prev")) {
-      showAdjacentPhoto(-1);
+      showAdjacentPhoto(state, -1);
       return;
     }
 
     if (event.target.closest("#lightbox-next")) {
-      showAdjacentPhoto(1);
+      showAdjacentPhoto(state, 1);
     }
   });
 
@@ -885,7 +980,7 @@ function setupPhotoLightbox() {
       const trigger = event.target.closest("[data-photo-index]");
       if (trigger && (event.key === "Enter" || event.key === " ")) {
         event.preventDefault();
-        openPhotoLightbox(Number(trigger.dataset.photoIndex || "0"), trigger);
+        openPhotoLightbox(state, Number(trigger.dataset.photoIndex || "0"), trigger);
         return;
       }
     }
@@ -895,33 +990,49 @@ function setupPhotoLightbox() {
     }
 
     if (event.key === "Escape") {
-      closePhotoLightbox();
+      closePhotoLightbox(state);
       return;
     }
 
     if (event.key === "ArrowLeft") {
-      showAdjacentPhoto(-1);
+      showAdjacentPhoto(state, -1);
       return;
     }
 
     if (event.key === "ArrowRight") {
-      showAdjacentPhoto(1);
+      showAdjacentPhoto(state, 1);
     }
   });
 }
 
-function init() {
-  const lang = detectLanguage();
+async function init() {
+  const source = await loadResumeData();
+  const lightboxState = { items: [], index: 0, opener: null };
+
+  const lang = detectLanguage(source);
   const theme = detectTheme();
 
   setTheme(theme);
   updateHeaderOffset();
-  setupLanguageSwitcher();
-  setupThemeSwitcher();
-  setupPhotoLightbox();
+  setupLanguageSwitcher(source, lightboxState);
+  setupThemeSwitcher(source, lightboxState);
+  setupPhotoLightbox(lightboxState);
   window.addEventListener("resize", updateHeaderOffset);
   window.addEventListener("load", updateHeaderOffset);
-  applyLanguage(lang);
+  applyLanguage(source, lightboxState, lang);
 }
 
-init();
+function renderInitError(error) {
+  console.error(error);
+  document.documentElement.lang = "en";
+  setTheme(detectTheme());
+  setText("hero-kicker", "Resume data unavailable");
+  setText("hero-name", "Cannot load resume.yaml");
+  setText(
+    "hero-summary",
+    "Browsers block loading resume/resume.yaml from file:// URLs. Run a local HTTP server from the project root and open http://localhost:8000/.",
+  );
+  updateHeaderOffset();
+}
+
+init().catch(renderInitError);

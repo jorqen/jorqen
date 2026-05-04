@@ -6,16 +6,16 @@
     <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
     <meta
       name="description"
-      content="Matvey Sizov - Backend Developer / Software Engineer. Go, distributed systems, service mesh, secure APIs, low-latency backend development, and AI-assisted engineering."
+      content="Personal resume website."
     />
     <link rel="canonical" href="https://jorqen.github.io/" />
     <link rel="image_src" href="https://jorqen.github.io/assets/og-cover-recruiter.jpg" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="jorqen.github.io" />
-    <meta property="og:title" content="Matvey Sizov | Backend Developer / Software Engineer" />
+    <meta property="og:title" content="Resume" />
     <meta
       property="og:description"
-      content="Matvey Sizov - Backend Developer / Software Engineer. Go, distributed systems, service mesh, secure APIs, low-latency backend development, and AI-assisted engineering."
+      content="Personal resume website."
     />
     <meta property="og:url" content="https://jorqen.github.io/" />
     <meta property="og:image" content="https://jorqen.github.io/assets/og-cover-recruiter.jpg" />
@@ -26,20 +26,20 @@
     <meta property="og:image:type" content="image/jpeg" />
     <meta
       property="og:image:alt"
-      content="Matvey Sizov - Backend Developer / Software Engineer"
+      content="Resume website preview"
     />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Matvey Sizov | Backend Developer / Software Engineer" />
+    <meta name="twitter:title" content="Resume" />
     <meta
       name="twitter:description"
-      content="Matvey Sizov - Backend Developer / Software Engineer. Go, distributed systems, service mesh, secure APIs, low-latency backend development, and AI-assisted engineering."
+      content="Personal resume website."
     />
     <meta
       name="twitter:image"
       content="https://jorqen.github.io/assets/og-cover-recruiter.jpg"
     />
-    <meta name="twitter:image:alt" content="Matvey Sizov - Backend Developer / Software Engineer" />
-    <title>Matvey Sizov | Backend Developer / Software Engineer</title>
+    <meta name="twitter:image:alt" content="Resume website preview" />
+    <title>Resume</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -47,7 +47,7 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="assets/styles.css" />
-    <script defer src="assets/generated/resume-content.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
     <script defer src="assets/app.js"></script>
   </head>
   <body>
@@ -68,10 +68,10 @@
       <div class="header-controls">
         <div class="theme-switch" role="group" aria-label="Theme switcher" id="theme-switch">
           <button type="button" data-theme-switch="light">
-            <img src="assets/icons/light/sun.svg" alt="" aria-hidden="true" />
+            <img src="assets/media/light/sun.svg" data-media="sun.svg" alt="" aria-hidden="true" />
           </button>
           <button type="button" data-theme-switch="dark">
-            <img src="assets/icons/light/moon.svg" alt="" aria-hidden="true" />
+            <img src="assets/media/light/moon.svg" data-media="moon.svg" alt="" aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -120,27 +120,27 @@
       <section class="panel reveal" id="resume">
         <div class="panel-header">
           <h2>
-            <span class="panel-icon"><img src="assets/icons/light/download.svg" alt="" aria-hidden="true" /></span>
+            <span class="panel-icon"><img src="assets/media/light/download.svg" data-media="download.svg" alt="" aria-hidden="true" /></span>
             <span id="resume-title"></span>
           </h2>
         </div>
         <div class="resume-actions">
           <a id="resume-pdf" class="resume-button" download>
-            <img src="assets/icons/pdf.svg" alt="PDF icon" />
+            <img src="assets/media/pdf.svg" alt="PDF icon" />
             <div>
               <span class="format">PDF</span>
               <span id="resume-pdf-label" class="label"></span>
             </div>
           </a>
           <a id="resume-docx" class="resume-button" download>
-            <img src="assets/icons/docx.svg" alt="DOCX icon" />
+            <img src="assets/media/docx.svg" alt="DOCX icon" />
             <div>
               <span class="format">DOCX</span>
               <span id="resume-docx-label" class="label"></span>
             </div>
           </a>
           <a id="resume-txt" class="resume-button" download>
-            <img src="assets/icons/txt.svg" alt="TXT icon" />
+            <img src="assets/media/txt.svg" alt="TXT icon" />
             <div>
               <span class="format">TXT</span>
               <span id="resume-txt-label" class="label"></span>
@@ -152,7 +152,7 @@
       <section class="panel reveal" id="experience">
         <div class="panel-header">
           <h2>
-            <span class="panel-icon"><img src="assets/icons/light/briefcase.svg" alt="" aria-hidden="true" /></span>
+            <span class="panel-icon"><img src="assets/media/light/briefcase.svg" data-media="briefcase.svg" alt="" aria-hidden="true" /></span>
             <span id="experience-title"></span>
           </h2>
         </div>
@@ -162,7 +162,7 @@
       <section class="panel reveal" id="education">
         <div class="panel-header">
           <h2>
-            <span class="panel-icon"><img src="assets/icons/light/education.svg" alt="" aria-hidden="true" /></span>
+            <span class="panel-icon"><img src="assets/media/light/education.svg" data-media="education.svg" alt="" aria-hidden="true" /></span>
             <span id="education-title"></span>
           </h2>
           <p id="education-subtitle"></p>
@@ -173,7 +173,7 @@
       <section class="panel reveal" id="strengths">
         <div class="panel-header">
           <h2>
-            <span class="panel-icon"><img src="assets/icons/light/star.svg" alt="" aria-hidden="true" /></span>
+            <span class="panel-icon"><img src="assets/media/light/star.svg" data-media="star.svg" alt="" aria-hidden="true" /></span>
             <span id="strengths-title"></span>
           </h2>
           <p id="strengths-subtitle"></p>
@@ -184,7 +184,7 @@
       <section class="panel reveal" id="skills">
         <div class="panel-header">
           <h2>
-            <span class="panel-icon"><img src="assets/icons/light/layers.svg" alt="" aria-hidden="true" /></span>
+            <span class="panel-icon"><img src="assets/media/light/layers.svg" data-media="layers.svg" alt="" aria-hidden="true" /></span>
             <span id="skills-title"></span>
           </h2>
         </div>
@@ -194,7 +194,7 @@
       <section class="panel reveal" id="preferences">
         <div class="panel-header">
           <h2>
-            <span class="panel-icon"><img src="assets/icons/light/star.svg" alt="" aria-hidden="true" /></span>
+            <span class="panel-icon"><img src="assets/media/light/star.svg" data-media="star.svg" alt="" aria-hidden="true" /></span>
             <span id="preferences-title"></span>
           </h2>
         </div>
@@ -204,7 +204,7 @@
       <section class="panel reveal" id="photos">
         <div class="panel-header">
           <h2>
-            <span class="panel-icon"><img src="assets/icons/light/star.svg" alt="" aria-hidden="true" /></span>
+            <span class="panel-icon"><img src="assets/media/light/star.svg" data-media="star.svg" alt="" aria-hidden="true" /></span>
             <span id="photos-title"></span>
           </h2>
           <p id="photos-subtitle"></p>

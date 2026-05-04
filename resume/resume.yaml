@@ -5,77 +5,6 @@ languages:
   - "en"
   - "ru"
 
-# Reusable media presets. Keep file paths and theme variants here; keep resume text below.
-assets:
-  icons:
-    heroFacts:
-      location: &icon_fact_location
-        icon: "assets/icons/light/location.svg"
-        iconDark: "assets/icons/dark/location.svg"
-      experience: &icon_fact_experience
-        icon: "assets/icons/light/briefcase.svg"
-        iconDark: "assets/icons/dark/briefcase.svg"
-      primaryStack: &icon_fact_primary_stack
-        icon: "assets/icons/light/layers.svg"
-        iconDark: "assets/icons/dark/layers.svg"
-      format: &icon_fact_format
-        icon: "assets/icons/light/star.svg"
-        iconDark: "assets/icons/dark/star.svg"
-    contacts:
-      email: &icon_contact_email
-        icon: "assets/icons/light/contact.svg"
-        iconDark: "assets/icons/dark/contact.svg"
-      linkedin: &icon_contact_linkedin
-        icon: "assets/icons/linkedin.svg"
-      github: &icon_contact_github
-        icon: "assets/icons/light/github.svg"
-        iconDark: "assets/icons/dark/github.svg"
-      telegram: &icon_contact_telegram
-        icon: "assets/icons/telegram.svg"
-    companies:
-      atom: &icon_company_atom
-        icon: "assets/icons/atom.svg"
-      sbertech: &icon_company_sbertech
-        icon: "assets/icons/light/sbertech.svg"
-        iconDark: "assets/icons/dark/sbertech.svg"
-      lukyanovTech: &icon_company_lukyanov
-        icon: "assets/icons/lukyanov.png"
-      magnusTech: &icon_company_magnus
-        icon: "assets/icons/magnus.svg"
-      exnode: &icon_company_exnode
-        icon: "assets/icons/light/exnode.svg"
-        iconDark: "assets/icons/dark/exnode.svg"
-      kalugaPower: &icon_company_kaluga
-        icon: "assets/icons/kaluga.svg"
-      vstu: &icon_company_vstu
-        icon: "assets/icons/light/vstu.svg"
-        iconDark: "assets/icons/dark/vstu.svg"
-  photos:
-    heroStudio: &photo_hero_studio
-      src: "assets/photos/matvey-formal.png"
-      position: "center 22%"
-      filter: "brightness(0.99) contrast(1.02) saturate(0.96)"
-    stairs: &photo_stairs
-      src: "assets/photos/matvey-stairs.jpg"
-      position: "center 18%"
-      filter: "brightness(0.8) contrast(1.03) saturate(0.88)"
-    japan: &photo_japan
-      src: "assets/photos/matvey-japan.jpg"
-      filter: "brightness(1.06) contrast(1.03) saturate(0.92)"
-    cafe: &photo_cafe
-      src: "assets/photos/matvey-cafe.jpg"
-      filter: "brightness(0.96) contrast(1.02) saturate(0.92)"
-    mountains: &photo_mountains
-      src: "assets/photos/matvey-mountains.jpg"
-      position: "center 26%"
-      filter: "brightness(0.88) contrast(1.03) saturate(0.92)"
-    lake: &photo_lake
-      src: "assets/photos/matvey-lake.jpg"
-      filter: "brightness(0.9) contrast(1.02) saturate(0.9)"
-    travel: &photo_travel
-      src: "assets/photos/matvey-travel.jpg"
-      filter: "brightness(1.01) contrast(1.03) saturate(0.9)"
-
 person:
   name:
     en: "Matvey Sizov"
@@ -90,33 +19,35 @@ person:
     ru: >-
       Backend-инженер, специализирующийся на Go, распределенных системах и низколатентной инфраструктуре. У меня 4+ года коммерческого опыта в телеметрии автомобиля и связи car-to-cloud, service mesh-инфраструктуре, ценообразовании в ритейле, криптоплатежах, коммунальном биллинге и государственных цифровых сервисах. Я превращаю неоднозначные требования в надежные production-системы: проясняю компромиссы, выбираю архитектуру, реализую ключевые сервисы, добавляю наблюдаемость/безопасность и довожу поставку через CI/CD. Я использую AI-инструменты, включая Codex, чтобы ускорять исследование, прототипирование, тесты, рефакторинг и рутинную реализацию, при этом архитектуру, компромиссы и рискованные production-решения проверяю сам.
   photo:
-    <<: *photo_hero_studio
+    src: "matvey-formal.png"
+    position: "center 22%"
+    filter: "brightness(0.99) contrast(1.02) saturate(0.96)"
     caption:
       en: "Formal portrait"
       ru: "Деловой портрет"
   facts:
-    - <<: *icon_fact_location
+    - icon: "location.svg"
       label:
         en: "Location"
         ru: "Локация"
       value:
         en: "Moscow, Russia"
         ru: "Москва, Россия"
-    - <<: *icon_fact_experience
+    - icon: "briefcase.svg"
       label:
         en: "Experience"
         ru: "Опыт"
       value:
         en: "Go - 4+ years\nJava - 6 months"
         ru: "Go - 4+ года\nJava - 6 месяцев"
-    - <<: *icon_fact_primary_stack
+    - icon: "layers.svg"
       label:
         en: "Primary stack"
         ru: "Основной стек"
       value:
         en: "Go, distributed systems"
         ru: "Go, распределенные системы"
-    - <<: *icon_fact_format
+    - icon: "star.svg"
       label:
         en: "Format"
         ru: "Формат"
@@ -128,16 +59,16 @@ contacts:
   website:
     value: "https://jorqen.github.io"
   email:
-    <<: *icon_contact_email
+    icon: "contact.svg"
     value: "oxoxevi351@gmail.com"
   linkedin:
-    <<: *icon_contact_linkedin
+    icon: "linkedin.svg"
     value: "https://www.linkedin.com/in/jorqen"
   github:
-    <<: *icon_contact_github
+    icon: "github.svg"
     value: "https://github.com/jorqen"
   telegram:
-    <<: *icon_contact_telegram
+    icon: "telegram.svg"
     value: "https://t.me/jorqen"
 
 resumeLabels:
@@ -159,7 +90,7 @@ experience:
     en: "Company site"
     ru: "Сайт компании"
   items:
-    - <<: *icon_company_atom
+    - icon: "atom.svg"
       company:
         en: "ATOM"
         ru: "АТОМ"
@@ -206,7 +137,7 @@ experience:
         - "CI/CD"
         - "Build pipelines"
       url: "https://atom.auto"
-    - <<: *icon_company_lukyanov
+    - icon: "lukyanov.png"
       company: "Lukyanov Tech"
       role: "Part-Time Mentor / Mock Interviewer"
       startDate: "2024-05"
@@ -229,7 +160,7 @@ experience:
         - "System design"
         - "Technical communication"
       url: "https://lukyanov.tech"
-    - <<: *icon_company_sbertech
+    - icon: "sbertech.svg"
       company: "Sber Tech"
       role: "Software Engineer"
       startDate: "2024-01"
@@ -267,7 +198,7 @@ experience:
         - "GitLab"
         - "Allure"
       url: "https://sbertech.ru"
-    - <<: *icon_company_magnus
+    - icon: "magnus.svg"
       company: "Magnus Tech"
       role: "Software Engineer"
       startDate: "2023-03"
@@ -301,7 +232,7 @@ experience:
         - "CI/CD"
         - "Clean Architecture"
       url: "https://magnustech.com"
-    - <<: *icon_company_exnode
+    - icon: "exnode.svg"
       company: "Exnode"
       role: "Backend Engineer"
       startDate: "2022-06"
@@ -334,7 +265,7 @@ experience:
         - "Grafana"
         - "Telegram Bot API"
       url: "https://exnode.ru"
-    - <<: *icon_company_kaluga
+    - icon: "kaluga.svg"
       company:
         en: "Kaluga Power Supply Company"
         ru: "Калужская сбытовая компания"
@@ -399,7 +330,7 @@ education:
     en: "University site"
     ru: "Сайт университета"
   items:
-    - <<: *icon_company_vstu
+    - icon: "vstu.svg"
       institution:
         en: "Voronezh State Technical University"
         ru: "Воронежский Государственный Технический Университет"
@@ -409,7 +340,7 @@ education:
       startDate: "2025"
       endDate: "2030"
       url: "https://cchgeu.ru/"
-    - <<: *icon_company_vstu
+    - icon: "vstu.svg"
       institution:
         en: "Voronezh State Technical University"
         ru: "Воронежский Государственный Технический Университет"
@@ -571,27 +502,35 @@ gallery:
     en: "I intentionally keep this public photo section small: this site is primarily about my work, but I want it to stay human and real."
     ru: "Этот публичный фото-раздел я специально держу небольшим: сайт в первую очередь про мою работу, но мне хочется, чтобы он оставался живым и человеческим."
   items:
-    - <<: *photo_stairs
+    - src: "matvey-stairs.jpg"
+      position: "center 18%"
+      filter: "brightness(0.8) contrast(1.03) saturate(0.88)"
       caption:
         en: "Stairs from the anime \"Your Name\""
         ru: "Лестница из аниме «Твоё имя»"
-    - <<: *photo_japan
+    - src: "matvey-japan.jpg"
+      filter: "brightness(1.06) contrast(1.03) saturate(0.92)"
       caption:
         en: "Kendo training"
         ru: "Тренировка по Кэндо"
-    - <<: *photo_cafe
+    - src: "matvey-cafe.jpg"
+      filter: "brightness(0.96) contrast(1.02) saturate(0.92)"
       caption:
         en: "Photo from a cafe"
         ru: "Фото из кафе"
-    - <<: *photo_mountains
+    - src: "matvey-mountains.jpg"
+      position: "center 26%"
+      filter: "brightness(0.88) contrast(1.03) saturate(0.92)"
       caption:
         en: "A 1,500m mountain climb"
         ru: "Подъём на 1 500м в гору"
-    - <<: *photo_lake
+    - src: "matvey-lake.jpg"
+      filter: "brightness(0.9) contrast(1.02) saturate(0.9)"
       caption:
         en: "Japanese garden"
         ru: "Японский сад"
-    - <<: *photo_travel
+    - src: "matvey-travel.jpg"
+      filter: "brightness(1.01) contrast(1.03) saturate(0.9)"
       caption:
         en: "Cappadocia atmosphere (Turkey)"
         ru: "Атмосфера Каппадокии (Турция)"

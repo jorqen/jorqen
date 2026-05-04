@@ -36,7 +36,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y fonts-dejavu-core librsvg2-bin
-          python3 -m pip install --user python-docx reportlab pillow pyyaml
+          python3 -m pip install --user babel python-docx reportlab pillow pyyaml
 
       - name: Generate resume files
         run: |
