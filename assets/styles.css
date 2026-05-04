@@ -1,6 +1,6 @@
 :root {
-  --bg: #f4f7fb;
-  --bg-subtle: #edf2f9;
+  --bg: #f5f7fb;
+  --bg-subtle: #eef3f8;
   --surface: #ffffff;
   --surface-muted: #f8fafd;
   --line: #dbe4f2;
@@ -14,9 +14,9 @@
   --success: #0b8c4a;
   --warning: #d44b3a;
   --shadow: 0 10px 26px rgba(19, 43, 77, 0.08);
-  --radius-xl: 20px;
-  --radius-lg: 14px;
-  --radius-md: 10px;
+  --radius-xl: 12px;
+  --radius-lg: 10px;
+  --radius-md: 8px;
   --header-offset: 110px;
 }
 
@@ -35,7 +35,7 @@ html[data-theme="dark"] {
   --accent-soft: rgba(115, 164, 255, 0.12);
   --success: #5cd28f;
   --warning: #ff886f;
-  --shadow: 0 14px 32px rgba(0, 0, 0, 0.35);
+  --shadow: 0 14px 32px rgba(0, 0, 0, 0.28);
 }
 
 * {
@@ -52,10 +52,7 @@ body {
   min-height: 100vh;
   font-family: "Manrope", "Segoe UI", sans-serif;
   color: var(--text-main);
-  background:
-    radial-gradient(1300px 500px at 10% -30%, #dce8ff 0%, transparent 50%),
-    radial-gradient(900px 400px at 100% -40%, #dceff0 0%, transparent 45%),
-    var(--bg);
+  background: linear-gradient(180deg, #f8fbff 0%, var(--bg-subtle) 46%, var(--bg) 100%);
 }
 
 body.lightbox-open {
@@ -87,10 +84,7 @@ body,
 }
 
 html[data-theme="dark"] body {
-  background:
-    radial-gradient(1000px 500px at 0% -30%, rgba(55, 87, 145, 0.36) 0%, transparent 55%),
-    radial-gradient(700px 350px at 100% -30%, rgba(28, 117, 134, 0.3) 0%, transparent 50%),
-    var(--bg);
+  background: linear-gradient(180deg, #0b1727 0%, #0a1422 48%, var(--bg) 100%);
 }
 
 .container {
@@ -109,7 +103,7 @@ html[data-theme="dark"] body {
   align-items: center;
   gap: 16px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   backdrop-filter: blur(14px);
   box-shadow: var(--shadow);
@@ -151,6 +145,7 @@ section[id] {
 
 .lang-switch {
   grid-area: lang;
+  justify-self: start;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -296,6 +291,7 @@ h1 {
   margin: 10px 0 4px;
   font-size: clamp(1.9rem, 4.2vw, 2.9rem);
   line-height: 1.1;
+  text-wrap: balance;
 }
 
 .hero-role {
@@ -303,40 +299,56 @@ h1 {
   font-size: clamp(1rem, 2.1vw, 1.26rem);
   color: var(--text-muted);
   font-weight: 650;
+  text-wrap: balance;
 }
 
 .hero-summary {
   margin: 14px 0 0;
-  max-width: 80ch;
+  max-width: 76ch;
   color: var(--text-soft);
-  line-height: 1.65;
+  line-height: 1.6;
+  text-wrap: pretty;
 }
 
 .hero-links {
   margin-top: 18px;
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+  max-width: 660px;
 }
 
 .action-link {
   text-decoration: none;
   color: var(--text-main);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--surface-muted);
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  font-weight: 700;
-  font-size: 0.9rem;
+  gap: 9px;
+  min-height: 42px;
+  padding: 8px 11px;
+  font-family: "IBM Plex Mono", monospace;
+  font-weight: 600;
+  font-size: 0.78rem;
+  letter-spacing: 0;
+  min-width: 0;
 }
 
 .action-link img {
   width: 20px;
   height: 20px;
   border-radius: 6px;
+}
+
+.action-link span {
+  min-width: 0;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .action-link:hover {
@@ -347,7 +359,7 @@ h1 {
 .facts-grid {
   margin-top: 18px;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
   gap: 10px;
 }
 
@@ -357,7 +369,7 @@ h1 {
   width: 100%;
   max-width: 100%;
   gap: 10px;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr));
 }
 
 .fact-item {
@@ -368,6 +380,7 @@ h1 {
   display: grid;
   align-content: start;
   gap: 8px;
+  min-width: 0;
 }
 
 .fact-heading {
@@ -509,6 +522,7 @@ h1 {
   display: inline-flex;
   align-items: center;
   gap: 9px;
+  min-width: 0;
 }
 
 .company-icon {
@@ -528,6 +542,7 @@ h1 {
   color: var(--text-main);
   font-size: 0.95rem;
   font-weight: 800;
+  overflow-wrap: anywhere;
 }
 
 .company-link:hover {
@@ -562,6 +577,7 @@ h1 {
   margin: 6px 0 0;
   color: var(--text-muted);
   font-size: 0.88rem;
+  line-height: 1.45;
 }
 
 .timeline-intro {
@@ -580,6 +596,7 @@ h1 {
 .timeline-list li {
   color: var(--text-main);
   line-height: 1.5;
+  text-wrap: pretty;
 }
 
 .stack-list {
@@ -597,6 +614,7 @@ h1 {
   padding: 4px 9px;
   font-size: 0.76rem;
   font-family: "IBM Plex Mono", monospace;
+  overflow-wrap: anywhere;
 }
 
 .education-list {
@@ -644,7 +662,7 @@ h1 {
   margin-top: 16px;
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
 }
 
 .strength-card,
@@ -681,6 +699,8 @@ h1 {
   padding: 4px 9px;
   background: var(--surface);
   font-size: 0.81rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .preferences-list {
@@ -697,6 +717,7 @@ h1 {
   background: var(--surface-muted);
   padding: 10px 12px;
   line-height: 1.5;
+  text-wrap: pretty;
 }
 
 .gallery-grid {
@@ -934,7 +955,7 @@ h1 {
   }
 
   .hero-facts {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
   }
 
 }
@@ -973,9 +994,18 @@ h1 {
     gap: 14px;
   }
 
+  .reveal {
+    animation: none;
+  }
+
   .hero,
   .panel {
     padding: 16px;
+  }
+
+  .hero-links {
+    grid-template-columns: 1fr;
+    max-width: none;
   }
 
   .facts-grid {
@@ -988,6 +1018,11 @@ h1 {
 
   .hero-facts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .timeline-company-main,
+  .education-heading {
+    width: 100%;
   }
 
   .gallery-grid {

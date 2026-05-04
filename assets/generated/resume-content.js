@@ -27,7 +27,7 @@ window.JORQEN_RESUME_DATA = {
     "en": {
       "meta": {
         "title": "Matvey Sizov | Backend Developer / Software Engineer",
-        "description": "Matvey Sizov - Backend Developer / Software Engineer. Go, distributed systems, low-latency backend development, and production reliability in product and platform teams."
+        "description": "Matvey Sizov - Backend Developer / Software Engineer. Go, distributed systems, service mesh, secure APIs, low-latency backend development, and AI-assisted engineering."
       },
       "brand": "Matvey Sizov",
       "nav": {
@@ -46,8 +46,8 @@ window.JORQEN_RESUME_DATA = {
       "hero": {
         "kicker": "Backend Developer / Software Engineer",
         "name": "Matvey Sizov",
-        "role": "4+ years building production Go backend systems | distributed systems, high-load and low-latency infrastructure, service mesh, and fintech/crypto products.",
-        "summary": "Backend engineer specializing in Go, distributed systems, and low-latency infrastructure. I have 4+ years of commercial experience building production services across vehicle telemetry and car-to-cloud connectivity, service-mesh platform infrastructure, retail pricing operations, crypto payments and exchange flows, utility billing, and public digital services. My strongest work is turning ambiguous requirements into reliable systems: clarifying trade-offs, choosing architecture, implementing core services, adding observability and security, and carrying delivery through CI/CD into production operation.",
+        "role": "4+ years building production Go (Golang) backend systems | distributed systems, low-latency infrastructure, service mesh, secure APIs, and AI-assisted delivery.",
+        "summary": "Backend engineer specializing in Go, distributed systems, and low-latency infrastructure. I have 4+ years of commercial experience across vehicle telemetry and car-to-cloud connectivity, service-mesh platform infrastructure, retail pricing, crypto payments, utility billing, and public digital services. I turn ambiguous requirements into reliable production systems: clarify trade-offs, choose architecture, implement core services, add observability/security, and ship through CI/CD. I use AI tools, including Codex, to accelerate research, prototyping, tests, refactoring, and routine implementation, while reviewing architecture, trade-offs, and high-risk production decisions myself.",
         "photo": {
           "src": "assets/photos/matvey-formal.png",
           "position": "center 22%",
@@ -108,15 +108,15 @@ window.JORQEN_RESUME_DATA = {
             "company": "ATOM",
             "role": "Senior Software Engineer",
             "period": "Feb 2025 - Present",
-            "duration": "1 yr 2 mos",
+            "duration": "1 yr 3 mos",
             "location": "Remote",
-            "intro": "ATOM develops an electric-vehicle platform. In the communications and telemetry area, I build backend services for secure vehicle-to-cloud connectivity, external client integration, and reliable low-latency operation.",
+            "intro": "ATOM develops an electric-vehicle platform. In the communications and telemetry area, I build backend services for secure vehicle-to-cloud connectivity, external client integration, and reliable low-latency operation across MQTT, gRPC, and API-driven flows.",
             "bullets": [
               "Aligned leadership, peer teams, and architects around an MVP architecture for ambiguous requirements, simplifying an initially overcomplicated service split into a broker-centered design that could be released and operated.",
               "Designed and co-developed an mTLS-secured MQTT broker on Mochi MQTT with Redis-backed session and state recovery for persistent vehicle-to-cloud communication and safe restarts.",
               "Validated latency limits of the initial microservice decomposition and drove the central-broker approach that sustained ~70K requests per second with p99 latency below 50 ms.",
-              "Built production observability and delivery tooling from scratch: metrics, logs, traces, dashboards, alerts, latency/throughput and business-health monitoring, CI/CD, and deployment automation.",
-              "Strengthened trusted connectivity by enforcing certificate-based client authentication and topic-level authorization."
+              "Built production observability and delivery tooling from scratch: metrics, logs, traces, dashboards, alerts, latency/throughput and business-health monitoring, CI/CD build pipelines, and deployment automation.",
+              "Strengthened trusted connectivity by enforcing mTLS certificate-based client authentication and topic-level authorization."
             ],
             "stack": [
               "Go",
@@ -124,8 +124,11 @@ window.JORQEN_RESUME_DATA = {
               "Mochi MQTT",
               "Redis",
               "PostgreSQL",
-              "Kafka",
+              "Apache Kafka",
               "gRPC",
+              "REST API",
+              "HTTP/HTTPS",
+              "TLS/SSL",
               "mTLS",
               "Prometheus",
               "Grafana",
@@ -134,7 +137,8 @@ window.JORQEN_RESUME_DATA = {
               "Docker",
               "Helm",
               "Kubernetes",
-              "CI/CD"
+              "CI/CD",
+              "Build pipelines"
             ],
             "companyIcon": "assets/icons/atom.svg",
             "companyUrl": "https://atom.auto"
@@ -143,7 +147,7 @@ window.JORQEN_RESUME_DATA = {
             "company": "Lukyanov Tech",
             "role": "Part-Time Mentor / Mock Interviewer",
             "period": "May 2024 - Present",
-            "duration": "1 yr 11 mos",
+            "duration": "2 yrs",
             "location": "Remote",
             "intro": "Part-time mentorship project for backend candidates preparing for engineering interviews. I run practical preparation tracks and mock interviews focused on backend fundamentals, system design, technical communication, and structured feedback.",
             "bullets": [
@@ -168,8 +172,8 @@ window.JORQEN_RESUME_DATA = {
             "intro": "Sber Tech develops Platform V, a large enterprise platform. In the Service Mesh & Platform Infrastructure team, I worked on a heavily customized Istio fork and adjacent Kubernetes components for workload control, policy enforcement, and platform integration.",
             "bullets": [
               "Restored the automated test suite in a heavily customized Istio fork, returning unit tests to daily development and raising coverage to 80%.",
-              "Designed and built a Go integration-testing framework that provisioned isolated Kubernetes environments, ran tests in parallel, and generated Allure reports for CI.",
-              "Repaired CI pipelines and expanded integration-test automation to ~95% of critical functionality, moving defect detection earlier and helping fix several critical issues.",
+              "Designed and built a Go integration-testing framework that provisioned isolated Kubernetes environments, ran tests in parallel, and generated Allure reports for CI build pipelines.",
+              "Repaired CI/CD build pipelines and expanded integration-test automation to ~95% of critical functionality, moving defect detection earlier and helping fix several critical issues.",
               "Mentored ~10 School 21 interns on the framework and automation process, helping convert manual QA scenarios into scalable automated tests.",
               "Designed and implemented a custom Kubernetes resource for managing control-plane/data-plane relationships in Istio; the solution was later presented internally as a target platform approach."
             ],
@@ -177,10 +181,14 @@ window.JORQEN_RESUME_DATA = {
               "Go",
               "Kubernetes",
               "Istio",
+              "Service Mesh",
               "gRPC",
-              "REST",
+              "REST API",
+              "HTTP",
               "PostgreSQL",
               "CI/CD",
+              "Build pipelines",
+              "GitLab",
               "Allure"
             ],
             "companyIcon": "assets/icons/light/sbertech.svg",
@@ -196,7 +204,7 @@ window.JORQEN_RESUME_DATA = {
             "intro": "Magnus Tech is a custom software development company. I worked on a pricing-control platform for the Bristol retail chain that combined store data, employee actions, ML pricing recommendations, and photo confirmations into one operational workflow. Operations teams used it to prepare price changes, review evidence from stores, and coordinate corrective actions across a large retail network.",
             "bullets": [
               "Designed and developed Go backend services from scratch for the pricing platform, integrating store data, product information, ML recommendations, and employee actions into a unified backend flow.",
-              "Built admin-panel APIs and internal tools for viewing prices, manual overrides, cross-store comparison, and day-to-day operational control.",
+              "Built REST APIs for the admin panel and internal tools for viewing prices, manual overrides, cross-store comparison, and day-to-day operational control.",
               "Integrated multi-channel notification flows across web, email, SMS, and mobile clients and maintained API contracts for frontend and mobile teams.",
               "Covered critical flows with tests and observability and helped bring the product from active development to production release."
             ],
@@ -204,12 +212,13 @@ window.JORQEN_RESUME_DATA = {
               "Go",
               "PostgreSQL",
               "Redis",
-              "Kafka",
+              "Apache Kafka",
               "MinIO",
-              "REST",
+              "REST API",
               "gRPC",
               "Prometheus",
-              "CI/CD"
+              "CI/CD",
+              "Clean Architecture"
             ],
             "companyIcon": "assets/icons/magnus.svg",
             "companyUrl": "https://magnustech.com"
@@ -222,7 +231,7 @@ window.JORQEN_RESUME_DATA = {
             "location": "Moscow, Russia",
             "intro": "Exnode develops crypto exchange, B2B payment, and P2P trading products. I worked on backend transaction flows where payments, exchange operations, and reporting had to remain consistent, fast, and accurate under real business load.",
             "bullets": [
-              "Split a large monolithic backend into smaller services and moved part of internal communication from REST to gRPC, reducing latency and clarifying service boundaries.",
+              "Split a large monolithic backend into smaller services and moved part of internal communication from REST APIs to gRPC, reducing latency and clarifying service boundaries.",
               "Optimized payment and reporting queries using EXPLAIN ANALYZE, cutting several heavy PostgreSQL queries from 10-30 seconds to near real time.",
               "Implemented core product capabilities for P2P exchange and online payments, including pricing logic, service integrations, email notifications, Telegram alerts, and magic-link authentication in a lean two-engineer backend setup.",
               "Investigated and contained a critical currency-conversion incident, rolled back affected transactions, and then strengthened validation, observability, and release discipline to reduce recurrence risk."
@@ -232,7 +241,8 @@ window.JORQEN_RESUME_DATA = {
               "PostgreSQL",
               "Redis",
               "RabbitMQ",
-              "REST",
+              "REST API",
+              "HTTP",
               "gRPC",
               "Grafana",
               "Telegram Bot API"
@@ -334,7 +344,7 @@ window.JORQEN_RESUME_DATA = {
           {
             "title": "Languages",
             "items": [
-              "Go",
+              "Go (Golang)",
               "Java",
               "Python",
               "SQL"
@@ -344,9 +354,10 @@ window.JORQEN_RESUME_DATA = {
             "title": "APIs & Messaging",
             "items": [
               "gRPC",
-              "REST",
+              "REST API",
+              "HTTP/HTTPS",
               "MQTT",
-              "Kafka",
+              "Apache Kafka",
               "RabbitMQ",
               "NATS"
             ]
@@ -356,19 +367,37 @@ window.JORQEN_RESUME_DATA = {
             "items": [
               "PostgreSQL",
               "Redis",
-              "MinIO"
+              "MinIO",
+              "ClickHouse",
+              "MongoDB"
             ]
           },
           {
-            "title": "Platform",
+            "title": "Platform & Delivery",
             "items": [
               "Docker",
               "Kubernetes",
               "Helm",
               "Istio",
+              "Service Mesh",
+              "Infrastructure as Code",
+              "Ansible",
+              "GitLab",
+              "CI/CD",
+              "Build pipelines",
               "Linux",
-              "Git",
-              "CI/CD"
+              "Git"
+            ]
+          },
+          {
+            "title": "Security & Identity",
+            "items": [
+              "mTLS",
+              "TLS/SSL",
+              "Certificate-based authentication",
+              "Identity management",
+              "Keycloak",
+              "Active Directory"
             ]
           },
           {
@@ -387,12 +416,13 @@ window.JORQEN_RESUME_DATA = {
             "items": [
               "Distributed systems",
               "Backend architecture",
+              "Clean Architecture",
               "High-load and low-latency services",
-              "Service mesh",
+              "Service Mesh",
               "Testing infrastructure",
               "Observability",
               "Service reliability",
-              "Security",
+              "AI-assisted engineering (Codex)",
               "Mentoring"
             ]
           },
@@ -465,7 +495,7 @@ window.JORQEN_RESUME_DATA = {
     "ru": {
       "meta": {
         "title": "Матвей Сизов | Backend Developer / Software Engineer",
-        "description": "Матвей Сизов - Backend Developer / Software Engineer. Go, распределенные системы, backend с низкой задержкой и надежность production в продуктовых и платформенных командах."
+        "description": "Матвей Сизов - Backend Developer / Software Engineer. Go, распределенные системы, service mesh, защищенные API, backend с низкой задержкой и инженерная работа с AI."
       },
       "brand": "Матвей Сизов",
       "nav": {
@@ -484,8 +514,8 @@ window.JORQEN_RESUME_DATA = {
       "hero": {
         "kicker": "Backend Developer / Software Engineer",
         "name": "Матвей Сизов",
-        "role": "4+ года строю production backend-системы на Go | распределенные системы, высоконагруженная и низколатентная инфраструктура, service mesh и fintech/crypto-продукты.",
-        "summary": "Backend-инженер, специализирующийся на Go, распределенных системах и низколатентной инфраструктуре. У меня 4+ года коммерческого опыта в разработке production-сервисов для телеметрии автомобиля и связи car-to-cloud, service mesh-инфраструктуры, операционного ценообразования в ритейле, криптоплатежей и обменных сценариев, коммунального биллинга и государственных цифровых сервисов. Моя сильная сторона - превращать неоднозначные требования в надежные системы: прояснять компромиссы, выбирать архитектуру, реализовывать ключевые сервисы, добавлять наблюдаемость и безопасность и доводить поставку через CI/CD до production-эксплуатации.",
+        "role": "4+ года строю production backend-системы на Go (Golang) | распределенные системы, низколатентная инфраструктура, service mesh, защищенные API и разработка с использованием AI.",
+        "summary": "Backend-инженер, специализирующийся на Go, распределенных системах и низколатентной инфраструктуре. У меня 4+ года коммерческого опыта в телеметрии автомобиля и связи car-to-cloud, service mesh-инфраструктуре, ценообразовании в ритейле, криптоплатежах, коммунальном биллинге и государственных цифровых сервисах. Я превращаю неоднозначные требования в надежные production-системы: проясняю компромиссы, выбираю архитектуру, реализую ключевые сервисы, добавляю наблюдаемость/безопасность и довожу поставку через CI/CD. Я использую AI-инструменты, включая Codex, чтобы ускорять исследование, прототипирование, тесты, рефакторинг и рутинную реализацию, при этом архитектуру, компромиссы и рискованные production-решения проверяю сам.",
         "photo": {
           "src": "assets/photos/matvey-formal.png",
           "position": "center 22%",
@@ -546,15 +576,15 @@ window.JORQEN_RESUME_DATA = {
             "company": "АТОМ",
             "role": "Senior Software Engineer",
             "period": "Фев 2025 - настоящее время",
-            "duration": "1 г. 2 мес.",
+            "duration": "1 г. 3 мес.",
             "location": "Удаленно",
-            "intro": "АТОМ развивает платформу электромобиля. В направлении коммуникаций и телеметрии я строю backend-сервисы для защищенной связи автомобиля с облаком, интеграции внешних клиентов и надежной работы с низкой задержкой.",
+            "intro": "АТОМ развивает платформу электромобиля. В направлении коммуникаций и телеметрии я строю backend-сервисы для защищенной связи автомобиля с облаком, интеграции внешних клиентов и надежной работы с низкой задержкой в MQTT, gRPC и API-сценариях.",
             "bullets": [
               "Согласовал с руководством, смежными командами и архитекторами MVP-архитектуру для неоднозначных требований, упростив изначально переусложненную декомпозицию сервисов до брокер-центричного дизайна, который можно было выпустить и эксплуатировать.",
               "Спроектировал и совместно разработал MQTT-брокер на Mochi MQTT с mTLS-защитой и восстановлением сессий и состояния через Redis для постоянной коммуникации автомобиля с облаком и безопасных перезапусков.",
               "Проверил ограничения по задержке в первоначальной микросервисной декомпозиции и продвинул подход с центральным брокером, который выдержал ~70K запросов в секунду при p99 ниже 50 мс.",
-              "С нуля построил production-инструменты наблюдаемости и поставки: метрики, логи, трейсы, дашборды, алерты, мониторинг задержек/пропускной способности и бизнес-состояния, CI/CD и автоматизацию деплоя.",
-              "Усилил доверенный контур связи, внедрив аутентификацию клиентов по сертификатам и авторизацию на уровне топиков."
+              "С нуля построил production-инструменты наблюдаемости и поставки: метрики, логи, трейсы, дашборды, алерты, мониторинг задержек/пропускной способности и бизнес-состояния, CI/CD build pipelines и автоматизацию деплоя.",
+              "Усилил доверенный контур связи, внедрив mTLS-аутентификацию клиентов по сертификатам и авторизацию на уровне топиков."
             ],
             "stack": [
               "Go",
@@ -562,8 +592,11 @@ window.JORQEN_RESUME_DATA = {
               "Mochi MQTT",
               "Redis",
               "PostgreSQL",
-              "Kafka",
+              "Apache Kafka",
               "gRPC",
+              "REST API",
+              "HTTP/HTTPS",
+              "TLS/SSL",
               "mTLS",
               "Prometheus",
               "Grafana",
@@ -572,7 +605,8 @@ window.JORQEN_RESUME_DATA = {
               "Docker",
               "Helm",
               "Kubernetes",
-              "CI/CD"
+              "CI/CD",
+              "Build pipelines"
             ],
             "companyIcon": "assets/icons/atom.svg",
             "companyUrl": "https://atom.auto"
@@ -581,7 +615,7 @@ window.JORQEN_RESUME_DATA = {
             "company": "Lukyanov Tech",
             "role": "Part-Time Mentor / Mock Interviewer",
             "period": "Май 2024 - настоящее время",
-            "duration": "1 г. 11 мес.",
+            "duration": "2 г.",
             "location": "Удаленно",
             "intro": "Проект неполной занятости по менторству backend-кандидатов, которые готовятся к инженерным интервью. Я веду практические треки подготовки и пробные собеседования с фокусом на backend-базу, system design, техническую коммуникацию и структурированную обратную связь.",
             "bullets": [
@@ -606,8 +640,8 @@ window.JORQEN_RESUME_DATA = {
             "intro": "Sber Tech развивает Platform V, крупную корпоративную платформу. В команде Service Mesh & Platform Infrastructure я работал с сильно кастомизированным форком Istio и смежными Kubernetes-компонентами для управления рабочими нагрузками, контроля политик и платформенной интеграции.",
             "bullets": [
               "Восстановил набор автотестов в сильно кастомизированном форке Istio, вернув юнит-тесты в ежедневную разработку и подняв покрытие до 80%.",
-              "Спроектировал и реализовал Go-фреймворк интеграционного тестирования, который поднимал изолированные Kubernetes-окружения, запускал тесты параллельно и генерировал Allure-отчеты для CI.",
-              "Починил CI-пайплайны и расширил автоматизацию интеграционными тестами до ~95% критического функционала, сдвинув поиск дефектов на более ранний этап и помогая исправить несколько критичных проблем.",
+              "Спроектировал и реализовал Go-фреймворк интеграционного тестирования, который поднимал изолированные Kubernetes-окружения, запускал тесты параллельно и генерировал Allure-отчеты для CI build pipelines.",
+              "Починил CI/CD build pipelines и расширил автоматизацию интеграционными тестами до ~95% критического функционала, сдвинув поиск дефектов на более ранний этап и помогая исправить несколько критичных проблем.",
               "Наставлял ~10 стажеров из Школы 21 по фреймворку и процессу автоматизации, помогая переводить ручные QA-сценарии в масштабируемые автотесты.",
               "Спроектировал и реализовал пользовательский ресурс Kubernetes для управления связями control plane/data plane в Istio; позже решение представили внутри компании как целевой платформенный подход."
             ],
@@ -615,10 +649,14 @@ window.JORQEN_RESUME_DATA = {
               "Go",
               "Kubernetes",
               "Istio",
+              "Service Mesh",
               "gRPC",
-              "REST",
+              "REST API",
+              "HTTP",
               "PostgreSQL",
               "CI/CD",
+              "Build pipelines",
+              "GitLab",
               "Allure"
             ],
             "companyIcon": "assets/icons/light/sbertech.svg",
@@ -634,7 +672,7 @@ window.JORQEN_RESUME_DATA = {
             "intro": "Magnus Tech - компания заказной разработки ПО. Я работал над платформой контроля цен для сети магазинов «Бристоль», которая объединяла данные магазинов, действия сотрудников, ML-рекомендации по ценам и фотоподтверждения в единый операционный процесс. Операционные команды использовали продукт для подготовки изменений цен, проверки подтверждений из магазинов и координации корректирующих действий по большой розничной сети.",
             "bullets": [
               "Спроектировал и разрабатывал с нуля Go backend-сервисы для платформы ценообразования, интегрируя данные магазинов, продуктовую информацию, ML-рекомендации и действия сотрудников в единый backend-поток.",
-              "Реализовал API панели администрирования и внутренние инструменты для просмотра цен, ручных корректировок, сравнения между магазинами и ежедневного операционного контроля.",
+              "Реализовал REST API панели администрирования и внутренние инструменты для просмотра цен, ручных корректировок, сравнения между магазинами и ежедневного операционного контроля.",
               "Интегрировал мультиканальные уведомления для веб, email, SMS и мобильных клиентов и поддерживал API-контракты для frontend- и mobile-команд.",
               "Покрывал критичные сценарии тестами и наблюдаемостью и участвовал в доведении продукта от активной разработки до production-релиза."
             ],
@@ -642,12 +680,13 @@ window.JORQEN_RESUME_DATA = {
               "Go",
               "PostgreSQL",
               "Redis",
-              "Kafka",
+              "Apache Kafka",
               "MinIO",
-              "REST",
+              "REST API",
               "gRPC",
               "Prometheus",
-              "CI/CD"
+              "CI/CD",
+              "Clean Architecture"
             ],
             "companyIcon": "assets/icons/magnus.svg",
             "companyUrl": "https://magnustech.com"
@@ -660,7 +699,7 @@ window.JORQEN_RESUME_DATA = {
             "location": "Москва, Россия",
             "intro": "Exnode развивает продукты криптобиржи, B2B-платежей и P2P-обмена. Я работал над backend-частями транзакционных сценариев, где платежи, обменные операции и отчетность должны были оставаться консистентными, быстрыми и точными под реальной бизнес-нагрузкой.",
             "bullets": [
-              "Разделил большой монолитный backend на более мелкие сервисы и перевел часть внутреннего взаимодействия с REST на gRPC, снижая задержку и проясняя границы сервисов.",
+              "Разделил большой монолитный backend на более мелкие сервисы и перевел часть внутреннего взаимодействия с REST API на gRPC, снижая задержку и проясняя границы сервисов.",
               "Оптимизировал платежные и отчетные запросы через EXPLAIN ANALYZE, сократив несколько тяжелых PostgreSQL-запросов с 10-30 секунд до почти реального времени.",
               "Реализовал ключевые продуктовые возможности для P2P-обмена и онлайн-платежей, включая логику курсов, интеграции между сервисами, email-уведомления, Telegram-оповещения и magic-link аутентификацию в компактной backend-команде из двух инженеров.",
               "Разобрал и локализовал критический инцидент с конвертацией валют, откатил затронутые транзакции и затем усилил валидацию, наблюдаемость и дисциплину релизов, чтобы снизить риск повторения."
@@ -670,7 +709,8 @@ window.JORQEN_RESUME_DATA = {
               "PostgreSQL",
               "Redis",
               "RabbitMQ",
-              "REST",
+              "REST API",
+              "HTTP",
               "gRPC",
               "Grafana",
               "Telegram Bot API"
@@ -772,7 +812,7 @@ window.JORQEN_RESUME_DATA = {
           {
             "title": "Языки",
             "items": [
-              "Go",
+              "Go (Golang)",
               "Java",
               "Python",
               "SQL"
@@ -782,9 +822,10 @@ window.JORQEN_RESUME_DATA = {
             "title": "API и обмен сообщениями",
             "items": [
               "gRPC",
-              "REST",
+              "REST API",
+              "HTTP/HTTPS",
               "MQTT",
-              "Kafka",
+              "Apache Kafka",
               "RabbitMQ",
               "NATS"
             ]
@@ -794,19 +835,37 @@ window.JORQEN_RESUME_DATA = {
             "items": [
               "PostgreSQL",
               "Redis",
-              "MinIO"
+              "MinIO",
+              "ClickHouse",
+              "MongoDB"
             ]
           },
           {
-            "title": "Платформа",
+            "title": "Платформа и поставка",
             "items": [
               "Docker",
               "Kubernetes",
               "Helm",
               "Istio",
+              "Service Mesh",
+              "Infrastructure as Code",
+              "Ansible",
+              "GitLab",
+              "CI/CD",
+              "Build pipelines",
               "Linux",
-              "Git",
-              "CI/CD"
+              "Git"
+            ]
+          },
+          {
+            "title": "Безопасность и идентификация",
+            "items": [
+              "mTLS",
+              "TLS/SSL",
+              "Аутентификация по сертификатам",
+              "Identity management",
+              "Keycloak",
+              "Active Directory"
             ]
           },
           {
@@ -823,15 +882,16 @@ window.JORQEN_RESUME_DATA = {
           {
             "title": "Ключевые направления",
             "items": [
-              "Распределенные системы",
-              "Backend-архитектура",
-              "Высоконагруженные и низколатентные сервисы",
-              "Service mesh",
-              "Тестовая инфраструктура",
-              "Наблюдаемость",
-              "Надежность сервисов",
-              "Безопасность",
-              "Менторство"
+              "Distributed systems",
+              "Backend architecture",
+              "Clean Architecture",
+              "High-load and low-latency services",
+              "Service Mesh",
+              "Testing infrastructure",
+              "Observability",
+              "Service reliability",
+              "AI-assisted engineering (Codex)",
+              "Mentoring"
             ]
           },
           {

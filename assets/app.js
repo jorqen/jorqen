@@ -164,7 +164,7 @@ function getContactHref(key) {
 
 function getContactLabel(key) {
   const value = String(RESUME_DATA.contacts?.[key]?.value || "");
-  return value.replace(/^https?:\/\//i, "");
+  return value.replace(/^https?:\/\/(www\.)?/i, "").replace(/\/$/i, "");
 }
 
 function getContactIcon(key, theme) {
@@ -770,9 +770,14 @@ function renderLanguage(lang) {
   setText("hero-summary", data.hero.summary);
 
   HERO_CONTACT_BINDINGS.forEach((item) => {
-    setLinkLabel(item.id, getContactLabel(item.key));
+    const label = getContactLabel(item.key);
+    const link = document.getElementById(item.id);
+    setLinkLabel(item.id, label);
     setLinkHref(item.id, getContactHref(item.key));
     setImageSource(`#${item.id} img`, getContactIcon(item.key, theme));
+    if (link) {
+      link.title = String(RESUME_DATA.contacts?.[item.key]?.value || label);
+    }
   });
 
   renderFacts(data.hero.facts, theme);

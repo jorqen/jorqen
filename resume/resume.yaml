@@ -82,13 +82,13 @@ person:
     ru: "Матвей Сизов"
   headline: "Backend Developer / Software Engineer"
   role:
-    en: "4+ years building production Go backend systems | distributed systems, high-load and low-latency infrastructure, service mesh, and fintech/crypto products."
-    ru: "4+ года строю production backend-системы на Go | распределенные системы, высоконагруженная и низколатентная инфраструктура, service mesh и fintech/crypto-продукты."
+    en: "4+ years building production Go (Golang) backend systems | distributed systems, low-latency infrastructure, service mesh, secure APIs, and AI-assisted delivery."
+    ru: "4+ года строю production backend-системы на Go (Golang) | распределенные системы, низколатентная инфраструктура, service mesh, защищенные API и разработка с использованием AI."
   summary:
     en: >-
-      Backend engineer specializing in Go, distributed systems, and low-latency infrastructure. I have 4+ years of commercial experience building production services across vehicle telemetry and car-to-cloud connectivity, service-mesh platform infrastructure, retail pricing operations, crypto payments and exchange flows, utility billing, and public digital services. My strongest work is turning ambiguous requirements into reliable systems: clarifying trade-offs, choosing architecture, implementing core services, adding observability and security, and carrying delivery through CI/CD into production operation.
+      Backend engineer specializing in Go, distributed systems, and low-latency infrastructure. I have 4+ years of commercial experience across vehicle telemetry and car-to-cloud connectivity, service-mesh platform infrastructure, retail pricing, crypto payments, utility billing, and public digital services. I turn ambiguous requirements into reliable production systems: clarify trade-offs, choose architecture, implement core services, add observability/security, and ship through CI/CD. I use AI tools, including Codex, to accelerate research, prototyping, tests, refactoring, and routine implementation, while reviewing architecture, trade-offs, and high-risk production decisions myself.
     ru: >-
-      Backend-инженер, специализирующийся на Go, распределенных системах и низколатентной инфраструктуре. У меня 4+ года коммерческого опыта в разработке production-сервисов для телеметрии автомобиля и связи car-to-cloud, service mesh-инфраструктуры, операционного ценообразования в ритейле, криптоплатежей и обменных сценариев, коммунального биллинга и государственных цифровых сервисов. Моя сильная сторона - превращать неоднозначные требования в надежные системы: прояснять компромиссы, выбирать архитектуру, реализовывать ключевые сервисы, добавлять наблюдаемость и безопасность и доводить поставку через CI/CD до production-эксплуатации.
+      Backend-инженер, специализирующийся на Go, распределенных системах и низколатентной инфраструктуре. У меня 4+ года коммерческого опыта в телеметрии автомобиля и связи car-to-cloud, service mesh-инфраструктуре, ценообразовании в ритейле, криптоплатежах, коммунальном биллинге и государственных цифровых сервисах. Я превращаю неоднозначные требования в надежные production-системы: проясняю компромиссы, выбираю архитектуру, реализую ключевые сервисы, добавляю наблюдаемость/безопасность и довожу поставку через CI/CD. Я использую AI-инструменты, включая Codex, чтобы ускорять исследование, прототипирование, тесты, рефакторинг и рутинную реализацию, при этом архитектуру, компромиссы и рискованные production-решения проверяю сам.
   photo:
     <<: *photo_hero_studio
     caption:
@@ -170,9 +170,9 @@ experience:
         ru: "Удаленно"
       summary:
         en: >-
-          ATOM develops an electric-vehicle platform. In the communications and telemetry area, I build backend services for secure vehicle-to-cloud connectivity, external client integration, and reliable low-latency operation.
+          ATOM develops an electric-vehicle platform. In the communications and telemetry area, I build backend services for secure vehicle-to-cloud connectivity, external client integration, and reliable low-latency operation across MQTT, gRPC, and API-driven flows.
         ru: >-
-          АТОМ развивает платформу электромобиля. В направлении коммуникаций и телеметрии я строю backend-сервисы для защищенной связи автомобиля с облаком, интеграции внешних клиентов и надежной работы с низкой задержкой.
+          АТОМ развивает платформу электромобиля. В направлении коммуникаций и телеметрии я строю backend-сервисы для защищенной связи автомобиля с облаком, интеграции внешних клиентов и надежной работы с низкой задержкой в MQTT, gRPC и API-сценариях.
       highlights:
         - en: "Aligned leadership, peer teams, and architects around an MVP architecture for ambiguous requirements, simplifying an initially overcomplicated service split into a broker-centered design that could be released and operated."
           ru: "Согласовал с руководством, смежными командами и архитекторами MVP-архитектуру для неоднозначных требований, упростив изначально переусложненную декомпозицию сервисов до брокер-центричного дизайна, который можно было выпустить и эксплуатировать."
@@ -180,18 +180,21 @@ experience:
           ru: "Спроектировал и совместно разработал MQTT-брокер на Mochi MQTT с mTLS-защитой и восстановлением сессий и состояния через Redis для постоянной коммуникации автомобиля с облаком и безопасных перезапусков."
         - en: "Validated latency limits of the initial microservice decomposition and drove the central-broker approach that sustained ~70K requests per second with p99 latency below 50 ms."
           ru: "Проверил ограничения по задержке в первоначальной микросервисной декомпозиции и продвинул подход с центральным брокером, который выдержал ~70K запросов в секунду при p99 ниже 50 мс."
-        - en: "Built production observability and delivery tooling from scratch: metrics, logs, traces, dashboards, alerts, latency/throughput and business-health monitoring, CI/CD, and deployment automation."
-          ru: "С нуля построил production-инструменты наблюдаемости и поставки: метрики, логи, трейсы, дашборды, алерты, мониторинг задержек/пропускной способности и бизнес-состояния, CI/CD и автоматизацию деплоя."
-        - en: "Strengthened trusted connectivity by enforcing certificate-based client authentication and topic-level authorization."
-          ru: "Усилил доверенный контур связи, внедрив аутентификацию клиентов по сертификатам и авторизацию на уровне топиков."
+        - en: "Built production observability and delivery tooling from scratch: metrics, logs, traces, dashboards, alerts, latency/throughput and business-health monitoring, CI/CD build pipelines, and deployment automation."
+          ru: "С нуля построил production-инструменты наблюдаемости и поставки: метрики, логи, трейсы, дашборды, алерты, мониторинг задержек/пропускной способности и бизнес-состояния, CI/CD build pipelines и автоматизацию деплоя."
+        - en: "Strengthened trusted connectivity by enforcing mTLS certificate-based client authentication and topic-level authorization."
+          ru: "Усилил доверенный контур связи, внедрив mTLS-аутентификацию клиентов по сертификатам и авторизацию на уровне топиков."
       stack:
         - "Go"
         - "MQTT"
         - "Mochi MQTT"
         - "Redis"
         - "PostgreSQL"
-        - "Kafka"
+        - "Apache Kafka"
         - "gRPC"
+        - "REST API"
+        - "HTTP/HTTPS"
+        - "TLS/SSL"
         - "mTLS"
         - "Prometheus"
         - "Grafana"
@@ -201,41 +204,8 @@ experience:
         - "Helm"
         - "Kubernetes"
         - "CI/CD"
+        - "Build pipelines"
       url: "https://atom.auto"
-    - <<: *icon_company_sbertech
-      company: "Sber Tech"
-      role: "Software Engineer"
-      startDate: "2024-01"
-      endDate: "2025-02"
-      location:
-        en: "Moscow, Russia"
-        ru: "Москва, Россия"
-      summary:
-        en: >-
-          Sber Tech develops Platform V, a large enterprise platform. In the Service Mesh & Platform Infrastructure team, I worked on a heavily customized Istio fork and adjacent Kubernetes components for workload control, policy enforcement, and platform integration.
-        ru: >-
-          Sber Tech развивает Platform V, крупную корпоративную платформу. В команде Service Mesh & Platform Infrastructure я работал с сильно кастомизированным форком Istio и смежными Kubernetes-компонентами для управления рабочими нагрузками, контроля политик и платформенной интеграции.
-      highlights:
-        - en: "Restored the automated test suite in a heavily customized Istio fork, returning unit tests to daily development and raising coverage to 80%."
-          ru: "Восстановил набор автотестов в сильно кастомизированном форке Istio, вернув юнит-тесты в ежедневную разработку и подняв покрытие до 80%."
-        - en: "Designed and built a Go integration-testing framework that provisioned isolated Kubernetes environments, ran tests in parallel, and generated Allure reports for CI."
-          ru: "Спроектировал и реализовал Go-фреймворк интеграционного тестирования, который поднимал изолированные Kubernetes-окружения, запускал тесты параллельно и генерировал Allure-отчеты для CI."
-        - en: "Repaired CI pipelines and expanded integration-test automation to ~95% of critical functionality, moving defect detection earlier and helping fix several critical issues."
-          ru: "Починил CI-пайплайны и расширил автоматизацию интеграционными тестами до ~95% критического функционала, сдвинув поиск дефектов на более ранний этап и помогая исправить несколько критичных проблем."
-        - en: "Mentored ~10 School 21 interns on the framework and automation process, helping convert manual QA scenarios into scalable automated tests."
-          ru: "Наставлял ~10 стажеров из Школы 21 по фреймворку и процессу автоматизации, помогая переводить ручные QA-сценарии в масштабируемые автотесты."
-        - en: "Designed and implemented a custom Kubernetes resource for managing control-plane/data-plane relationships in Istio; the solution was later presented internally as a target platform approach."
-          ru: "Спроектировал и реализовал пользовательский ресурс Kubernetes для управления связями control plane/data plane в Istio; позже решение представили внутри компании как целевой платформенный подход."
-      stack:
-        - "Go"
-        - "Kubernetes"
-        - "Istio"
-        - "gRPC"
-        - "REST"
-        - "PostgreSQL"
-        - "CI/CD"
-        - "Allure"
-      url: "https://sbertech.ru"
     - <<: *icon_company_lukyanov
       company: "Lukyanov Tech"
       role: "Part-Time Mentor / Mock Interviewer"
@@ -259,6 +229,44 @@ experience:
         - "System design"
         - "Technical communication"
       url: "https://lukyanov.tech"
+    - <<: *icon_company_sbertech
+      company: "Sber Tech"
+      role: "Software Engineer"
+      startDate: "2024-01"
+      endDate: "2025-02"
+      location:
+        en: "Moscow, Russia"
+        ru: "Москва, Россия"
+      summary:
+        en: >-
+          Sber Tech develops Platform V, a large enterprise platform. In the Service Mesh & Platform Infrastructure team, I worked on a heavily customized Istio fork and adjacent Kubernetes components for workload control, policy enforcement, and platform integration.
+        ru: >-
+          Sber Tech развивает Platform V, крупную корпоративную платформу. В команде Service Mesh & Platform Infrastructure я работал с сильно кастомизированным форком Istio и смежными Kubernetes-компонентами для управления рабочими нагрузками, контроля политик и платформенной интеграции.
+      highlights:
+        - en: "Restored the automated test suite in a heavily customized Istio fork, returning unit tests to daily development and raising coverage to 80%."
+          ru: "Восстановил набор автотестов в сильно кастомизированном форке Istio, вернув юнит-тесты в ежедневную разработку и подняв покрытие до 80%."
+        - en: "Designed and built a Go integration-testing framework that provisioned isolated Kubernetes environments, ran tests in parallel, and generated Allure reports for CI build pipelines."
+          ru: "Спроектировал и реализовал Go-фреймворк интеграционного тестирования, который поднимал изолированные Kubernetes-окружения, запускал тесты параллельно и генерировал Allure-отчеты для CI build pipelines."
+        - en: "Repaired CI/CD build pipelines and expanded integration-test automation to ~95% of critical functionality, moving defect detection earlier and helping fix several critical issues."
+          ru: "Починил CI/CD build pipelines и расширил автоматизацию интеграционными тестами до ~95% критического функционала, сдвинув поиск дефектов на более ранний этап и помогая исправить несколько критичных проблем."
+        - en: "Mentored ~10 School 21 interns on the framework and automation process, helping convert manual QA scenarios into scalable automated tests."
+          ru: "Наставлял ~10 стажеров из Школы 21 по фреймворку и процессу автоматизации, помогая переводить ручные QA-сценарии в масштабируемые автотесты."
+        - en: "Designed and implemented a custom Kubernetes resource for managing control-plane/data-plane relationships in Istio; the solution was later presented internally as a target platform approach."
+          ru: "Спроектировал и реализовал пользовательский ресурс Kubernetes для управления связями control plane/data plane в Istio; позже решение представили внутри компании как целевой платформенный подход."
+      stack:
+        - "Go"
+        - "Kubernetes"
+        - "Istio"
+        - "Service Mesh"
+        - "gRPC"
+        - "REST API"
+        - "HTTP"
+        - "PostgreSQL"
+        - "CI/CD"
+        - "Build pipelines"
+        - "GitLab"
+        - "Allure"
+      url: "https://sbertech.ru"
     - <<: *icon_company_magnus
       company: "Magnus Tech"
       role: "Software Engineer"
@@ -275,8 +283,8 @@ experience:
       highlights:
         - en: "Designed and developed Go backend services from scratch for the pricing platform, integrating store data, product information, ML recommendations, and employee actions into a unified backend flow."
           ru: "Спроектировал и разрабатывал с нуля Go backend-сервисы для платформы ценообразования, интегрируя данные магазинов, продуктовую информацию, ML-рекомендации и действия сотрудников в единый backend-поток."
-        - en: "Built admin-panel APIs and internal tools for viewing prices, manual overrides, cross-store comparison, and day-to-day operational control."
-          ru: "Реализовал API панели администрирования и внутренние инструменты для просмотра цен, ручных корректировок, сравнения между магазинами и ежедневного операционного контроля."
+        - en: "Built REST APIs for the admin panel and internal tools for viewing prices, manual overrides, cross-store comparison, and day-to-day operational control."
+          ru: "Реализовал REST API панели администрирования и внутренние инструменты для просмотра цен, ручных корректировок, сравнения между магазинами и ежедневного операционного контроля."
         - en: "Integrated multi-channel notification flows across web, email, SMS, and mobile clients and maintained API contracts for frontend and mobile teams."
           ru: "Интегрировал мультиканальные уведомления для веб, email, SMS и мобильных клиентов и поддерживал API-контракты для frontend- и mobile-команд."
         - en: "Covered critical flows with tests and observability and helped bring the product from active development to production release."
@@ -285,12 +293,13 @@ experience:
         - "Go"
         - "PostgreSQL"
         - "Redis"
-        - "Kafka"
+        - "Apache Kafka"
         - "MinIO"
-        - "REST"
+        - "REST API"
         - "gRPC"
         - "Prometheus"
         - "CI/CD"
+        - "Clean Architecture"
       url: "https://magnustech.com"
     - <<: *icon_company_exnode
       company: "Exnode"
@@ -306,8 +315,8 @@ experience:
         ru: >-
           Exnode развивает продукты криптобиржи, B2B-платежей и P2P-обмена. Я работал над backend-частями транзакционных сценариев, где платежи, обменные операции и отчетность должны были оставаться консистентными, быстрыми и точными под реальной бизнес-нагрузкой.
       highlights:
-        - en: "Split a large monolithic backend into smaller services and moved part of internal communication from REST to gRPC, reducing latency and clarifying service boundaries."
-          ru: "Разделил большой монолитный backend на более мелкие сервисы и перевел часть внутреннего взаимодействия с REST на gRPC, снижая задержку и проясняя границы сервисов."
+        - en: "Split a large monolithic backend into smaller services and moved part of internal communication from REST APIs to gRPC, reducing latency and clarifying service boundaries."
+          ru: "Разделил большой монолитный backend на более мелкие сервисы и перевел часть внутреннего взаимодействия с REST API на gRPC, снижая задержку и проясняя границы сервисов."
         - en: "Optimized payment and reporting queries using EXPLAIN ANALYZE, cutting several heavy PostgreSQL queries from 10-30 seconds to near real time."
           ru: "Оптимизировал платежные и отчетные запросы через EXPLAIN ANALYZE, сократив несколько тяжелых PostgreSQL-запросов с 10-30 секунд до почти реального времени."
         - en: "Implemented core product capabilities for P2P exchange and online payments, including pricing logic, service integrations, email notifications, Telegram alerts, and magic-link authentication in a lean two-engineer backend setup."
@@ -319,7 +328,8 @@ experience:
         - "PostgreSQL"
         - "Redis"
         - "RabbitMQ"
-        - "REST"
+        - "REST API"
+        - "HTTP"
         - "gRPC"
         - "Grafana"
         - "Telegram Bot API"
@@ -452,7 +462,7 @@ skills:
         en: "Languages"
         ru: "Языки"
       items:
-        - "Go"
+        - "Go (Golang)"
         - "Java"
         - "Python"
         - "SQL"
@@ -461,9 +471,10 @@ skills:
         ru: "API и обмен сообщениями"
       items:
         - "gRPC"
-        - "REST"
+        - "REST API"
+        - "HTTP/HTTPS"
         - "MQTT"
-        - "Kafka"
+        - "Apache Kafka"
         - "RabbitMQ"
         - "NATS"
     - title:
@@ -473,17 +484,36 @@ skills:
         - "PostgreSQL"
         - "Redis"
         - "MinIO"
+        - "ClickHouse"
+        - "MongoDB"
     - title:
-        en: "Platform"
-        ru: "Платформа"
+        en: "Platform & Delivery"
+        ru: "Платформа и поставка"
       items:
         - "Docker"
         - "Kubernetes"
         - "Helm"
         - "Istio"
+        - "Service Mesh"
+        - "Infrastructure as Code"
+        - "Ansible"
+        - "GitLab"
+        - "CI/CD"
+        - "Build pipelines"
         - "Linux"
         - "Git"
-        - "CI/CD"
+    - title:
+        en: "Security & Identity"
+        ru: "Безопасность и идентификация"
+      items:
+        - "mTLS"
+        - "TLS/SSL"
+        - en: "Certificate-based authentication"
+          ru: "Аутентификация по сертификатам"
+        - en: "Identity management"
+          ru: "Identity management"
+        - "Keycloak"
+        - "Active Directory"
     - title:
         en: "Observability & Quality"
         ru: "Наблюдаемость и качество"
@@ -498,24 +528,16 @@ skills:
         en: "Core areas"
         ru: "Ключевые направления"
       items:
-        - en: "Distributed systems"
-          ru: "Распределенные системы"
-        - en: "Backend architecture"
-          ru: "Backend-архитектура"
-        - en: "High-load and low-latency services"
-          ru: "Высоконагруженные и низколатентные сервисы"
-        - en: "Service mesh"
-          ru: "Service mesh"
-        - en: "Testing infrastructure"
-          ru: "Тестовая инфраструктура"
-        - en: "Observability"
-          ru: "Наблюдаемость"
-        - en: "Service reliability"
-          ru: "Надежность сервисов"
-        - en: "Security"
-          ru: "Безопасность"
-        - en: "Mentoring"
-          ru: "Менторство"
+        - "Distributed systems"
+        - "Backend architecture"
+        - "Clean Architecture"
+        - "High-load and low-latency services"
+        - "Service Mesh"
+        - "Testing infrastructure"
+        - "Observability"
+        - "Service reliability"
+        - "AI-assisted engineering (Codex)"
+        - "Mentoring"
     - title:
         en: "Spoken languages"
         ru: "Разговорные языки"

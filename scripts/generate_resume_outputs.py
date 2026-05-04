@@ -101,8 +101,8 @@ PDF_TYPOGRAPHY_SCALE = 0.9
 
 SITE_UI = {
     "metaDescription": {
-        "en": "Matvey Sizov - Backend Developer / Software Engineer. Go, distributed systems, low-latency backend development, and production reliability in product and platform teams.",
-        "ru": "Матвей Сизов - Backend Developer / Software Engineer. Go, распределенные системы, backend с низкой задержкой и надежность production в продуктовых и платформенных командах.",
+        "en": "Matvey Sizov - Backend Developer / Software Engineer. Go, distributed systems, service mesh, secure APIs, low-latency backend development, and AI-assisted engineering.",
+        "ru": "Матвей Сизов - Backend Developer / Software Engineer. Go, распределенные системы, service mesh, защищенные API, backend с низкой задержкой и инженерная работа с AI.",
     },
     "navResume": {
         "en": "Resume",
@@ -694,6 +694,7 @@ def configure_docx_paragraph_style(
     bold: bool = False,
     alignment: Any = None,
     keep_with_next: bool = False,
+    keep_together: bool = False,
     line_spacing: float = 12,
     space_before: float = 0,
     space_after: float = 0,
@@ -708,6 +709,7 @@ def configure_docx_paragraph_style(
     style.font.color.rgb = color
     style.paragraph_format.alignment = alignment
     style.paragraph_format.keep_with_next = keep_with_next
+    style.paragraph_format.keep_together = keep_together
     style.paragraph_format.space_before = Pt(space_before)
     style.paragraph_format.space_after = Pt(space_after)
     style.paragraph_format.line_spacing = Pt(line_spacing)
@@ -817,6 +819,7 @@ def configure_docx(document: Document, download_style: dict[str, Any]) -> None:
         typography["section"]["fontSize"],
         rgb_color(style_colors["accent"]),
         bold=True,
+        keep_with_next=True,
         line_spacing=typography["section"]["lineHeight"],
         space_before=9,
         space_after=3,
@@ -837,6 +840,7 @@ def configure_docx(document: Document, download_style: dict[str, Any]) -> None:
         typography["company"]["fontSize"],
         rgb_color(style_colors["text"]),
         bold=True,
+        keep_with_next=True,
         line_spacing=typography["company"]["lineHeight"],
         space_after=2.5,
     )
@@ -855,6 +859,7 @@ def configure_docx(document: Document, download_style: dict[str, Any]) -> None:
         font_name,
         typography["body"]["fontSize"],
         rgb_color(style_colors["text"]),
+        keep_together=True,
         line_spacing=typography["body"]["lineHeight"],
         space_after=2.75,
     )
@@ -1154,6 +1159,7 @@ def build_pdf_styles(lang: str, download_style: dict[str, Any]) -> dict[str, Par
             textColor=colors.HexColor(f"#{style_colors['accent']}"),
             spaceBefore=8,
             spaceAfter=2,
+            keepWithNext=1,
         ),
         "sectionBody": ParagraphStyle(
             "ResumeSectionBody",
@@ -1172,6 +1178,7 @@ def build_pdf_styles(lang: str, download_style: dict[str, Any]) -> dict[str, Par
             leading=line_height("company"),
             textColor=colors.HexColor(f"#{style_colors['text']}"),
             spaceAfter=2,
+            keepWithNext=1,
         ),
         "meta": ParagraphStyle(
             "ResumeMeta",
