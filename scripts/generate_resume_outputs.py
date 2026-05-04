@@ -9,6 +9,7 @@ from datetime import date
 from functools import lru_cache
 import hashlib
 import html
+import os
 import shutil
 import subprocess
 import sys
@@ -95,7 +96,7 @@ DOCX_TYPOGRAPHY_SCALE_BY_LANG = {
 
 PDF_TYPOGRAPHY_SCALE_BY_LANG = {
     "en": 0.91,
-    "ru": 0.89,
+    "ru": 0.87,
 }
 
 DOWNLOAD_SECTION_TITLES = {
@@ -753,18 +754,30 @@ def find_font(candidates: list[str]) -> Path | None:
     return None
 
 
+def env_font_path(name: str) -> Path | None:
+    value = os.environ.get(name)
+    if not value:
+        return None
+    path = Path(value).expanduser()
+    if not path.exists():
+        raise RuntimeError(f"{name} points to a missing font file: {path}")
+    return path
+
+
 def register_pdf_fonts(lang: str) -> tuple[str, str]:
-    regular = find_font([
+    regular = env_font_path("RESUME_PDF_FONT_REGULAR") or find_font([
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/System/Library/Fonts/Supplemental/Arial.ttf",
         "/Library/Fonts/Arial.ttf",
         "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
         "/Library/Fonts/Arial Unicode.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     ])
-    bold = find_font([
+    bold = env_font_path("RESUME_PDF_FONT_BOLD") or find_font([
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
         "/Library/Fonts/Arial Bold.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     ]) or regular
 
     if not regular:
