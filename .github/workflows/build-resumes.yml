@@ -46,6 +46,57 @@ jobs:
           cp index.html dist/
           cp -R assets dist/assets
           touch dist/.nojekyll
+          SITE_URL="$(python3 - <<'PY'
+          import yaml
+          with open("resume/resume.yaml", encoding="utf-8") as file:
+              print(str(yaml.safe_load(file)["site"]["url"]).rstrip("/"))
+          PY
+          )"
+          YANDEX_METRIKA_ID="$(python3 - <<'PY'
+          import yaml
+          with open("resume/resume.yaml", encoding="utf-8") as file:
+              print(str(yaml.safe_load(file)["analytics"]["yandexMetrikaId"]))
+          PY
+          )"
+          SITE_URL="$SITE_URL" YANDEX_METRIKA_ID="$YANDEX_METRIKA_ID" node <<'NODE'
+          const fs = require("fs");
+          const siteUrl = process.env.SITE_URL.replace(/\/$/, "");
+          const metrikaId = process.env.YANDEX_METRIKA_ID;
+          const rootUrl = `${siteUrl}/`;
+          const coverUrl = `${siteUrl}/assets/og-cover-recruiter.jpg`;
+          const siteName = new URL(siteUrl).hostname;
+          let html = fs.readFileSync("dist/index.html", "utf8");
+
+          function setLinkHref(rel, value) {
+            html = html.replace(
+              new RegExp(`(<link\\b(?=[^>]*\\brel="${rel}")[^>]*\\bhref=")[^"]*(")`),
+              `$1${value}$2`,
+            );
+          }
+
+          function setMetaContent(attribute, key, value) {
+            html = html.replace(
+              new RegExp(`(<meta\\b(?=[^>]*\\b${attribute}="${key}")[^>]*\\bcontent=")[^"]*(")`),
+              `$1${value}$2`,
+            );
+          }
+
+          setLinkHref("canonical", rootUrl);
+          setLinkHref("image_src", coverUrl);
+          setMetaContent("property", "og:site_name", siteName);
+          setMetaContent("property", "og:url", rootUrl);
+          setMetaContent("property", "og:image", coverUrl);
+          setMetaContent("property", "og:image:url", coverUrl);
+          setMetaContent("property", "og:image:secure_url", coverUrl);
+          setMetaContent("name", "twitter:image", coverUrl);
+          setMetaContent("name", "jorqen:site-url", siteUrl);
+          setMetaContent("name", "jorqen:yandex-metrika-id", metrikaId);
+          html = html.replace(
+            /<noscript id="metrika-noscript"><\/noscript>/,
+            `<noscript id="metrika-noscript"><div><img src="https://mc.yandex.ru/watch/${metrikaId}" style="position:absolute; left:-9999px;" alt="" /></div></noscript>`,
+          );
+          fs.writeFileSync("dist/index.html", html);
+          NODE
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

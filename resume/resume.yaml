@@ -5,6 +5,12 @@ languages:
   - "en"
   - "ru"
 
+site:
+  url: "https://jorqen.link"
+
+analytics:
+  yandexMetrikaId: "109088766"
+
 person:
   name:
     en: "Matvey Sizov"
@@ -57,7 +63,7 @@ person:
 
 contacts:
   website:
-    value: "https://jorqen.github.io"
+    icon: "website.svg"
   email:
     icon: "contact.svg"
     value: "oxoxevi351@gmail.com"

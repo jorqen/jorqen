@@ -2,6 +2,8 @@ const LANGUAGE_STORAGE_KEY = "jorqen.language";
 const THEME_STORAGE_KEY = "jorqen.theme";
 const RESUME_SOURCE_URL = "resume/resume.yaml";
 const MEDIA_ROOT = "assets/media";
+const SITE_URL_PLACEHOLDER = "${SITE_URL}";
+let SITE_URL = normalizeSiteUrl(readMetaContent("jorqen:site-url") || window.location.origin);
 const SUPPORTED_THEMES = ["light", "dark"];
 const THEMED_MEDIA_FILES = new Set([
   "briefcase.svg",
@@ -85,6 +87,68 @@ const SITE_UI = {
     ru: "© {year} {name}. Сайт-визитка для рекрутеров и менеджеров по найму.",
   },
 };
+const CONTACT_ANALYTICS_GOALS = {
+  email: "email_click",
+  github: "github_click",
+  linkedin: "linkedin_click",
+  telegram: "telegram_click",
+};
+
+function readMetaContent(name) {
+  return String(document.querySelector(`meta[name="${name}"]`)?.getAttribute("content") || "").trim();
+}
+
+function normalizeSiteUrl(value) {
+  try {
+    const url = new URL(String(value || ""), window.location.origin);
+    url.hash = "";
+    url.search = "";
+    return url.href.replace(/\/$/, "");
+  } catch (_error) {
+    return window.location.origin.replace(/\/$/, "");
+  }
+}
+
+function absoluteSiteUrl(path = "/") {
+  if (window.JorqenAnalytics?.absoluteSiteUrl) {
+    return window.JorqenAnalytics.absoluteSiteUrl(path);
+  }
+
+  try {
+    return new URL(path, `${SITE_URL}/`).href;
+  } catch (_error) {
+    return SITE_URL;
+  }
+}
+
+function resolveConfiguredValue(value) {
+  return String(value || "").replaceAll(SITE_URL_PLACEHOLDER, SITE_URL);
+}
+
+function configureSite(source) {
+  SITE_URL = normalizeSiteUrl(source.site?.url || SITE_URL);
+  if (source.contacts?.website) {
+    source.contacts.website.value = SITE_URL;
+  }
+  if (window.JorqenAnalytics?.configure) {
+    window.JorqenAnalytics.configure({
+      siteUrl: SITE_URL,
+      yandexMetrikaId: source.analytics?.yandexMetrikaId || "",
+    });
+  }
+}
+
+function refreshAnalyticsTracking() {
+  if (window.JorqenAnalytics?.initPageTracking) {
+    window.JorqenAnalytics.initPageTracking();
+  }
+}
+
+function trackPhotoClick(element) {
+  if (window.JorqenAnalytics?.trackPhotoClick) {
+    window.JorqenAnalytics.trackPhotoClick(element);
+  }
+}
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -157,12 +221,12 @@ function fileName(source, extension) {
 }
 
 function contactHref(contact) {
-  const value = String(contact?.value || "").trim();
+  const value = resolveConfiguredValue(contact?.value).trim();
   return value.includes("@") ? `mailto:${value}` : value;
 }
 
 function contactLabel(contact) {
-  return String(contact?.value || "").replace(/^https?:\/\/(www\.)?/i, "").replace(/\/$/i, "");
+  return resolveConfiguredValue(contact?.value).replace(/^https?:\/\/(www\.)?/i, "").replace(/\/$/i, "");
 }
 
 async function loadResumeData() {
@@ -189,12 +253,24 @@ function getPhotoItems(person, gallery) {
   return [person.photo, ...(gallery?.items || [])];
 }
 
-function setPhotoTriggerAttributes(element, index, label) {
+function photoId(item, fallback) {
+  return String(item?.id || item?.src || fallback || "photo")
+    .replace(/\.[^.]+$/, "")
+    .replace(/[^a-z0-9]+/gi, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase();
+}
+
+function setPhotoTriggerAttributes(element, index, label, photoId, section) {
   if (!element) {
     return;
   }
 
   element.dataset.photoIndex = String(index);
+  element.dataset.photoId = photoId || `photo_${index}`;
+  if (section) {
+    element.dataset.analyticsSection = section;
+  }
   element.tabIndex = 0;
   element.setAttribute("role", "button");
   element.setAttribute("aria-label", label || "");
@@ -265,8 +341,30 @@ function setMetaContent(selector, value) {
   }
 }
 
+function setElementAttribute(selector, attribute, value) {
+  const element = document.querySelector(selector);
+  if (element) {
+    element.setAttribute(attribute, value);
+  }
+}
+
+function syncSiteMetadata() {
+  const coverUrl = absoluteSiteUrl("/assets/og-cover-recruiter.jpg");
+  const rootUrl = absoluteSiteUrl("/");
+
+  setElementAttribute('link[rel="canonical"]', "href", rootUrl);
+  setElementAttribute('link[rel="image_src"]', "href", coverUrl);
+  setMetaContent('meta[property="og:site_name"]', new URL(SITE_URL).hostname);
+  setMetaContent('meta[property="og:url"]', rootUrl);
+  setMetaContent('meta[property="og:image"]', coverUrl);
+  setMetaContent('meta[property="og:image:url"]', coverUrl);
+  setMetaContent('meta[property="og:image:secure_url"]', coverUrl);
+  setMetaContent('meta[name="twitter:image"]', coverUrl);
+}
+
 function syncDocumentMetadata(person) {
   const title = `${person.name} | ${person.headline}`;
+  syncSiteMetadata();
   document.title = title;
   setMetaContent('meta[name="description"]', person.role);
   setMetaContent('meta[property="og:title"]', title);
@@ -421,7 +519,7 @@ function renderHeroPhoto(photo, index, triggerLabel) {
     caption.textContent = photo?.caption || "";
   }
 
-  setPhotoTriggerAttributes(card, index, triggerLabel);
+  setPhotoTriggerAttributes(card, index, triggerLabel, "avatar", "hero");
 }
 
 function sortedExperienceItems(items) {
@@ -456,6 +554,9 @@ function renderExperience(section, labels, theme, lang) {
       companyLink.target = "_blank";
       companyLink.rel = "noopener noreferrer";
       companyLink.textContent = item.company;
+      companyLink.dataset.analyticsGoal = "project_link_click";
+      companyLink.dataset.analyticsLabel = item.company;
+      companyLink.dataset.analyticsSection = "experience";
     } else {
       companyLink = document.createElement("span");
       companyLink.className = "company-link";
@@ -478,6 +579,9 @@ function renderExperience(section, labels, theme, lang) {
       companySiteLink.href = item.url;
       companySiteLink.target = "_blank";
       companySiteLink.rel = "noopener noreferrer";
+      companySiteLink.dataset.analyticsGoal = "project_link_click";
+      companySiteLink.dataset.analyticsLabel = item.company;
+      companySiteLink.dataset.analyticsSection = "experience";
 
       const extIcon = document.createElement("img");
       setMediaImage(extIcon, "external-link.svg", theme);
@@ -674,11 +778,18 @@ function renderGallery(items, startIndex, triggerLabel) {
   items.forEach((item, offset) => {
     const card = document.createElement("article");
     card.className = "gallery-card";
-    setPhotoTriggerAttributes(card, startIndex + offset, `${triggerLabel}: ${item.caption || ""}`);
+    setPhotoTriggerAttributes(
+      card,
+      startIndex + offset,
+      `${triggerLabel}: ${item.caption || ""}`,
+      photoId(item, `gallery_${offset + 1}`),
+      "photos",
+    );
 
     const image = document.createElement("img");
     image.className = "gallery-photo";
     image.src = mediaPath(item.src);
+    image.alt = item.caption || "";
     image.loading = "lazy";
     image.style.objectPosition = item.position || "";
     image.style.setProperty("--photo-filter", item.filter || "");
@@ -757,6 +868,9 @@ function openPhotoLightbox(state, index, opener) {
 
   state.index = Math.max(0, Math.min(index, state.items.length - 1));
   state.opener = opener || null;
+  if (opener instanceof Element) {
+    trackPhotoClick(opener);
+  }
   lightbox.hidden = false;
   document.body.classList.add("lightbox-open");
   renderPhotoLightbox(state);
@@ -866,7 +980,11 @@ function renderLanguage(source, state, lang) {
     setLinkHref(link.id, contactHref(contact));
     setImageSource(`#${link.id} img`, contact.icon, theme);
     if (link) {
-      link.title = String(contact?.value || label);
+      link.title = resolveConfiguredValue(contact?.value || label);
+      link.dataset.analyticsGoal = CONTACT_ANALYTICS_GOALS[key] || "";
+      link.dataset.analyticsContact = "true";
+      link.dataset.analyticsLabel = key === "email" ? "Email" : key.charAt(0).toUpperCase() + key.slice(1);
+      link.dataset.analyticsSection = "contacts";
     }
   });
 
@@ -910,6 +1028,7 @@ function renderLanguage(source, state, lang) {
   setLanguageButtonsState(lang);
   updateThemeSwitcher(source, lang, theme);
   updateHeaderOffset();
+  refreshAnalyticsTracking();
 }
 
 function applyLanguage(source, state, lang) {
@@ -1006,9 +1125,11 @@ function setupPhotoLightbox(state) {
 }
 
 async function init() {
+  syncSiteMetadata();
   const source = await loadResumeData();
   const lightboxState = { items: [], index: 0, opener: null };
 
+  configureSite(source);
   const lang = detectLanguage(source);
   const theme = detectTheme();
 
@@ -1025,6 +1146,7 @@ async function init() {
 function renderInitError(error) {
   console.error(error);
   document.documentElement.lang = "en";
+  syncSiteMetadata();
   setTheme(detectTheme());
   setText("hero-kicker", "Resume data unavailable");
   setText("hero-name", "Cannot load resume.yaml");

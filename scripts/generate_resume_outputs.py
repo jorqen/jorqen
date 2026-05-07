@@ -330,7 +330,9 @@ def resume_file_base_name(source: dict[str, Any]) -> str:
 
 
 def load_data(path: Path) -> dict[str, Any]:
-    return load_yaml_mapping(path)
+    source = load_yaml_mapping(path)
+    source["contacts"]["website"]["value"] = source["site"]["url"].rstrip("/")
+    return source
 
 
 def contact_keys(source: dict[str, Any]) -> list[str]:

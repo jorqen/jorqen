@@ -1,5 +1,5 @@
 "$schema": "http://json-schema.org/draft-07/schema#"
-"$id": "https://jorqen.github.io/resume/resume.schema.yaml"
+"$id": "resume.schema.yaml"
 title: "Jorqen Resume Source"
 description: "JSON Schema validation contract for resume/resume.yaml."
 type: "object"
@@ -7,6 +7,8 @@ required:
   - "schema"
   - "defaultLanguage"
   - "languages"
+  - "site"
+  - "analytics"
   - "person"
   - "contacts"
   - "resumeLabels"
@@ -30,6 +32,10 @@ properties:
       - const: "en"
       - const: "ru"
     additionalItems: false
+  site:
+    "$ref": "#/definitions/site"
+  analytics:
+    "$ref": "#/definitions/analytics"
   person:
     "$ref": "#/definitions/person"
   contacts:
@@ -97,6 +103,24 @@ definitions:
         "$ref": "#/definitions/stringValue"
       ru:
         "$ref": "#/definitions/stringValue"
+  site:
+    type: "object"
+    required:
+      - "url"
+    additionalProperties: false
+    properties:
+      url:
+        type: "string"
+        pattern: "^https://[^\\s/$.?#].[^\\s]*$"
+  analytics:
+    type: "object"
+    required:
+      - "yandexMetrikaId"
+    additionalProperties: false
+    properties:
+      yandexMetrikaId:
+        type: "string"
+        pattern: "^[0-9]+$"
   person:
     type: "object"
     required:
@@ -134,12 +158,16 @@ definitions:
       icon:
         "$ref": "#/definitions/assetPath"
   websiteContact:
-    allOf:
-      - "$ref": "#/definitions/contact"
-      - type: "object"
-        properties:
-          value:
-            const: "https://jorqen.github.io"
+    type: "object"
+    required:
+      - "icon"
+    additionalProperties: false
+    not:
+      required:
+        - "value"
+    properties:
+      icon:
+        "$ref": "#/definitions/assetPath"
   imageAsset:
     type: "object"
     required:
