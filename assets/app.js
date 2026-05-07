@@ -3,7 +3,7 @@ const THEME_STORAGE_KEY = "jorqen.theme";
 const RESUME_SOURCE_URL = "resume/resume.yaml";
 const MEDIA_ROOT = "assets/media";
 const SITE_URL_PLACEHOLDER = "${SITE_URL}";
-let SITE_URL = normalizeSiteUrl(readMetaContent("jorqen:site-url") || window.location.origin);
+let SITE_URL = normalizeSiteUrl(window.location.origin);
 const SUPPORTED_THEMES = ["light", "dark"];
 const THEMED_MEDIA_FILES = new Set([
   "briefcase.svg",
@@ -93,10 +93,6 @@ const CONTACT_ANALYTICS_GOALS = {
   linkedin: "linkedin_click",
   telegram: "telegram_click",
 };
-
-function readMetaContent(name) {
-  return String(document.querySelector(`meta[name="${name}"]`)?.getAttribute("content") || "").trim();
-}
 
 function normalizeSiteUrl(value) {
   try {

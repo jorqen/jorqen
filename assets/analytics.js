@@ -6,8 +6,8 @@
   }
   window.__JORQEN_ANALYTICS_SCRIPT_LOADED__ = true;
 
-  let siteUrl = normalizeSiteUrl(readMetaContent("jorqen:site-url") || window.location.origin);
-  let counterIdRaw = readMetaContent("jorqen:yandex-metrika-id");
+  let siteUrl = normalizeSiteUrl(window.location.origin);
+  let counterIdRaw = "";
   let counterId = Number(counterIdRaw);
   let hasCounterId = Number.isFinite(counterId) && counterId > 0;
   let siteHostname = hostnameFromUrl(siteUrl);
@@ -37,10 +37,6 @@
   let photoObserver = null;
   let linkTrackingReady = false;
   let scrollTrackingReady = false;
-
-  function readMetaContent(name) {
-    return String(document.querySelector(`meta[name="${name}"]`)?.getAttribute("content") || "").trim();
-  }
 
   function normalizeSiteUrl(value) {
     try {
