@@ -36,15 +36,22 @@ html[data-theme="dark"] {
   --success: #5cd28f;
   --warning: #ff886f;
   --shadow: 0 14px 32px rgba(0, 0, 0, 0.28);
+  color-scheme: dark;
 }
 
 * {
   box-sizing: border-box;
 }
 
+img[src$=".svg"],
+img[data-media] {
+  forced-color-adjust: none;
+}
+
 html {
   scroll-behavior: smooth;
   scroll-padding-top: var(--header-offset);
+  color-scheme: light;
 }
 
 body {
@@ -77,7 +84,6 @@ body,
 .theme-switch button {
   transition:
     background-color 220ms ease,
-    color 220ms ease,
     border-color 220ms ease,
     box-shadow 220ms ease,
     transform 180ms ease;
@@ -223,6 +229,7 @@ main {
   border-radius: var(--radius-xl);
   background: var(--surface);
   box-shadow: var(--shadow);
+  color: var(--text-main);
 }
 
 .hero {
@@ -507,6 +514,7 @@ h1 {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface-muted);
+  color: var(--text-main);
   padding: 14px;
 }
 
@@ -588,15 +596,30 @@ h1 {
 
 .timeline-list {
   margin: 10px 0 0;
-  padding-left: 18px;
+  padding-left: 0;
   display: grid;
   gap: 7px;
+  list-style: none;
 }
 
 .timeline-list li {
+  position: relative;
+  padding-left: 18px;
   color: var(--text-main);
   line-height: 1.5;
   text-wrap: pretty;
+}
+
+.timeline-list li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 0.75em;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  transform: translateY(-50%);
 }
 
 .stack-list {
@@ -670,6 +693,7 @@ h1 {
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface-muted);
+  color: var(--text-main);
   padding: 14px;
 }
 
@@ -715,6 +739,7 @@ h1 {
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface-muted);
+  color: var(--text-main);
   padding: 10px 12px;
   line-height: 1.5;
   text-wrap: pretty;
