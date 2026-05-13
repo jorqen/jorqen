@@ -37,6 +37,7 @@
   let photoObserver = null;
   let linkTrackingReady = false;
   let scrollTrackingReady = false;
+  let initialPageViewTracked = false;
 
   function normalizeSiteUrl(value) {
     try {
@@ -117,17 +118,74 @@
 
     try {
       window.ym(counterId, "init", {
+        defer: true,
         ssr: true,
         webvisor: true,
         clickmap: true,
         accurateTrackBounce: true,
         trackLinks: true,
+        triggerEvent: true,
       });
     } catch (error) {
       if (window.console && typeof window.console.warn === "function") {
         window.console.warn("Yandex Metrika initialization failed.", error);
       }
     }
+  }
+
+  function trackPageView(options = {}) {
+    const pageUrl = String(options.url || window.location.href || absoluteSiteUrl("/")).trim();
+    if (!pageUrl) {
+      return false;
+    }
+
+    if (!shouldSendMetrika) {
+      if (isDebugMode()) {
+        window.console.debug("[analytics]", "page_view", {
+          url: pageUrl,
+          title: options.title || document.title,
+          referer: options.referer || document.referrer,
+        });
+      }
+      return false;
+    }
+
+    initMetrika();
+
+    const hitOptions = {
+      title: String(options.title || document.title || ""),
+    };
+    const referer = String(options.referer || document.referrer || "").trim();
+    const params = sanitizeParams(options.params);
+
+    if (referer) {
+      hitOptions.referer = referer;
+    }
+    if (Object.keys(params).length > 0) {
+      hitOptions.params = params;
+    }
+
+    try {
+      if (typeof window.ym === "function") {
+        window.ym(counterId, "hit", pageUrl, hitOptions);
+        return true;
+      }
+    } catch (error) {
+      if (window.console && typeof window.console.warn === "function") {
+        window.console.warn("Could not send analytics page view.", error);
+      }
+    }
+
+    return false;
+  }
+
+  function trackInitialPageView() {
+    if (initialPageViewTracked) {
+      return false;
+    }
+
+    initialPageViewTracked = true;
+    return trackPageView();
   }
 
   function trackGoal(goalName, params = {}) {
@@ -164,8 +222,12 @@
     if (onceGoalKeys.has(key)) {
       return false;
     }
-    onceGoalKeys.add(key);
-    return trackGoal(goalName, params);
+
+    const tracked = trackGoal(goalName, params);
+    if (tracked || hasCounterId) {
+      onceGoalKeys.add(key);
+    }
+    return tracked;
   }
 
   function textForElement(element) {
@@ -414,6 +476,8 @@
     configure,
     initPageTracking,
     refreshTrackedElements,
+    trackInitialPageView,
+    trackPageView,
     trackGoal,
     trackGoalOnce,
     trackPhotoClick,

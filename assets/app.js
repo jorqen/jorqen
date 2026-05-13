@@ -140,6 +140,12 @@ function refreshAnalyticsTracking() {
   }
 }
 
+function trackInitialPageView() {
+  if (window.JorqenAnalytics?.trackInitialPageView) {
+    window.JorqenAnalytics.trackInitialPageView();
+  }
+}
+
 function trackPhotoClick(element) {
   if (window.JorqenAnalytics?.trackPhotoClick) {
     window.JorqenAnalytics.trackPhotoClick(element);
@@ -1137,6 +1143,7 @@ async function init() {
   window.addEventListener("resize", updateHeaderOffset);
   window.addEventListener("load", updateHeaderOffset);
   applyLanguage(source, lightboxState, lang);
+  trackInitialPageView();
 }
 
 function renderInitError(error) {
