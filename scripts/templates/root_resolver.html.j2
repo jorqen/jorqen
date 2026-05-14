@@ -11,23 +11,19 @@
       (function () {
         const languageStorageKey = "jorqen.language";
         const pages = {{ pages_json }};
-        const fallback = {{ fallback_json }};
+        const defaultLang = {{ default_lang_json }};
         const hasPage = function (lang) {
           return Object.prototype.hasOwnProperty.call(pages, lang);
         };
         const normalizeLanguage = function (value) {
-          return String(value || "").toLowerCase().split(/[-_]/)[0];
+          return String(value).toLowerCase().split(/[-_]/)[0];
         };
         const supportedLanguage = function (value) {
           const lang = normalizeLanguage(value);
           return hasPage(lang) ? lang : "";
         };
         const storedLanguage = function () {
-          try {
-            return supportedLanguage(window.localStorage.getItem(languageStorageKey));
-          } catch (_error) {
-            return "";
-          }
+          return supportedLanguage(window.localStorage.getItem(languageStorageKey));
         };
         const browserLanguage = function () {
           const languages = Array.isArray(window.navigator.languages) ? window.navigator.languages.slice() : [];
@@ -42,17 +38,12 @@
           }
           return "";
         };
-        const lang = storedLanguage() || browserLanguage() || fallback;
-        window.location.replace(pages[lang] || pages[fallback]);
+        const lang = storedLanguage() || browserLanguage() || defaultLang;
+        window.location.replace(pages[lang]);
       })();
     </script>
-    <noscript>
-      <meta http-equiv="refresh" content="0; url={{ default_path }}" />
-    </noscript>
   </head>
   <body>
-    <p>
-      {{ language_links }}
-    </p>
+    <p>Language resolver failed.</p>
   </body>
 </html>

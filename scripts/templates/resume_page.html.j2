@@ -150,16 +150,38 @@
     <div class="lightbox" id="photo-lightbox" hidden>
       <button type="button" class="lightbox-backdrop" data-lightbox-close aria-label="{{ lightbox_close }}"></button>
       <div class="lightbox-dialog" id="lightbox-dialog" role="dialog" aria-modal="true" aria-labelledby="lightbox-caption" tabindex="-1">
-        <button type="button" class="lightbox-close" id="lightbox-close" aria-label="{{ lightbox_close }}">×</button>
-        <button type="button" class="lightbox-nav lightbox-prev" id="lightbox-prev" aria-label="{{ lightbox_previous }}">‹</button>
+        <button type="button" class="lightbox-close" id="lightbox-close" data-lightbox-close aria-label="{{ lightbox_close }}">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M6 6l12 12M18 6 6 18" fill="none" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </button>
+        <button type="button" class="lightbox-nav lightbox-prev" id="lightbox-prev" data-lightbox-direction="-1" aria-label="{{ lightbox_previous }}">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M15 18l-6-6 6-6" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
         <figure class="lightbox-figure">
-          <img id="lightbox-image" class="lightbox-image" src="" alt="" />
+          <div class="lightbox-stage" id="lightbox-stage" aria-live="polite">
+            <button type="button" class="lightbox-slide lightbox-slide-prev lightbox-slide-preview" data-lightbox-slide="prev" data-lightbox-direction="-1" aria-label="{{ lightbox_previous }}">
+              <img class="lightbox-slide-image" src="" alt="" loading="lazy" decoding="async" />
+            </button>
+            <div class="lightbox-slide lightbox-slide-current" data-lightbox-slide="current">
+              <img id="lightbox-image" class="lightbox-slide-image lightbox-image" src="" alt="" decoding="async" />
+            </div>
+            <button type="button" class="lightbox-slide lightbox-slide-next lightbox-slide-preview" data-lightbox-slide="next" data-lightbox-direction="1" aria-label="{{ lightbox_next }}">
+              <img class="lightbox-slide-image" src="" alt="" loading="lazy" decoding="async" />
+            </button>
+          </div>
           <figcaption class="lightbox-meta">
             <p id="lightbox-caption" class="lightbox-caption"></p>
             <p id="lightbox-counter" class="lightbox-counter"></p>
           </figcaption>
         </figure>
-        <button type="button" class="lightbox-nav lightbox-next" id="lightbox-next" aria-label="{{ lightbox_next }}">›</button>
+        <button type="button" class="lightbox-nav lightbox-next" id="lightbox-next" data-lightbox-direction="1" aria-label="{{ lightbox_next }}">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M9 6l6 6-6 6" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
       </div>
     </div>
 

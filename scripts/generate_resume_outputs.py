@@ -1366,7 +1366,7 @@ def render_language_switch(source: dict[str, Any], lang: str) -> str:
     for item_lang in source["languages"]:
         active = ' class="active"' if item_lang == lang else ""
         pressed = "true" if item_lang == lang else "false"
-        path = page_path(source, item_lang)
+        path = relative_public_path(page_path(source, item_lang))
         links.append(
             f'<a href="{html_attr(path)}" data-lang-switch="{html_attr(item_lang)}" '
             f'data-lang-switch-url="{html_attr(path)}" aria-pressed="{pressed}"{active}>'
@@ -1616,29 +1616,19 @@ def alternate_links_html(source: dict[str, Any]) -> str:
     return "\n".join(links)
 
 
-def language_links_html(source: dict[str, Any]) -> str:
-    return " ·\n      ".join(
-        f'<a href="{html_attr(relative_public_path(page_path(source, lang), depth=0))}">{html_text(lang.upper())}</a>'
-        for lang in source["languages"]
-    )
-
-
 def generate_root_resolver_html(source: dict[str, Any]) -> str:
     default_lang = source["defaultLanguage"]
     data = localized_tree(source, default_lang, source["languages"])
     title = f"{data['person']['name']} - {data['siteUi']['navResume']}"
-    default_path = relative_public_path(page_path(source, default_lang), depth=0)
     page_paths = {lang: relative_public_path(page_path(source, lang), depth=0) for lang in source["languages"]}
     return render_template(
         "root_resolver.html.j2",
         default_lang=default_lang,
         canonical_url=page_url(source, default_lang),
         alternate_links=safe_html(alternate_links_html(source)),
-        default_path=default_path,
         title=title,
         pages_json=safe_html(script_json(json.dumps(page_paths, ensure_ascii=False, sort_keys=True))),
-        fallback_json=safe_html(script_json(json.dumps(default_lang))),
-        language_links=safe_html(language_links_html(source)),
+        default_lang_json=safe_html(script_json(json.dumps(default_lang))),
     )
 
 

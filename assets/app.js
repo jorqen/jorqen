@@ -34,19 +34,19 @@ const CONTACT_ANALYTICS_GOALS = {
 };
 
 function detectAppScriptUrl() {
-  const script =
-    document.currentScript ||
-    document.querySelector('script[src$="/assets/app.js"], script[src$="assets/app.js"]');
-  return new URL(script?.getAttribute("src") || "/assets/app.js", window.location.href);
+  if (!(document.currentScript instanceof HTMLScriptElement)) {
+    throw new Error("Cannot detect app script URL.");
+  }
+  return new URL(document.currentScript.src);
 }
 
 function detectSiteBasePath(scriptUrl) {
   const marker = "/assets/app.js";
   const markerIndex = scriptUrl.pathname.lastIndexOf(marker);
   if (markerIndex < 0) {
-    return "/";
+    throw new Error(`App script must be served from ${marker}.`);
   }
-  return `${scriptUrl.pathname.slice(0, markerIndex) || ""}/`;
+  return `${scriptUrl.pathname.slice(0, markerIndex)}/`;
 }
 
 function sitePath(path) {
@@ -58,14 +58,10 @@ function sitePath(path) {
 }
 
 function normalizeSiteUrl(value) {
-  try {
-    const url = new URL(String(value || ""), window.location.origin);
-    url.hash = "";
-    url.search = "";
-    return url.href.replace(/\/$/, "");
-  } catch (_error) {
-    return window.location.origin.replace(/\/$/, "");
-  }
+  const url = new URL(String(value || ""), window.location.origin);
+  url.hash = "";
+  url.search = "";
+  return url.href.replace(/\/$/, "");
 }
 
 function absoluteSiteUrl(path = "/") {
@@ -73,11 +69,7 @@ function absoluteSiteUrl(path = "/") {
     return window.JorqenAnalytics.absoluteSiteUrl(path);
   }
 
-  try {
-    return new URL(path, `${SITE_URL}/`).href;
-  } catch (_error) {
-    return SITE_URL;
-  }
+  return new URL(path, `${SITE_URL}/`).href;
 }
 
 function resolveConfiguredValue(value) {
@@ -85,14 +77,12 @@ function resolveConfiguredValue(value) {
 }
 
 function configureSite(source) {
-  SITE_URL = normalizeSiteUrl(source.site?.url || SITE_URL);
-  if (source.contacts?.website) {
-    source.contacts.website.value = SITE_URL;
-  }
+  SITE_URL = normalizeSiteUrl(source.site.url);
+  source.contacts.website.value = SITE_URL;
   if (window.JorqenAnalytics?.configure) {
     window.JorqenAnalytics.configure({
       siteUrl: SITE_URL,
-      yandexMetrikaId: source.analytics?.yandexMetrikaId || "",
+      yandexMetrikaId: source.analytics.yandexMetrikaId,
     });
   }
 }
@@ -214,8 +204,8 @@ function getPhotoItems(person, gallery) {
   return [person.photo, ...(gallery?.items || [])];
 }
 
-function photoId(item, fallback) {
-  return String(item?.id || item?.src || fallback || "photo")
+function photoId(item, defaultId) {
+  return String(item?.id || item?.src || defaultId || "photo")
     .replace(/\.[^.]+$/, "")
     .replace(/[^a-z0-9]+/gi, "_")
     .replace(/^_+|_+$/g, "")
@@ -327,10 +317,6 @@ function createResponsivePicture(item, cssClass, sizes) {
 
 function setMediaImage(image, fileName, theme) {
   image.dataset.media = fileName;
-  image.onerror = () => {
-    image.onerror = null;
-    image.src = mediaPath(fileName);
-  };
   image.src = mediaPath(fileName, theme);
 }
 
@@ -401,26 +387,41 @@ function setElementAttribute(selector, attribute, value) {
 }
 
 function formatSitePath(template, values) {
+  return sitePath(formatConfiguredPath(template, values));
+}
+
+function formatConfiguredPath(template, values) {
   const path = String(template || "/")
     .replaceAll("{lang}", encodeURIComponent(values.lang || ""))
     .replaceAll("{file}", encodeURIComponent(values.file || ""));
-  return sitePath(path.startsWith("/") ? path : `/${path}`);
+  return path.startsWith("/") ? path : `/${path}`;
 }
 
 function pagePathForLanguage(source = {}, lang) {
-  const defaultLang = source.defaultLanguage || "en";
   return formatSitePath(
-    source.site?.languagePathTemplate || "/{lang}/",
-    { lang: lang || document.documentElement.lang || defaultLang },
+    source.site.languagePathTemplate,
+    { lang: lang || document.documentElement.lang || source.defaultLanguage },
+  );
+}
+
+function canonicalPathForLanguage(source = {}, lang) {
+  return formatConfiguredPath(
+    source.site.languagePathTemplate,
+    { lang: lang || document.documentElement.lang || source.defaultLanguage },
   );
 }
 
 function downloadPathForFile(source, lang, file) {
-  return formatSitePath(source.site?.downloadPathTemplate || "/{lang}/{file}", { lang, file });
+  return formatSitePath(source.site.downloadPathTemplate, { lang, file });
 }
 
 function currentCanonicalPath(source = {}, lang) {
-  return document.documentElement.dataset.canonicalPath || pagePathForLanguage(source, lang);
+  return canonicalPathForLanguage(source, lang);
+}
+
+function syncLanguagePageContext(source, lang) {
+  document.documentElement.dataset.pageLang = lang;
+  document.documentElement.dataset.canonicalPath = canonicalPathForLanguage(source, lang);
 }
 
 function syncSiteMetadata(source = {}, lang) {
@@ -452,23 +453,20 @@ function syncDocumentMetadata(source, person, lang) {
 
 function detectLanguage(source) {
   const url = new URL(window.location.href);
+  const normalizedPath = url.pathname.endsWith("/") ? url.pathname : `${url.pathname}/`;
+  const pathLang = source.languages.find((lang) => normalizedPath === pagePathForLanguage(source, lang));
+  if (pathLang) {
+    return pathLang;
+  }
+
   const pageLang = document.documentElement.dataset.pageLang || document.documentElement.lang;
   if (source.languages.includes(pageLang)) {
     return pageLang;
   }
 
-  const pathLang = url.pathname.split("/").filter(Boolean)[0];
-  if (source.languages.includes(pathLang)) {
-    return pathLang;
-  }
-
-  try {
-    const stored = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
-    if (source.languages.includes(stored)) {
-      return stored;
-    }
-  } catch (_error) {
-    // Ignore storage access restrictions.
+  const stored = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
+  if (source.languages.includes(stored)) {
+    return stored;
   }
 
   const browserLanguages = [];
@@ -486,24 +484,16 @@ function detectLanguage(source) {
 }
 
 function detectTheme() {
-  try {
-    const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
-    if (SUPPORTED_THEMES.includes(storedTheme)) {
-      return storedTheme;
-    }
-  } catch (_error) {
-    // Ignore storage access restrictions.
+  const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+  if (SUPPORTED_THEMES.includes(storedTheme)) {
+    return storedTheme;
   }
 
   return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
 function hasStoredTheme() {
-  try {
-    return SUPPORTED_THEMES.includes(window.localStorage.getItem(THEME_STORAGE_KEY));
-  } catch (_error) {
-    return false;
-  }
+  return SUPPORTED_THEMES.includes(window.localStorage.getItem(THEME_STORAGE_KEY));
 }
 
 function setLanguageButtonsState(lang) {
@@ -529,17 +519,30 @@ function languageUrl(source, lang) {
   return url.href;
 }
 
+function updateLanguageUrl(source, lang) {
+  const nextUrl = languageUrl(source, lang);
+  if (nextUrl !== window.location.href) {
+    window.history.pushState({ lang }, "", nextUrl);
+  }
+}
+
 function setTheme(theme, persist = false) {
-  const safeTheme = SUPPORTED_THEMES.includes(theme) ? theme : "light";
-  document.documentElement.setAttribute("data-theme", safeTheme);
+  if (!SUPPORTED_THEMES.includes(theme)) {
+    throw new Error(`Unsupported theme: ${theme}`);
+  }
+  document.documentElement.setAttribute("data-theme", theme);
 
   if (persist) {
-    try {
-      window.localStorage.setItem(THEME_STORAGE_KEY, safeTheme);
-    } catch (_error) {
-      // Ignore storage access restrictions.
-    }
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
   }
+}
+
+function currentTheme() {
+  const theme = document.documentElement.getAttribute("data-theme");
+  if (!SUPPORTED_THEMES.includes(theme)) {
+    throw new Error(`Unsupported active theme: ${theme}`);
+  }
+  return theme;
 }
 
 function renderFacts(items, theme) {
@@ -902,6 +905,8 @@ function updatePhotoLightboxLabels(labels) {
   const closeBackdrop = document.querySelector("[data-lightbox-close]");
   const prevButton = document.getElementById("lightbox-prev");
   const nextButton = document.getElementById("lightbox-next");
+  const prevPreview = document.querySelector('[data-lightbox-slide="prev"]');
+  const nextPreview = document.querySelector('[data-lightbox-slide="next"]');
 
   if (closeButton) {
     closeButton.setAttribute("aria-label", labels.close);
@@ -912,26 +917,104 @@ function updatePhotoLightboxLabels(labels) {
   if (prevButton) {
     prevButton.setAttribute("aria-label", labels.previous);
   }
+  if (prevPreview) {
+    prevPreview.setAttribute("aria-label", labels.previous);
+  }
   if (nextButton) {
     nextButton.setAttribute("aria-label", labels.next);
   }
+  if (nextPreview) {
+    nextPreview.setAttribute("aria-label", labels.next);
+  }
 }
 
-function renderPhotoLightbox(state) {
+function normalizePhotoIndex(length, index) {
+  if (!length) {
+    return 0;
+  }
+
+  const safeIndex = Number.isFinite(index) ? Math.trunc(index) : 0;
+  return ((safeIndex % length) + length) % length;
+}
+
+function lightboxItemAt(state, index) {
+  return state.items[normalizePhotoIndex(state.items.length, index)];
+}
+
+function setLightboxImage(image, item, isCurrent) {
+  if (!image) {
+    return;
+  }
+
+  if (!item?.src) {
+    image.removeAttribute("src");
+    image.removeAttribute("srcset");
+    image.removeAttribute("sizes");
+    image.alt = "";
+    return;
+  }
+
+  setResponsivePhotoImage(
+    image,
+    item.src,
+    isCurrent ? "(max-width: 640px) 92vw, 68vw" : "(max-width: 640px) 46vw, 22vw",
+  );
+  image.alt = isCurrent ? item.caption || "" : "";
+  image.style.objectPosition = item.position || "";
+  image.style.setProperty("--photo-filter", item.filter || "");
+}
+
+function animateLightboxStage(state, stage, direction) {
+  if (!stage || !direction) {
+    return;
+  }
+
+  const className = direction > 0 ? "is-moving-next" : "is-moving-prev";
+  stage.classList.remove("is-moving-next", "is-moving-prev");
+  void stage.offsetWidth;
+  stage.classList.add(className);
+  window.clearTimeout(state.lightboxMotionTimer);
+  state.lightboxMotionTimer = window.setTimeout(() => {
+    stage.classList.remove(className);
+  }, 280);
+}
+
+function renderPhotoLightbox(state, direction = 0) {
   const item = state.items[state.index];
+  const stage = document.getElementById("lightbox-stage");
   const image = document.getElementById("lightbox-image");
   const caption = document.getElementById("lightbox-caption");
   const counter = document.getElementById("lightbox-counter");
   const prevButton = document.getElementById("lightbox-prev");
   const nextButton = document.getElementById("lightbox-next");
+  const hasMultipleItems = state.items.length > 1;
 
   if (!item || !image) {
     return;
   }
 
-  image.src = mediaPath(item.src);
-  image.alt = item.caption || "";
-  image.style.setProperty("--photo-filter", item.filter || "");
+  document.querySelectorAll("[data-lightbox-slide]").forEach((slide) => {
+    const role = slide.getAttribute("data-lightbox-slide");
+    const offset = role === "prev" ? -1 : role === "next" ? 1 : 0;
+    const slideIndex = normalizePhotoIndex(state.items.length, state.index + offset);
+    const slideItem = lightboxItemAt(state, slideIndex);
+    const isCurrent = role === "current";
+    const slideImage = slide.querySelector("img");
+
+    slide.hidden = !isCurrent && !hasMultipleItems;
+    slide.dataset.photoIndex = String(slideIndex);
+    if (slide instanceof HTMLButtonElement) {
+      slide.disabled = !hasMultipleItems;
+      slide.setAttribute("aria-label", slideItem?.caption || slide.getAttribute("aria-label") || "");
+    }
+    if (isCurrent) {
+      slide.removeAttribute("aria-hidden");
+    } else {
+      slide.setAttribute("aria-hidden", "true");
+    }
+    setLightboxImage(slideImage, slideItem, isCurrent);
+  });
+
   if (caption) {
     caption.textContent = item.caption || "";
   }
@@ -939,11 +1022,12 @@ function renderPhotoLightbox(state) {
     counter.textContent = `${state.index + 1} / ${state.items.length}`;
   }
   if (prevButton) {
-    prevButton.disabled = state.index === 0;
+    prevButton.disabled = !hasMultipleItems;
   }
   if (nextButton) {
-    nextButton.disabled = state.index >= state.items.length - 1;
+    nextButton.disabled = !hasMultipleItems;
   }
+  animateLightboxStage(state, stage, direction);
 }
 
 function syncPhotoLightboxItems(state, items) {
@@ -1023,7 +1107,7 @@ function openPhotoLightbox(state, index, opener) {
     return;
   }
 
-  state.index = Math.max(0, Math.min(index, state.items.length - 1));
+  state.index = normalizePhotoIndex(state.items.length, index);
   state.opener = opener || null;
   if (opener instanceof Element) {
     trackPhotoClick(opener);
@@ -1050,13 +1134,12 @@ function closePhotoLightbox(state) {
 }
 
 function showAdjacentPhoto(state, direction) {
-  const nextIndex = state.index + direction;
-  if (nextIndex < 0 || nextIndex >= state.items.length) {
+  if (state.items.length <= 1) {
     return;
   }
 
-  state.index = nextIndex;
-  renderPhotoLightbox(state);
+  state.index = normalizePhotoIndex(state.items.length, state.index + direction);
+  renderPhotoLightbox(state, direction);
 }
 
 function syncResumeLinks(source, lang) {
@@ -1108,10 +1191,11 @@ function renderLanguage(source, state, lang) {
   const data = localized(source, lang, source.languages);
   const labels = data.resumeLabels;
   const person = data.person;
-  const theme = document.documentElement.getAttribute("data-theme") || "light";
+  const theme = currentTheme();
   const photoItems = getPhotoItems(person, data.gallery);
 
   document.documentElement.lang = lang;
+  syncLanguagePageContext(source, lang);
   syncDocumentMetadata(source, person, lang);
 
   setText("brand-link", person.name);
@@ -1191,15 +1275,12 @@ function renderLanguage(source, state, lang) {
 }
 
 function applyLanguage(source, state, lang) {
-  const safeLang = source.languages.includes(lang) ? lang : source.defaultLanguage;
-
-  try {
-    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, safeLang);
-  } catch (_error) {
-    // Ignore storage access restrictions.
+  if (!source.languages.includes(lang)) {
+    throw new Error(`Unsupported language: ${lang}`);
   }
 
-  renderLanguage(source, state, safeLang);
+  window.localStorage.setItem(LANGUAGE_STORAGE_KEY, lang);
+  renderLanguage(source, state, lang);
 }
 
 function setupLanguageSwitcher(source, state) {
@@ -1212,26 +1293,22 @@ function setupLanguageSwitcher(source, state) {
       if (!source.languages.includes(nextLang)) {
         return;
       }
-      try {
-        window.localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLang);
-      } catch (_error) {
-        // Ignore storage access restrictions.
-      }
-      const targetUrl = button.getAttribute("data-lang-switch-url") || pagePathForLanguage(source, nextLang);
-      if (targetUrl && window.location.pathname !== targetUrl) {
-        event.preventDefault();
-        window.location.assign(languageUrl(source, nextLang));
-        return;
-      }
+      updateLanguageUrl(source, nextLang);
       applyLanguage(source, state, nextLang);
     });
+  });
+}
+
+function setupLanguageHistory(source, state) {
+  window.addEventListener("popstate", () => {
+    applyLanguage(source, state, detectLanguage(source));
   });
 }
 
 function setupThemeSwitcher(source, state) {
   document.querySelectorAll("[data-theme-switch]").forEach((button) => {
     button.addEventListener("click", () => {
-      const nextTheme = button.getAttribute("data-theme-switch") || "light";
+      const nextTheme = button.getAttribute("data-theme-switch");
       setTheme(nextTheme, true);
 
       const currentLang = document.documentElement.lang || detectLanguage(source);
@@ -1279,13 +1356,9 @@ function setupPhotoLightbox(state) {
       return;
     }
 
-    if (event.target.closest("#lightbox-prev")) {
-      showAdjacentPhoto(state, -1);
-      return;
-    }
-
-    if (event.target.closest("#lightbox-next")) {
-      showAdjacentPhoto(state, 1);
+    const directionControl = event.target.closest("[data-lightbox-direction]");
+    if (directionControl && directionControl.closest("#photo-lightbox")) {
+      showAdjacentPhoto(state, Number(directionControl.getAttribute("data-lightbox-direction") || "0"));
     }
   });
 
@@ -1327,7 +1400,6 @@ function setupPhotoLightbox(state) {
 }
 
 async function init() {
-  syncSiteMetadata();
   const source = await loadResumeData();
   const lightboxState = { items: [], index: 0, opener: null };
 
@@ -1338,6 +1410,7 @@ async function init() {
   setTheme(theme);
   updateHeaderOffset();
   setupLanguageSwitcher(source, lightboxState);
+  setupLanguageHistory(source, lightboxState);
   setupThemeSwitcher(source, lightboxState);
   setupSystemThemeListener(source, lightboxState);
   setupPhotoLightbox(lightboxState);
@@ -1350,7 +1423,6 @@ async function init() {
 function renderInitError(error) {
   console.error(error);
   document.documentElement.lang = "en";
-  syncSiteMetadata();
   setTheme(detectTheme());
   setText("hero-kicker", "Resume data unavailable");
   setText("hero-name", "Cannot load resume data");
