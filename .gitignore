@@ -1,6 +1,4 @@
-.DS_Store
-resume/**/*.pdf
-resume/**/*.docx
-resume/**/*.txt
+assets/media/generated/
+en/
+ru/
 .build/
-dist/

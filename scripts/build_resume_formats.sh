@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
-OUTPUT_ROOT="${OUTPUT_ROOT:-${ROOT_DIR}/resume}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-${ROOT_DIR}}"
 BUILD_DIR="${BUILD_DIR:-${ROOT_DIR}/.build/resume-assets}"
 PROJECT_PYTHON="${ROOT_DIR}/.venv/bin/python"
 CODEX_PYTHON="${HOME}/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3"
@@ -14,6 +14,8 @@ import docx
 import reportlab
 import yaml
 import babel.dates
+import jsonschema
+import jinja2
 PY
 }
 
@@ -26,7 +28,7 @@ if ! has_required_python_deps "$PYTHON_BIN"; then
     cat >&2 <<'EOF'
 Missing Python dependencies for resume generation.
 Install them with:
-  python3 -m pip install babel python-docx reportlab pyyaml
+  python3 -m pip install babel jinja2 jsonschema python-docx reportlab pyyaml
 EOF
     exit 1
   fi

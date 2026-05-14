@@ -7,6 +7,8 @@ languages:
 
 site:
   url: "https://jorqen.link"
+  languagePathTemplate: "/{lang}/"
+  downloadPathTemplate: "/{lang}/{file}"
 
 analytics:
   yandexMetrikaId: "109088766"
@@ -87,6 +89,54 @@ resumeLabels:
   expectedGraduation:
     en: "Expected graduation"
     ru: "Ожидаемое окончание"
+
+siteUi:
+  navResume:
+    en: "Resume"
+    ru: "Резюме"
+  langSwitcherLabel:
+    en: "Language switcher"
+    ru: "Переключение языка"
+  theme:
+    toDark:
+      en: "Dark theme"
+      ru: "Тёмная тема"
+    toLight:
+      en: "Light theme"
+      ru: "Светлая тема"
+    switcherLabel:
+      en: "Theme switcher"
+      ru: "Переключение темы"
+  resumeDownloads:
+    title:
+      en: "Download resume"
+      ru: "Скачать резюме"
+    labels:
+      pdf:
+        en: "For sharing and printing"
+        ru: "Для отправки и печати"
+      docx:
+        en: "Editable source"
+        ru: "Редактируемый источник"
+      txt:
+        en: "Text version"
+        ru: "Текстовая версия"
+  lightbox:
+    openPhoto:
+      en: "Open photo"
+      ru: "Открыть фото"
+    close:
+      en: "Close photo viewer"
+      ru: "Закрыть просмотр фото"
+    previous:
+      en: "Previous photo"
+      ru: "Предыдущее фото"
+    next:
+      en: "Next photo"
+      ru: "Следующее фото"
+  footer:
+    en: "© {year} {name}. Personal website for recruiters and hiring managers."
+    ru: "© {year} {name}. Сайт-визитка для рекрутеров и менеджеров по найму."
 
 experience:
   title:

@@ -12,6 +12,7 @@ required:
   - "person"
   - "contacts"
   - "resumeLabels"
+  - "siteUi"
   - "experience"
   - "education"
   - "strengths"
@@ -72,6 +73,8 @@ properties:
         "$ref": "#/definitions/localizedString"
       expectedGraduation:
         "$ref": "#/definitions/localizedString"
+  siteUi:
+    "$ref": "#/definitions/siteUi"
   experience:
     "$ref": "#/definitions/experienceSection"
   education:
@@ -88,6 +91,10 @@ definitions:
   stringValue:
     type: "string"
     minLength: 1
+  pathTemplate:
+    type: "string"
+    minLength: 1
+    pattern: "^/"
   localizedString:
     oneOf:
       - "$ref": "#/definitions/stringValue"
@@ -103,15 +110,97 @@ definitions:
         "$ref": "#/definitions/stringValue"
       ru:
         "$ref": "#/definitions/stringValue"
+  siteUi:
+    type: "object"
+    required:
+      - "navResume"
+      - "langSwitcherLabel"
+      - "theme"
+      - "resumeDownloads"
+      - "lightbox"
+      - "footer"
+    additionalProperties: false
+    properties:
+      navResume:
+        "$ref": "#/definitions/localizedStringMap"
+      langSwitcherLabel:
+        "$ref": "#/definitions/localizedStringMap"
+      theme:
+        type: "object"
+        required:
+          - "toDark"
+          - "toLight"
+          - "switcherLabel"
+        additionalProperties: false
+        properties:
+          toDark:
+            "$ref": "#/definitions/localizedStringMap"
+          toLight:
+            "$ref": "#/definitions/localizedStringMap"
+          switcherLabel:
+            "$ref": "#/definitions/localizedStringMap"
+      resumeDownloads:
+        type: "object"
+        required:
+          - "title"
+          - "labels"
+        additionalProperties: false
+        properties:
+          title:
+            "$ref": "#/definitions/localizedStringMap"
+          labels:
+            type: "object"
+            required:
+              - "pdf"
+              - "docx"
+              - "txt"
+            additionalProperties: false
+            properties:
+              pdf:
+                "$ref": "#/definitions/localizedStringMap"
+              docx:
+                "$ref": "#/definitions/localizedStringMap"
+              txt:
+                "$ref": "#/definitions/localizedStringMap"
+      lightbox:
+        type: "object"
+        required:
+          - "openPhoto"
+          - "close"
+          - "previous"
+          - "next"
+        additionalProperties: false
+        properties:
+          openPhoto:
+            "$ref": "#/definitions/localizedStringMap"
+          close:
+            "$ref": "#/definitions/localizedStringMap"
+          previous:
+            "$ref": "#/definitions/localizedStringMap"
+          next:
+            "$ref": "#/definitions/localizedStringMap"
+      footer:
+        "$ref": "#/definitions/localizedStringMap"
   site:
     type: "object"
     required:
       - "url"
+      - "languagePathTemplate"
+      - "downloadPathTemplate"
     additionalProperties: false
     properties:
       url:
         type: "string"
         pattern: "^https://[^\\s/$.?#].[^\\s]*$"
+      languagePathTemplate:
+        allOf:
+          - "$ref": "#/definitions/pathTemplate"
+          - pattern: "\\{lang\\}"
+      downloadPathTemplate:
+        allOf:
+          - "$ref": "#/definitions/pathTemplate"
+          - pattern: "\\{lang\\}"
+          - pattern: "\\{file\\}"
   analytics:
     type: "object"
     required:
@@ -177,7 +266,7 @@ definitions:
     additionalProperties: false
     properties:
       src:
-        "$ref": "#/definitions/stringValue"
+        "$ref": "#/definitions/assetPath"
       caption:
         "$ref": "#/definitions/localizedString"
       position:
@@ -187,6 +276,35 @@ definitions:
   assetPath:
     type: "string"
     minLength: 1
+    enum:
+      - "atom.svg"
+      - "briefcase.svg"
+      - "contact.svg"
+      - "download.svg"
+      - "education.svg"
+      - "exnode.svg"
+      - "external-link.svg"
+      - "github.svg"
+      - "kaluga.svg"
+      - "layers.svg"
+      - "linkedin.svg"
+      - "location.svg"
+      - "lukyanov.png"
+      - "magnus.svg"
+      - "matvey-cafe.jpg"
+      - "matvey-formal.png"
+      - "matvey-japan.jpg"
+      - "matvey-lake.jpg"
+      - "matvey-mountains.jpg"
+      - "matvey-stairs.jpg"
+      - "matvey-travel.jpg"
+      - "moon.svg"
+      - "sbertech.svg"
+      - "star.svg"
+      - "sun.svg"
+      - "telegram.svg"
+      - "vstu.svg"
+      - "website.svg"
   fact:
     type: "object"
     required:
@@ -394,7 +512,18 @@ definitions:
       "$ref": "#/definitions/localizedString"
   yearMonth:
     type: "string"
-    pattern: '^\d{4}-\d{2}$'
+    pattern: '^\d{4}-(0[1-9]|1[0-2])$'
   yearOrYearMonth:
     type: "string"
-    pattern: '^\d{4}(-\d{2})?$'
+    pattern: '^\d{4}(-(0[1-9]|1[0-2]))?$'
+x-jorqenCustomValidations:
+  - path: "/experience/items"
+    rule: "sortedByStartDateDescending"
+  - path: "/experience/items/*"
+    rule: "endDateGreaterThanOrEqualStartDate"
+  - path: "/education/items/*"
+    rule: "endDateGreaterThanOrEqualStartDate"
+  - path: "/**/*"
+    rule: "localizedValuesMustCoverConfiguredLanguages"
+  - path: "/**/*"
+    rule: "assetPathMustExistUnderAssetsMedia"

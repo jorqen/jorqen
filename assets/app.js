@@ -1,9 +1,11 @@
 const LANGUAGE_STORAGE_KEY = "jorqen.language";
 const THEME_STORAGE_KEY = "jorqen.theme";
-const RESUME_SOURCE_URL = "resume/resume.yaml";
-const MEDIA_ROOT = "assets/media";
+const MEDIA_ROOT = "/assets/media";
 const SITE_URL_PLACEHOLDER = "${SITE_URL}";
 let SITE_URL = normalizeSiteUrl(window.location.origin);
+const RESPONSIVE_IMAGE_WIDTHS = [480, 720, 1080];
+const RESPONSIVE_IMAGE_FORMATS = ["avif", "webp"];
+const RESPONSIVE_IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png"]);
 const SUPPORTED_THEMES = ["light", "dark"];
 const THEMED_MEDIA_FILES = new Set([
   "briefcase.svg",
@@ -21,72 +23,6 @@ const THEMED_MEDIA_FILES = new Set([
   "sun.svg",
   "vstu.svg",
 ]);
-const SITE_UI = {
-  navResume: {
-    en: "Resume",
-    ru: "Резюме",
-  },
-  langSwitcherLabel: {
-    en: "Language switcher",
-    ru: "Переключение языка",
-  },
-  theme: {
-    toDark: {
-      en: "Dark theme",
-      ru: "Тёмная тема",
-    },
-    toLight: {
-      en: "Light theme",
-      ru: "Светлая тема",
-    },
-    switcherLabel: {
-      en: "Theme switcher",
-      ru: "Переключение темы",
-    },
-  },
-  resumeDownloads: {
-    title: {
-      en: "Download resume",
-      ru: "Скачать резюме",
-    },
-    labels: {
-      pdf: {
-        en: "For sharing and printing",
-        ru: "Для отправки и печати",
-      },
-      docx: {
-        en: "Editable source",
-        ru: "Редактируемый источник",
-      },
-      txt: {
-        en: "Text version",
-        ru: "Текстовая версия",
-      },
-    },
-  },
-  lightbox: {
-    openPhoto: {
-      en: "Open photo",
-      ru: "Открыть фото",
-    },
-    close: {
-      en: "Close photo viewer",
-      ru: "Закрыть просмотр фото",
-    },
-    previous: {
-      en: "Previous photo",
-      ru: "Предыдущее фото",
-    },
-    next: {
-      en: "Next photo",
-      ru: "Следующее фото",
-    },
-  },
-  footer: {
-    en: "© {year} {name}. Personal website for recruiters and hiring managers.",
-    ru: "© {year} {name}. Сайт-визитка для рекрутеров и менеджеров по найму.",
-  },
-};
 const CONTACT_ANALYTICS_GOALS = {
   email: "email_click",
   github: "github_click",
@@ -174,10 +110,10 @@ function localized(value, lang, languages) {
 }
 
 function parseResumeDate(value, upperBound) {
-  const [yearPart, monthPart] = String(value).split("-");
+  const [yearPart, monthPart, dayPart] = String(value).split("-");
   const year = Number(yearPart);
   const month = monthPart ? Number(monthPart) : upperBound ? 12 : 1;
-  const day = upperBound ? new Date(year, month, 0).getDate() : 1;
+  const day = dayPart && !upperBound ? Number(dayPart) : upperBound ? new Date(year, month, 0).getDate() : 1;
   return new Date(year, month - 1, day);
 }
 
@@ -232,16 +168,12 @@ function contactLabel(contact) {
 }
 
 async function loadResumeData() {
-  if (!window.jsyaml) {
-    throw new Error("js-yaml is not available.");
+  const embeddedData = document.getElementById("resume-data");
+  if (embeddedData?.textContent) {
+    return JSON.parse(embeddedData.textContent);
   }
 
-  const response = await fetch(RESUME_SOURCE_URL, { cache: "no-store" });
-  if (!response.ok) {
-    throw new Error(`Could not load ${RESUME_SOURCE_URL}: HTTP ${response.status}.`);
-  }
-
-  return window.jsyaml.load(await response.text());
+  throw new Error("Embedded resume data is not available.");
 }
 
 function setText(id, value) {
@@ -282,6 +214,88 @@ function mediaPath(fileName, theme) {
   return theme && THEMED_MEDIA_FILES.has(fileName)
     ? `${MEDIA_ROOT}/${theme}/${fileName}`
     : `${MEDIA_ROOT}/${fileName}`;
+}
+
+function imageExtension(fileName) {
+  return String(fileName || "").split(".").pop().toLowerCase();
+}
+
+function imageStem(fileName) {
+  return String(fileName || "")
+    .replace(/\.[^.]+$/, "")
+    .replace(/[^a-z0-9]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
+}
+
+function hasResponsiveVariants(fileName) {
+  return RESPONSIVE_IMAGE_EXTENSIONS.has(imageExtension(fileName));
+}
+
+function responsiveVariantPath(fileName, width, extension) {
+  return `${MEDIA_ROOT}/generated/${imageStem(fileName)}-${width}.${extension}`;
+}
+
+function responsiveSrcset(fileName, extension) {
+  return RESPONSIVE_IMAGE_WIDTHS
+    .map((width) => `${responsiveVariantPath(fileName, width, extension)} ${width}w`)
+    .join(", ");
+}
+
+function ensurePictureSource(picture, type) {
+  const selector = `source[type="${type}"]`;
+  let source = picture.querySelector(selector);
+  if (!source) {
+    source = document.createElement("source");
+    source.type = type;
+    picture.prepend(source);
+  }
+  return source;
+}
+
+function setResponsivePhotoImage(image, fileName, sizes) {
+  if (!image || !fileName) {
+    return;
+  }
+
+  image.src = mediaPath(fileName);
+  if (!hasResponsiveVariants(fileName)) {
+    image.removeAttribute("srcset");
+    image.removeAttribute("sizes");
+    return;
+  }
+
+  image.srcset = responsiveSrcset(fileName, "webp");
+  image.sizes = sizes;
+
+  const picture = image.parentElement?.tagName === "PICTURE" ? image.parentElement : null;
+  if (picture) {
+    RESPONSIVE_IMAGE_FORMATS.slice().reverse().forEach((extension) => {
+      const source = ensurePictureSource(picture, `image/${extension}`);
+      source.srcset = responsiveSrcset(fileName, extension);
+      source.sizes = sizes;
+    });
+  }
+}
+
+function createResponsivePicture(item, cssClass, sizes) {
+  const picture = document.createElement("picture");
+  RESPONSIVE_IMAGE_FORMATS.forEach((extension) => {
+    const source = document.createElement("source");
+    source.type = `image/${extension}`;
+    source.srcset = responsiveSrcset(item.src, extension);
+    source.sizes = sizes;
+    picture.append(source);
+  });
+
+  const image = document.createElement("img");
+  image.className = cssClass;
+  image.alt = item.caption || "";
+  image.loading = "lazy";
+  image.decoding = "async";
+  setResponsivePhotoImage(image, item.src, sizes);
+  picture.append(image);
+  return { picture, image };
 }
 
 function setMediaImage(image, fileName, theme) {
@@ -331,8 +345,17 @@ function setLinkHref(id, href) {
 
   if (href) {
     link.href = href;
+    if (href.startsWith("mailto:") || href.startsWith("tel:")) {
+      link.removeAttribute("target");
+      link.removeAttribute("rel");
+    } else {
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+    }
   } else {
     link.removeAttribute("href");
+    link.removeAttribute("target");
+    link.removeAttribute("rel");
   }
 }
 
@@ -350,23 +373,46 @@ function setElementAttribute(selector, attribute, value) {
   }
 }
 
-function syncSiteMetadata() {
-  const coverUrl = absoluteSiteUrl("/assets/og-cover-recruiter.jpg");
-  const rootUrl = absoluteSiteUrl("/");
+function formatSitePath(template, values) {
+  const path = String(template || "/")
+    .replaceAll("{lang}", encodeURIComponent(values.lang || ""))
+    .replaceAll("{file}", encodeURIComponent(values.file || ""));
+  return path.startsWith("/") ? path : `/${path}`;
+}
 
-  setElementAttribute('link[rel="canonical"]', "href", rootUrl);
+function pagePathForLanguage(source = {}, lang) {
+  const defaultLang = source.defaultLanguage || "en";
+  return formatSitePath(
+    source.site?.languagePathTemplate || "/{lang}/",
+    { lang: lang || document.documentElement.lang || defaultLang },
+  );
+}
+
+function downloadPathForFile(source, lang, file) {
+  return formatSitePath(source.site?.downloadPathTemplate || "/{lang}/{file}", { lang, file });
+}
+
+function currentCanonicalPath(source = {}, lang) {
+  return document.documentElement.dataset.canonicalPath || pagePathForLanguage(source, lang);
+}
+
+function syncSiteMetadata(source = {}, lang) {
+  const coverUrl = absoluteSiteUrl("/assets/og-cover-recruiter.jpg");
+  const pageUrl = absoluteSiteUrl(currentCanonicalPath(source, lang));
+
+  setElementAttribute('link[rel="canonical"]', "href", pageUrl);
   setElementAttribute('link[rel="image_src"]', "href", coverUrl);
   setMetaContent('meta[property="og:site_name"]', new URL(SITE_URL).hostname);
-  setMetaContent('meta[property="og:url"]', rootUrl);
+  setMetaContent('meta[property="og:url"]', pageUrl);
   setMetaContent('meta[property="og:image"]', coverUrl);
   setMetaContent('meta[property="og:image:url"]', coverUrl);
   setMetaContent('meta[property="og:image:secure_url"]', coverUrl);
   setMetaContent('meta[name="twitter:image"]', coverUrl);
 }
 
-function syncDocumentMetadata(person) {
+function syncDocumentMetadata(source, person, lang) {
   const title = `${person.name} | ${person.headline}`;
-  syncSiteMetadata();
+  syncSiteMetadata(source, lang);
   document.title = title;
   setMetaContent('meta[name="description"]', person.role);
   setMetaContent('meta[property="og:title"]', title);
@@ -379,9 +425,14 @@ function syncDocumentMetadata(person) {
 
 function detectLanguage(source) {
   const url = new URL(window.location.href);
-  const queryLang = url.searchParams.get("lang");
-  if (source.languages.includes(queryLang)) {
-    return queryLang;
+  const pageLang = document.documentElement.dataset.pageLang || document.documentElement.lang;
+  if (source.languages.includes(pageLang)) {
+    return pageLang;
+  }
+
+  const pathLang = url.pathname.split("/").filter(Boolean)[0];
+  if (source.languages.includes(pathLang)) {
+    return pathLang;
   }
 
   try {
@@ -416,7 +467,16 @@ function detectTheme() {
   } catch (_error) {
     // Ignore storage access restrictions.
   }
-  return "light";
+
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function hasStoredTheme() {
+  try {
+    return SUPPORTED_THEMES.includes(window.localStorage.getItem(THEME_STORAGE_KEY));
+  } catch (_error) {
+    return false;
+  }
 }
 
 function setLanguageButtonsState(lang) {
@@ -435,20 +495,23 @@ function setThemeButtonsState(theme) {
   });
 }
 
-function updateLanguageQuery(lang) {
+function languageUrl(source, lang) {
   const url = new URL(window.location.href);
-  url.searchParams.set("lang", lang);
-  window.history.replaceState({}, "", url);
+  url.pathname = pagePathForLanguage(source, lang);
+  url.search = "";
+  return url.href;
 }
 
-function setTheme(theme) {
+function setTheme(theme, persist = false) {
   const safeTheme = SUPPORTED_THEMES.includes(theme) ? theme : "light";
   document.documentElement.setAttribute("data-theme", safeTheme);
 
-  try {
-    window.localStorage.setItem(THEME_STORAGE_KEY, safeTheme);
-  } catch (_error) {
-    // Ignore storage access restrictions.
+  if (persist) {
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, safeTheme);
+    } catch (_error) {
+      // Ignore storage access restrictions.
+    }
   }
 }
 
@@ -513,7 +576,17 @@ function renderHeroPhoto(photo, index, triggerLabel) {
     return;
   }
 
-  image.src = photo?.src ? mediaPath(photo.src) : "";
+  if (photo?.src) {
+    setResponsivePhotoImage(image, photo.src, "(max-width: 980px) min(100vw, 340px), 360px");
+  } else {
+    image.src = "";
+    image.removeAttribute("srcset");
+    image.removeAttribute("sizes");
+  }
+  image.alt = photo?.caption || "";
+  image.loading = "eager";
+  image.decoding = "async";
+  image.fetchPriority = "high";
   image.style.objectPosition = photo?.position || "";
   image.style.setProperty("--photo-filter", photo?.filter || "");
 
@@ -788,15 +861,11 @@ function renderGallery(items, startIndex, triggerLabel) {
       "photos",
     );
 
-    const image = document.createElement("img");
-    image.className = "gallery-photo";
-    image.src = mediaPath(item.src);
-    image.alt = item.caption || "";
-    image.loading = "lazy";
+    const { picture, image } = createResponsivePicture(item, "gallery-photo", "(max-width: 640px) 46vw, 31vw");
     image.style.objectPosition = item.position || "";
     image.style.setProperty("--photo-filter", item.filter || "");
 
-    card.append(image);
+    card.append(picture);
     container.append(card);
   });
 }
@@ -834,6 +903,7 @@ function renderPhotoLightbox(state) {
   }
 
   image.src = mediaPath(item.src);
+  image.alt = item.caption || "";
   image.style.setProperty("--photo-filter", item.filter || "");
   if (caption) {
     caption.textContent = item.caption || "";
@@ -861,6 +931,64 @@ function syncPhotoLightboxItems(state, items) {
   }
 }
 
+function pageSiblings() {
+  return [...document.body.children].filter((element) => element.id !== "photo-lightbox");
+}
+
+function setPageInert(enabled) {
+  pageSiblings().forEach((element) => {
+    if (enabled) {
+      if (element.hasAttribute("aria-hidden")) {
+        element.dataset.previousAriaHidden = element.getAttribute("aria-hidden") || "";
+      }
+      element.setAttribute("aria-hidden", "true");
+      element.inert = true;
+      return;
+    }
+
+    element.inert = false;
+    if (element.dataset.previousAriaHidden !== undefined) {
+      element.setAttribute("aria-hidden", element.dataset.previousAriaHidden);
+      delete element.dataset.previousAriaHidden;
+    } else {
+      element.removeAttribute("aria-hidden");
+    }
+  });
+}
+
+function focusableLightboxElements() {
+  const dialog = document.getElementById("lightbox-dialog");
+  if (!dialog) {
+    return [];
+  }
+  return [...dialog.querySelectorAll(
+    'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])',
+  )].filter((element) => element instanceof HTMLElement && !element.hidden && element.offsetParent !== null);
+}
+
+function trapLightboxFocus(event) {
+  if (event.key !== "Tab") {
+    return;
+  }
+
+  const focusable = focusableLightboxElements();
+  if (!focusable.length) {
+    event.preventDefault();
+    document.getElementById("lightbox-dialog")?.focus();
+    return;
+  }
+
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
 function openPhotoLightbox(state, index, opener) {
   const lightbox = document.getElementById("photo-lightbox");
   const dialog = document.getElementById("lightbox-dialog");
@@ -874,6 +1002,7 @@ function openPhotoLightbox(state, index, opener) {
     trackPhotoClick(opener);
   }
   lightbox.hidden = false;
+  setPageInert(true);
   document.body.classList.add("lightbox-open");
   renderPhotoLightbox(state);
   window.requestAnimationFrame(() => dialog.focus());
@@ -886,6 +1015,7 @@ function closePhotoLightbox(state) {
   }
 
   lightbox.hidden = true;
+  setPageInert(false);
   document.body.classList.remove("lightbox-open");
   if (state.opener instanceof HTMLElement) {
     state.opener.focus();
@@ -903,7 +1033,7 @@ function showAdjacentPhoto(state, direction) {
 }
 
 function syncResumeLinks(source, lang) {
-  Object.entries(localized(SITE_UI.resumeDownloads.labels, lang, source.languages)).forEach(([extension, text]) => {
+  Object.entries(localized(source.siteUi.resumeDownloads.labels, lang, source.languages)).forEach(([extension, text]) => {
     const link = document.getElementById(`resume-${extension}`);
     const label = document.getElementById(`resume-${extension}-label`);
     if (!link || !label) {
@@ -911,14 +1041,14 @@ function syncResumeLinks(source, lang) {
     }
 
     const name = fileName(source, extension);
-    link.href = `resume/${lang}/${name}`;
+    link.href = downloadPathForFile(source, lang, name);
     link.setAttribute("download", name);
     label.textContent = text;
   });
 }
 
 function updateThemeSwitcher(source, lang, theme) {
-  const labels = localized(SITE_UI.theme, lang, source.languages);
+  const labels = localized(source.siteUi.theme, lang, source.languages);
   const switcher = document.getElementById("theme-switch");
 
   if (switcher) {
@@ -955,10 +1085,10 @@ function renderLanguage(source, state, lang) {
   const photoItems = getPhotoItems(person, data.gallery);
 
   document.documentElement.lang = lang;
-  syncDocumentMetadata(person);
+  syncDocumentMetadata(source, person, lang);
 
   setText("brand-link", person.name);
-  setText("nav-resume", localized(SITE_UI.navResume, lang, source.languages));
+  setText("nav-resume", localized(source.siteUi.navResume, lang, source.languages));
   setText("nav-experience", data.experience.title);
   setText("nav-education", data.education.title);
   setText("nav-strengths", data.strengths.title);
@@ -966,7 +1096,7 @@ function renderLanguage(source, state, lang) {
 
   const langSwitch = document.getElementById("lang-switch");
   if (langSwitch) {
-    langSwitch.setAttribute("aria-label", localized(SITE_UI.langSwitcherLabel, lang, source.languages));
+    langSwitch.setAttribute("aria-label", localized(source.siteUi.langSwitcherLabel, lang, source.languages));
   }
 
   setText("hero-kicker", person.headline);
@@ -990,11 +1120,11 @@ function renderLanguage(source, state, lang) {
     }
   });
 
-  const lightboxLabels = localized(SITE_UI.lightbox, lang, source.languages);
+  const lightboxLabels = localized(source.siteUi.lightbox, lang, source.languages);
   renderFacts(person.facts, theme);
   renderHeroPhoto(person.photo, 0, `${lightboxLabels.openPhoto}: ${person.photo.caption || ""}`);
 
-  setText("resume-title", localized(SITE_UI.resumeDownloads.title, lang, source.languages));
+  setText("resume-title", localized(source.siteUi.resumeDownloads.title, lang, source.languages));
   syncResumeLinks(source, lang);
 
   setText("experience-title", data.experience.title);
@@ -1022,7 +1152,7 @@ function renderLanguage(source, state, lang) {
 
   setText(
     "footer-text",
-    localized(SITE_UI.footer, lang, source.languages)
+    localized(source.siteUi.footer, lang, source.languages)
       .replace("{name}", person.name)
       .replace("{year}", String(new Date().getFullYear())),
   );
@@ -1042,14 +1172,31 @@ function applyLanguage(source, state, lang) {
     // Ignore storage access restrictions.
   }
 
-  updateLanguageQuery(safeLang);
   renderLanguage(source, state, safeLang);
 }
 
 function setupLanguageSwitcher(source, state) {
   document.querySelectorAll("[data-lang-switch]").forEach((button) => {
-    button.addEventListener("click", () => {
-      applyLanguage(source, state, button.getAttribute("data-lang-switch"));
+    button.addEventListener("click", (event) => {
+      if (button instanceof HTMLAnchorElement) {
+        event.preventDefault();
+      }
+      const nextLang = button.getAttribute("data-lang-switch");
+      if (!source.languages.includes(nextLang)) {
+        return;
+      }
+      try {
+        window.localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLang);
+      } catch (_error) {
+        // Ignore storage access restrictions.
+      }
+      const targetUrl = button.getAttribute("data-lang-switch-url") || pagePathForLanguage(source, nextLang);
+      if (targetUrl && window.location.pathname !== targetUrl) {
+        event.preventDefault();
+        window.location.assign(languageUrl(source, nextLang));
+        return;
+      }
+      applyLanguage(source, state, nextLang);
     });
   });
 }
@@ -1058,13 +1205,34 @@ function setupThemeSwitcher(source, state) {
   document.querySelectorAll("[data-theme-switch]").forEach((button) => {
     button.addEventListener("click", () => {
       const nextTheme = button.getAttribute("data-theme-switch") || "light";
-      setTheme(nextTheme);
+      setTheme(nextTheme, true);
 
       const currentLang = document.documentElement.lang || detectLanguage(source);
       renderLanguage(source, state, currentLang);
       updateHeaderOffset();
     });
   });
+}
+
+function setupSystemThemeListener(source, state) {
+  const query = window.matchMedia?.("(prefers-color-scheme: dark)");
+  if (!query) {
+    return;
+  }
+
+  const handleChange = (event) => {
+    if (hasStoredTheme()) {
+      return;
+    }
+    setTheme(event.matches ? "dark" : "light");
+    renderLanguage(source, state, document.documentElement.lang || detectLanguage(source));
+  };
+
+  if (query.addEventListener) {
+    query.addEventListener("change", handleChange);
+  } else if (query.addListener) {
+    query.addListener(handleChange);
+  }
 }
 
 function setupPhotoLightbox(state) {
@@ -1110,6 +1278,11 @@ function setupPhotoLightbox(state) {
       return;
     }
 
+    trapLightboxFocus(event);
+    if (event.defaultPrevented) {
+      return;
+    }
+
     if (event.key === "Escape") {
       closePhotoLightbox(state);
       return;
@@ -1139,6 +1312,7 @@ async function init() {
   updateHeaderOffset();
   setupLanguageSwitcher(source, lightboxState);
   setupThemeSwitcher(source, lightboxState);
+  setupSystemThemeListener(source, lightboxState);
   setupPhotoLightbox(lightboxState);
   window.addEventListener("resize", updateHeaderOffset);
   window.addEventListener("load", updateHeaderOffset);
@@ -1152,10 +1326,10 @@ function renderInitError(error) {
   syncSiteMetadata();
   setTheme(detectTheme());
   setText("hero-kicker", "Resume data unavailable");
-  setText("hero-name", "Cannot load resume.yaml");
+  setText("hero-name", "Cannot load resume data");
   setText(
     "hero-summary",
-    "Browsers block loading resume/resume.yaml from file:// URLs. Run a local HTTP server from the project root and open http://localhost:8000/.",
+    "Run a local HTTP server from the project root and open http://localhost:8000/.",
   );
   updateHeaderOffset();
 }
