@@ -6,11 +6,9 @@ on:
     branches:
       - master
     paths:
-      - "index.html"
       - "assets/**"
       - "resume/*.yaml"
-      - "scripts/build_resume_formats.sh"
-      - "scripts/generate_resume_outputs.py"
+      - "scripts/**"
       - ".github/workflows/build-resumes.yml"
 
 permissions:
@@ -41,16 +39,16 @@ jobs:
       - name: Generate resume files
         run: |
           ./scripts/build_resume_formats.sh
-          rm -rf .build .git .github AGENTS.md scripts
-          rm -f .gitignore resume/resume.yaml resume/resume.schema.yaml
-          find . -name ".DS_Store" -delete
-          # Disable Jekyll so GitHub Pages serves generated static files and assets as-is.
-          touch .nojekyll
+          site_dir="${RUNNER_TEMP}/site"
+          mkdir -p "$site_dir"
+          cp -R index.html en ru assets "$site_dir/"
+          find "$site_dir" -name ".DS_Store" -delete
+          touch "$site_dir/.nojekyll"
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: ${{ runner.temp }}/site
 
   deploy:
     needs: build

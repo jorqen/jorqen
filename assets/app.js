@@ -1,6 +1,9 @@
 const LANGUAGE_STORAGE_KEY = "jorqen.language";
 const THEME_STORAGE_KEY = "jorqen.theme";
-const MEDIA_ROOT = "/assets/media";
+const APP_SCRIPT_URL = detectAppScriptUrl();
+const SITE_BASE_PATH = detectSiteBasePath(APP_SCRIPT_URL);
+const ASSET_ROOT = `${SITE_BASE_PATH.replace(/\/$/, "")}/assets`;
+const MEDIA_ROOT = `${ASSET_ROOT}/media`;
 const SITE_URL_PLACEHOLDER = "${SITE_URL}";
 let SITE_URL = normalizeSiteUrl(window.location.origin);
 const RESPONSIVE_IMAGE_WIDTHS = [480, 720, 1080];
@@ -29,6 +32,30 @@ const CONTACT_ANALYTICS_GOALS = {
   linkedin: "linkedin_click",
   telegram: "telegram_click",
 };
+
+function detectAppScriptUrl() {
+  const script =
+    document.currentScript ||
+    document.querySelector('script[src$="/assets/app.js"], script[src$="assets/app.js"]');
+  return new URL(script?.getAttribute("src") || "/assets/app.js", window.location.href);
+}
+
+function detectSiteBasePath(scriptUrl) {
+  const marker = "/assets/app.js";
+  const markerIndex = scriptUrl.pathname.lastIndexOf(marker);
+  if (markerIndex < 0) {
+    return "/";
+  }
+  return `${scriptUrl.pathname.slice(0, markerIndex) || ""}/`;
+}
+
+function sitePath(path) {
+  const value = String(path || "/");
+  if (!value.startsWith("/") || /^[a-z][a-z\d+\-.]*:/i.test(value)) {
+    return value;
+  }
+  return `${SITE_BASE_PATH.replace(/\/$/, "")}${value}`;
+}
 
 function normalizeSiteUrl(value) {
   try {
@@ -377,7 +404,7 @@ function formatSitePath(template, values) {
   const path = String(template || "/")
     .replaceAll("{lang}", encodeURIComponent(values.lang || ""))
     .replaceAll("{file}", encodeURIComponent(values.file || ""));
-  return path.startsWith("/") ? path : `/${path}`;
+  return sitePath(path.startsWith("/") ? path : `/${path}`);
 }
 
 function pagePathForLanguage(source = {}, lang) {

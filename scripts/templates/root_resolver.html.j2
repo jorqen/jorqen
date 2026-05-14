@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="{{ default_lang }}">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, follow" />
+    <link rel="canonical" href="{{ canonical_url }}" />
+{{ alternate_links }}
+    <title>{{ title }}</title>
+    <script>
+      (function () {
+        const languageStorageKey = "jorqen.language";
+        const pages = {{ pages_json }};
+        const fallback = {{ fallback_json }};
+        const hasPage = function (lang) {
+          return Object.prototype.hasOwnProperty.call(pages, lang);
+        };
+        const normalizeLanguage = function (value) {
+          return String(value || "").toLowerCase().split(/[-_]/)[0];
+        };
+        const supportedLanguage = function (value) {
+          const lang = normalizeLanguage(value);
+          return hasPage(lang) ? lang : "";
+        };
+        const storedLanguage = function () {
+          try {
+            return supportedLanguage(window.localStorage.getItem(languageStorageKey));
+          } catch (_error) {
+            return "";
+          }
+        };
+        const browserLanguage = function () {
+          const languages = Array.isArray(window.navigator.languages) ? window.navigator.languages.slice() : [];
+          if (typeof window.navigator.language === "string") {
+            languages.push(window.navigator.language);
+          }
+          for (const value of languages) {
+            const lang = supportedLanguage(value);
+            if (lang) {
+              return lang;
+            }
+          }
+          return "";
+        };
+        const lang = storedLanguage() || browserLanguage() || fallback;
+        window.location.replace(pages[lang] || pages[fallback]);
+      })();
+    </script>
+    <noscript>
+      <meta http-equiv="refresh" content="0; url={{ default_path }}" />
+    </noscript>
+  </head>
+  <body>
+    <p>
+      {{ language_links }}
+    </p>
+  </body>
+</html>

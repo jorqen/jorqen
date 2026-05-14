@@ -77,7 +77,7 @@ except ImportError as exc:  # pragma: no cover - handled at runtime for local se
 ROOT = Path(__file__).resolve().parents[1]
 MEDIA_ROOT = ROOT / "assets/media"
 TEMPLATE_ROOT = ROOT / "scripts/templates"
-PUBLIC_ASSET_ROOT = "/assets"
+PUBLIC_ASSET_ROOT = "../assets"
 PUBLIC_MEDIA_ROOT = f"{PUBLIC_ASSET_ROOT}/media"
 RESPONSIVE_IMAGE_DIR_NAME = "generated"
 RESPONSIVE_IMAGE_WIDTHS = (480, 720, 1080)
@@ -177,6 +177,11 @@ def responsive_srcset(file_name: str, extension: str) -> str:
         f"{responsive_variant_path(file_name, width, extension)} {width}w"
         for width in RESPONSIVE_IMAGE_WIDTHS
     )
+
+
+def relative_public_path(path: str, depth: int = 1) -> str:
+    prefix = "../" * depth
+    return f"{prefix}{path.lstrip('/')}"
 
 
 def supports_responsive_variants(file_name: str | None) -> bool:
@@ -1613,19 +1618,19 @@ def alternate_links_html(source: dict[str, Any]) -> str:
 
 def language_links_html(source: dict[str, Any]) -> str:
     return " ·\n      ".join(
-        f'<a href="{html_attr(page_path(source, lang))}">{html_text(lang.upper())}</a>'
+        f'<a href="{html_attr(relative_public_path(page_path(source, lang), depth=0))}">{html_text(lang.upper())}</a>'
         for lang in source["languages"]
     )
 
 
-def generate_root_redirect_html(source: dict[str, Any]) -> str:
+def generate_root_resolver_html(source: dict[str, Any]) -> str:
     default_lang = source["defaultLanguage"]
     data = localized_tree(source, default_lang, source["languages"])
     title = f"{data['person']['name']} - {data['siteUi']['navResume']}"
-    default_path = page_path(source, default_lang)
-    page_paths = {lang: page_path(source, lang) for lang in source["languages"]}
+    default_path = relative_public_path(page_path(source, default_lang), depth=0)
+    page_paths = {lang: relative_public_path(page_path(source, lang), depth=0) for lang in source["languages"]}
     return render_template(
-        "root_redirect.html.j2",
+        "root_resolver.html.j2",
         default_lang=default_lang,
         canonical_url=page_url(source, default_lang),
         alternate_links=safe_html(alternate_links_html(source)),
@@ -1740,7 +1745,7 @@ def generate_site_html(source: dict[str, Any], lang: str) -> str:
 
 def write_static_site(source: dict[str, Any], output_root: Path) -> None:
     output_root.mkdir(parents=True, exist_ok=True)
-    (output_root / "index.html").write_text(generate_root_redirect_html(source), encoding="utf-8")
+    (output_root / "index.html").write_text(generate_root_resolver_html(source), encoding="utf-8")
     for lang in source["languages"]:
         lang_dir = output_root / lang
         lang_dir.mkdir(parents=True, exist_ok=True)
