@@ -13,6 +13,7 @@
   let siteHostname = hostnameFromUrl(siteUrl);
   let isProductionHost = window.location.hostname === siteHostname;
   let shouldSendMetrika = hasCounterId && isProductionHost;
+  const METRIKA_ORIGIN = "https://mc.yandex.com";
   const SCROLL_THRESHOLDS = [
     { goal: "scroll_50", percent: 50, trigger: 50 },
     { goal: "scroll_75", percent: 75, trigger: 75 },
@@ -114,7 +115,7 @@
       k.async = 1;
       k.src = r;
       a.parentNode.insertBefore(k, a);
-    })(window, document, "script", "https://mc.yandex.ru/metrika/tag.js", "ym");
+    })(window, document, "script", `${METRIKA_ORIGIN}/metrika/tag.js`, "ym");
 
     try {
       window.ym(counterId, "init", {
@@ -471,6 +472,9 @@
     },
     get COUNTER_ID() {
       return counterIdRaw;
+    },
+    get METRIKA_ORIGIN() {
+      return METRIKA_ORIGIN;
     },
     absoluteSiteUrl,
     configure,

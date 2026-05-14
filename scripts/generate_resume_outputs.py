@@ -1675,6 +1675,7 @@ def generate_site_html(source: dict[str, Any], lang: str) -> str:
         embedded_resume_data_json=safe_html(
             script_json(json.dumps(source, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
         ),
+        yandex_metrika_id=str(source["analytics"]["yandexMetrikaId"]).strip(),
         lang_switcher_label=localized_tree(site_ui["langSwitcherLabel"], lang, source["languages"]),
         language_switch=safe_html(render_language_switch(source, lang)),
         nav_resume=localized_tree(site_ui["navResume"], lang, source["languages"]),

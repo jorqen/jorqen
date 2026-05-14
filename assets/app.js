@@ -10,6 +10,7 @@ const RESPONSIVE_IMAGE_WIDTHS = [480, 720, 1080];
 const RESPONSIVE_IMAGE_FORMATS = ["avif", "webp"];
 const RESPONSIVE_IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png"]);
 const SUPPORTED_THEMES = ["light", "dark"];
+let trackedPageViewUrl = "";
 const THEMED_MEDIA_FILES = new Set([
   "briefcase.svg",
   "contact.svg",
@@ -95,8 +96,25 @@ function refreshAnalyticsTracking() {
 
 function trackInitialPageView() {
   if (window.JorqenAnalytics?.trackInitialPageView) {
-    window.JorqenAnalytics.trackInitialPageView();
+    const tracked = window.JorqenAnalytics.trackInitialPageView();
+    if (tracked || window.JorqenAnalytics.COUNTER_ID) {
+      trackedPageViewUrl = window.location.href;
+    }
   }
+}
+
+function trackRoutePageView(referer = "") {
+  const nextUrl = window.location.href;
+  if (!window.JorqenAnalytics?.trackPageView || nextUrl === trackedPageViewUrl) {
+    return;
+  }
+
+  window.JorqenAnalytics.trackPageView({
+    url: nextUrl,
+    title: document.title,
+    referer: referer || trackedPageViewUrl || document.referrer,
+  });
+  trackedPageViewUrl = nextUrl;
 }
 
 function trackPhotoClick(element) {
@@ -1293,15 +1311,19 @@ function setupLanguageSwitcher(source, state) {
       if (!source.languages.includes(nextLang)) {
         return;
       }
+      const previousUrl = window.location.href;
       updateLanguageUrl(source, nextLang);
       applyLanguage(source, state, nextLang);
+      trackRoutePageView(previousUrl);
     });
   });
 }
 
 function setupLanguageHistory(source, state) {
   window.addEventListener("popstate", () => {
+    const previousUrl = trackedPageViewUrl || document.referrer;
     applyLanguage(source, state, detectLanguage(source));
+    trackRoutePageView(previousUrl);
   });
 }
 
