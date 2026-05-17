@@ -1,4 +1,6 @@
 .DS_Store
+.idea/
+.venv/
 index.html
 assets/media/generated/
 en/

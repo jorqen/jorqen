@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 from calendar import monthrange
-import copy
 from datetime import date
 from functools import lru_cache
 import hashlib
@@ -194,9 +193,6 @@ def public_media_path(file_name: str) -> str:
 
 def site_runtime_config() -> dict[str, Any]:
     return {
-        "languagePathTemplate": LANGUAGE_PATH_TEMPLATE,
-        "downloadPathTemplate": DOWNLOAD_PATH_TEMPLATE,
-        "coverImage": SITE_COVER_IMAGE,
         "media": {
             "responsive": {
                 "directory": RESPONSIVE_IMAGE_DIR_NAME,
@@ -216,11 +212,22 @@ def analytics_runtime_config() -> dict[str, str]:
     }
 
 
-def runtime_resume_data(source: dict[str, Any]) -> dict[str, Any]:
-    data = copy.deepcopy(source)
-    data["site"].update(site_runtime_config())
-    data["analytics"] = analytics_runtime_config()
-    return data
+def runtime_page_data(source: dict[str, Any], lang: str) -> dict[str, Any]:
+    data = localized_tree(source, lang, source["languages"])
+    return {
+        "lang": lang,
+        "languages": source["languages"],
+        "site": {
+            **source["site"],
+            **site_runtime_config(),
+        },
+        "analytics": analytics_runtime_config(),
+        "theme": localized_tree(source["siteUi"]["theme"], lang, source["languages"]),
+        "lightbox": {
+            "labels": localized_tree(source["siteUi"]["lightbox"], lang, source["languages"]),
+            "items": [data["person"]["photo"], *data["gallery"]["items"]],
+        },
+    }
 
 
 def responsive_variant_path(file_name: str, width: int, extension: str) -> str:
@@ -494,7 +501,14 @@ def convert_svg_to_png(source: Path, build_dir: Path, size: int = 48) -> Path | 
     return output
 
 
+def is_safe_media_file_name(file_name: str) -> bool:
+    path = Path(file_name)
+    return not path.is_absolute() and path.name == file_name and ".." not in path.parts
+
+
 def media_source(file_name: str) -> Path:
+    if not is_safe_media_file_name(file_name):
+        return MEDIA_ROOT / "__invalid_media_reference__"
     for path in (MEDIA_ROOT / file_name, MEDIA_ROOT / "light" / file_name, MEDIA_ROOT / "dark" / file_name):
         if path.exists():
             return path
@@ -1728,7 +1742,7 @@ def generate_site_html(source: dict[str, Any], lang: str) -> str:
         json_ld_json=safe_html(script_json(json_ld(source, data, lang, canonical_url))),
         embedded_resume_data_json=safe_html(
             script_json(
-                json.dumps(runtime_resume_data(source), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                json.dumps(runtime_page_data(source, lang), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
             )
         ),
         yandex_metrika_id=YANDEX_METRIKA_ID,

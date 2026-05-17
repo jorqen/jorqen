@@ -253,35 +253,7 @@ definitions:
   assetPath:
     type: "string"
     minLength: 1
-    enum:
-      - "atom.svg"
-      - "briefcase.svg"
-      - "contact.svg"
-      - "download.svg"
-      - "education.svg"
-      - "exnode.svg"
-      - "external-link.svg"
-      - "github.svg"
-      - "kaluga.svg"
-      - "layers.svg"
-      - "linkedin.svg"
-      - "location.svg"
-      - "lukyanov.png"
-      - "magnus.svg"
-      - "matvey-cafe.jpg"
-      - "matvey-formal.png"
-      - "matvey-japan.jpg"
-      - "matvey-lake.jpg"
-      - "matvey-mountains.jpg"
-      - "matvey-stairs.jpg"
-      - "matvey-travel.jpg"
-      - "moon.svg"
-      - "sbertech.svg"
-      - "star.svg"
-      - "sun.svg"
-      - "telegram.svg"
-      - "vstu.svg"
-      - "website.svg"
+    pattern: "^[A-Za-z0-9][A-Za-z0-9._-]*$"
   fact:
     type: "object"
     required:
@@ -355,7 +327,7 @@ definitions:
         minLength: 1
         format: "uri"
       icon:
-        "$ref": "#/definitions/stringValue"
+        "$ref": "#/definitions/assetPath"
   educationSection:
     type: "object"
     required:
@@ -397,7 +369,7 @@ definitions:
         minLength: 1
         format: "uri"
       icon:
-        "$ref": "#/definitions/stringValue"
+        "$ref": "#/definitions/assetPath"
   strengthsSection:
     type: "object"
     required:
