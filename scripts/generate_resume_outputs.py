@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from calendar import monthrange
+import copy
 from datetime import date
 from functools import lru_cache
 import hashlib
@@ -79,10 +80,33 @@ MEDIA_ROOT = ROOT / "assets/media"
 TEMPLATE_ROOT = ROOT / "scripts/templates"
 PUBLIC_ASSET_ROOT = "../assets"
 PUBLIC_MEDIA_ROOT = f"{PUBLIC_ASSET_ROOT}/media"
+LANGUAGE_PATH_TEMPLATE = "/{lang}/"
+DOWNLOAD_PATH_TEMPLATE = "/{lang}/{file}"
+SITE_COVER_IMAGE = "/assets/og-cover-recruiter.jpg"
+YANDEX_METRIKA_ID = "109268996"
+YANDEX_METRIKA_ORIGIN = "https://mc.yandex.ru"
 RESPONSIVE_IMAGE_DIR_NAME = "generated"
 RESPONSIVE_IMAGE_WIDTHS = (480, 720, 1080)
 RESPONSIVE_IMAGE_FORMATS = ("avif", "webp")
-IMAGE_SOURCE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
+RESPONSIVE_SOURCE_EXTENSIONS = (".jpg", ".jpeg", ".png")
+HERO_PRELOAD_WIDTH = RESPONSIVE_IMAGE_WIDTHS[1]
+HERO_PRELOAD_FORMAT = RESPONSIVE_IMAGE_FORMATS[0]
+THEMED_MEDIA_FILES = {
+    "briefcase.svg",
+    "contact.svg",
+    "download.svg",
+    "education.svg",
+    "exnode.svg",
+    "external-link.svg",
+    "github.svg",
+    "layers.svg",
+    "location.svg",
+    "moon.svg",
+    "sbertech.svg",
+    "star.svg",
+    "sun.svg",
+    "vstu.svg",
+}
 
 DOWNLOAD_STYLES = {
     "colors": {
@@ -168,6 +192,37 @@ def public_media_path(file_name: str) -> str:
     return f"{PUBLIC_MEDIA_ROOT}/{file_name}"
 
 
+def site_runtime_config() -> dict[str, Any]:
+    return {
+        "languagePathTemplate": LANGUAGE_PATH_TEMPLATE,
+        "downloadPathTemplate": DOWNLOAD_PATH_TEMPLATE,
+        "coverImage": SITE_COVER_IMAGE,
+        "media": {
+            "responsive": {
+                "directory": RESPONSIVE_IMAGE_DIR_NAME,
+                "widths": list(RESPONSIVE_IMAGE_WIDTHS),
+                "formats": list(RESPONSIVE_IMAGE_FORMATS),
+                "sourceExtensions": [extension.removeprefix(".") for extension in RESPONSIVE_SOURCE_EXTENSIONS],
+            },
+            "themedFiles": sorted(THEMED_MEDIA_FILES),
+        },
+    }
+
+
+def analytics_runtime_config() -> dict[str, str]:
+    return {
+        "yandexMetrikaId": YANDEX_METRIKA_ID,
+        "yandexMetrikaOrigin": YANDEX_METRIKA_ORIGIN,
+    }
+
+
+def runtime_resume_data(source: dict[str, Any]) -> dict[str, Any]:
+    data = copy.deepcopy(source)
+    data["site"].update(site_runtime_config())
+    data["analytics"] = analytics_runtime_config()
+    return data
+
+
 def responsive_variant_path(file_name: str, width: int, extension: str) -> str:
     return f"{PUBLIC_MEDIA_ROOT}/{RESPONSIVE_IMAGE_DIR_NAME}/{slug_file_stem(file_name)}-{width}.{extension}"
 
@@ -185,7 +240,7 @@ def relative_public_path(path: str, depth: int = 1) -> str:
 
 
 def supports_responsive_variants(file_name: str | None) -> bool:
-    return bool(file_name) and Path(str(file_name)).suffix.lower() in IMAGE_SOURCE_EXTENSIONS
+    return bool(file_name) and Path(str(file_name)).suffix.lower() in RESPONSIVE_SOURCE_EXTENSIONS
 
 
 def responsive_picture_html(
@@ -244,11 +299,11 @@ def format_site_path(template: str, **values: str) -> str:
 
 
 def page_path(source: dict[str, Any], lang: str) -> str:
-    return format_site_path(source["site"]["languagePathTemplate"], lang=lang)
+    return format_site_path(LANGUAGE_PATH_TEMPLATE, lang=lang)
 
 
 def download_path(source: dict[str, Any], lang: str, file_name: str) -> str:
-    return format_site_path(source["site"]["downloadPathTemplate"], lang=lang, file=file_name)
+    return format_site_path(DOWNLOAD_PATH_TEMPLATE, lang=lang, file=file_name)
 
 
 def page_url(source: dict[str, Any], lang: str) -> str:
@@ -1331,25 +1386,17 @@ def link_target_attributes(href: str | None) -> str:
     return ' target="_blank" rel="noopener noreferrer"'
 
 
-def render_icon(file_name: str, css_class: str = "", *, theme: str = "light", alt: str = "", hidden: bool = True) -> str:
+def render_icon(
+    file_name: str,
+    css_class: str = "",
+    *,
+    theme: str = "light",
+    alt: str = "",
+    hidden: bool = True,
+) -> str:
     class_attr = f' class="{html_attr(css_class)}"' if css_class else ""
     aria = ' aria-hidden="true"' if hidden else ""
-    data_media = f' data-media="{html_attr(file_name)}"' if file_name in {
-        "briefcase.svg",
-        "contact.svg",
-        "download.svg",
-        "education.svg",
-        "exnode.svg",
-        "external-link.svg",
-        "github.svg",
-        "layers.svg",
-        "location.svg",
-        "moon.svg",
-        "sbertech.svg",
-        "star.svg",
-        "sun.svg",
-        "vstu.svg",
-    } else ""
+    data_media = f' data-media="{html_attr(file_name)}"' if file_name in THEMED_MEDIA_FILES else ""
     themed_prefix = f"{theme}/" if data_media else ""
     return (
         f'<img src="{html_attr(public_media_path(themed_prefix + file_name))}"{data_media}'
@@ -1382,7 +1429,7 @@ def render_contact_link(key: str, contact_data: dict[str, str], theme: str = "li
     target = link_target_attributes(href)
     return (
         f'<a id="hero-{html_attr(key)}" class="action-link" href="{html_attr(href)}"{target} '
-        f'title="{html_attr(value)}" data-analytics-goal="" data-analytics-contact="true" '
+        f'title="{html_attr(value)}" data-analytics-contact="true" '
         f'data-analytics-label="{html_attr(key.title())}" data-analytics-section="contacts">'
         f'{render_icon(contact_data.get("icon", ""), theme=theme) if contact_data.get("icon") else ""}'
         f"<span>{html_text(label)}</span></a>"
@@ -1639,7 +1686,7 @@ def generate_site_html(source: dict[str, Any], lang: str) -> str:
     labels_data = data["resumeLabels"]
     title = f"{profile['name']} | {profile['headline']}"
     canonical_url = page_url(source, lang)
-    cover_url = absolute_site_url(source, "/assets/og-cover-recruiter.jpg")
+    cover_url = absolute_site_url(source, SITE_COVER_IMAGE)
     lightbox_labels = localized_tree(site_ui["lightbox"], lang, source["languages"])
     theme_labels = localized_tree(site_ui["theme"], lang, source["languages"])
     description = profile["role"]
@@ -1665,17 +1712,27 @@ def generate_site_html(source: dict[str, Any], lang: str) -> str:
         canonical_url=canonical_url,
         alternate_links=safe_html(alternate_links_html(source)),
         cover_url=cover_url,
-        hero_preload_href=responsive_variant_path(profile["photo"]["src"], 720, "avif"),
-        hero_preload_srcset=responsive_srcset(profile["photo"]["src"], "avif"),
+        hero_preload_href=responsive_variant_path(
+            profile["photo"]["src"],
+            HERO_PRELOAD_WIDTH,
+            HERO_PRELOAD_FORMAT,
+        ),
+        hero_preload_srcset=responsive_srcset(
+            profile["photo"]["src"],
+            HERO_PRELOAD_FORMAT,
+        ),
         hero_sizes=hero_sizes,
         og_locale=og_locale,
         site_host=site_host(source),
         title=title,
         json_ld_json=safe_html(script_json(json_ld(source, data, lang, canonical_url))),
         embedded_resume_data_json=safe_html(
-            script_json(json.dumps(source, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+            script_json(
+                json.dumps(runtime_resume_data(source), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            )
         ),
-        yandex_metrika_id=str(source["analytics"]["yandexMetrikaId"]).strip(),
+        yandex_metrika_id=YANDEX_METRIKA_ID,
+        yandex_metrika_origin=YANDEX_METRIKA_ORIGIN,
         lang_switcher_label=localized_tree(site_ui["langSwitcherLabel"], lang, source["languages"]),
         language_switch=safe_html(render_language_switch(source, lang)),
         nav_resume=localized_tree(site_ui["navResume"], lang, source["languages"]),

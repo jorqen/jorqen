@@ -13,7 +13,7 @@
   let siteHostname = hostnameFromUrl(siteUrl);
   let isProductionHost = window.location.hostname === siteHostname;
   let shouldSendMetrika = hasCounterId && isProductionHost;
-  const METRIKA_ORIGIN = "https://mc.yandex.com";
+  let metrikaOrigin = "";
   const SCROLL_THRESHOLDS = [
     { goal: "scroll_50", percent: 50, trigger: 50 },
     { goal: "scroll_75", percent: 75, trigger: 75 },
@@ -51,6 +51,18 @@
     }
   }
 
+  function normalizeOrigin(value) {
+    try {
+      const url = new URL(String(value || ""));
+      url.hash = "";
+      url.search = "";
+      url.pathname = "";
+      return url.href.replace(/\/$/, "");
+    } catch (_error) {
+      return "";
+    }
+  }
+
   function hostnameFromUrl(value) {
     try {
       return new URL(value).hostname;
@@ -74,6 +86,7 @@
   function configure(options = {}) {
     siteUrl = normalizeSiteUrl(options.siteUrl || siteUrl);
     counterIdRaw = String(options.yandexMetrikaId || counterIdRaw).trim();
+    metrikaOrigin = normalizeOrigin(options.yandexMetrikaOrigin || metrikaOrigin);
     counterId = Number(counterIdRaw);
     hasCounterId = Number.isFinite(counterId) && counterId > 0;
     siteHostname = hostnameFromUrl(siteUrl);
@@ -100,11 +113,12 @@
   }
 
   function initMetrika() {
-    if (!shouldSendMetrika || window.__JORQEN_METRIKA_COUNTER_ID__ === counterId) {
+    if (!shouldSendMetrika || !metrikaOrigin || window.__JORQEN_METRIKA_COUNTER_ID__ === counterId) {
       return;
     }
 
     window.__JORQEN_METRIKA_COUNTER_ID__ = counterId;
+    const tagUrl = `${metrikaOrigin}/metrika/tag.js?id=${encodeURIComponent(counterIdRaw)}`;
     (function (m, e, t, r, i, k, a) {
       m[i] = m[i] || function () {
         (m[i].a = m[i].a || []).push(arguments);
@@ -115,7 +129,7 @@
       k.async = 1;
       k.src = r;
       a.parentNode.insertBefore(k, a);
-    })(window, document, "script", `${METRIKA_ORIGIN}/metrika/tag.js`, "ym");
+    })(window, document, "script", tagUrl, "ym");
 
     try {
       window.ym(counterId, "init", {
@@ -474,7 +488,7 @@
       return counterIdRaw;
     },
     get METRIKA_ORIGIN() {
-      return METRIKA_ORIGIN;
+      return metrikaOrigin;
     },
     absoluteSiteUrl,
     configure,

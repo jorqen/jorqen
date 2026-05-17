@@ -7,11 +7,6 @@ languages:
 
 site:
   url: "https://jorqen.link"
-  languagePathTemplate: "/{lang}/"
-  downloadPathTemplate: "/{lang}/{file}"
-
-analytics:
-  yandexMetrikaId: "109088766"
 
 person:
   name:

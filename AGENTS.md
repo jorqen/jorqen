@@ -1,7 +1,13 @@
 - Resume content in English and Russian must always be fully identical in meaning and scope for all extensions.
 - Resume experience must be sorted by work start date.
 - In downloaded resumes, keep all current contacts and also include the configured website link from `resume/resume.yaml`.
-- DOCX and PDF must look the same
+- DOCX and PDF must look the same.
+- Do not duplicate data or absolute configuration across source files. Every value must have one source of truth:
+  - Use `resume/resume.yaml` for resume content, contacts, localized copy, and shared values that are part of the resume/source data.
+  - Use site generation/runtime files for settings that belong only to the website, such as analytics wiring, Open Graph assets, responsive media variants, and theme-specific media behavior.
+  - Use `scripts/generate_resume_outputs.py` for settings that belong only to generated downloads or generated site artifacts.
+  - Use a separate source file only when a value has a clearly separate ownership boundary.
+  - Generated files may contain duplicated values only when they are produced from the canonical source; do not edit generated copies directly.
 
 ## Repository structure
 
@@ -13,7 +19,7 @@
   - `assets/media/` contains resume media. Common images live at the folder root; light/dark theme-specific variants live in `assets/media/light/` and `assets/media/dark/`; ignored AVIF/WebP responsive variants are generated into `assets/media/generated/`.
   - `assets/og-cover-recruiter.*` contains Open Graph preview assets.
 - `resume/` contains resume source data:
-  - `resume/resume.yaml` is the canonical source for all resume content, website copy, contacts, localized labels, and downloadable resume text.
+  - `resume/resume.yaml` is the canonical source for resume content, contacts, localized copy maintained with the resume source, localized labels, and downloadable resume text.
   - `resume/resume.schema.yaml` documents and validates the expected YAML structure.
 - `en/` and `ru/` contain generated localized pages and localized PDF, DOCX, and TXT resume downloads.
 - `scripts/` contains resume generation tooling:

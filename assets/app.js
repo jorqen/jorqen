@@ -6,33 +6,14 @@ const ASSET_ROOT = `${SITE_BASE_PATH.replace(/\/$/, "")}/assets`;
 const MEDIA_ROOT = `${ASSET_ROOT}/media`;
 const SITE_URL_PLACEHOLDER = "${SITE_URL}";
 let SITE_URL = normalizeSiteUrl(window.location.origin);
-const RESPONSIVE_IMAGE_WIDTHS = [480, 720, 1080];
-const RESPONSIVE_IMAGE_FORMATS = ["avif", "webp"];
-const RESPONSIVE_IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png"]);
+let COVER_IMAGE_PATH = "";
+let RESPONSIVE_IMAGE_DIR = "";
+let RESPONSIVE_IMAGE_WIDTHS = [];
+let RESPONSIVE_IMAGE_FORMATS = [];
+let RESPONSIVE_IMAGE_EXTENSIONS = new Set();
 const SUPPORTED_THEMES = ["light", "dark"];
 let trackedPageViewUrl = "";
-const THEMED_MEDIA_FILES = new Set([
-  "briefcase.svg",
-  "contact.svg",
-  "download.svg",
-  "education.svg",
-  "exnode.svg",
-  "external-link.svg",
-  "github.svg",
-  "layers.svg",
-  "location.svg",
-  "moon.svg",
-  "sbertech.svg",
-  "star.svg",
-  "sun.svg",
-  "vstu.svg",
-]);
-const CONTACT_ANALYTICS_GOALS = {
-  email: "email_click",
-  github: "github_click",
-  linkedin: "linkedin_click",
-  telegram: "telegram_click",
-};
+let THEMED_MEDIA_FILES = new Set();
 
 function detectAppScriptUrl() {
   if (!(document.currentScript instanceof HTMLScriptElement)) {
@@ -77,13 +58,29 @@ function resolveConfiguredValue(value) {
   return String(value || "").replaceAll(SITE_URL_PLACEHOLDER, SITE_URL);
 }
 
+function configureSiteMedia(source) {
+  const media = source.site.media;
+  const responsive = media.responsive;
+
+  COVER_IMAGE_PATH = source.site.coverImage;
+  RESPONSIVE_IMAGE_DIR = responsive.directory;
+  RESPONSIVE_IMAGE_WIDTHS = responsive.widths.map((width) => Number(width));
+  RESPONSIVE_IMAGE_FORMATS = responsive.formats.map((format) => String(format).toLowerCase());
+  RESPONSIVE_IMAGE_EXTENSIONS = new Set(
+    responsive.sourceExtensions.map((extension) => String(extension).replace(/^\./, "").toLowerCase()),
+  );
+  THEMED_MEDIA_FILES = new Set(media.themedFiles);
+}
+
 function configureSite(source) {
   SITE_URL = normalizeSiteUrl(source.site.url);
+  configureSiteMedia(source);
   source.contacts.website.value = SITE_URL;
   if (window.JorqenAnalytics?.configure) {
     window.JorqenAnalytics.configure({
       siteUrl: SITE_URL,
       yandexMetrikaId: source.analytics.yandexMetrikaId,
+      yandexMetrikaOrigin: source.analytics.yandexMetrikaOrigin,
     });
   }
 }
@@ -268,7 +265,7 @@ function hasResponsiveVariants(fileName) {
 }
 
 function responsiveVariantPath(fileName, width, extension) {
-  return `${MEDIA_ROOT}/generated/${imageStem(fileName)}-${width}.${extension}`;
+  return `${MEDIA_ROOT}/${RESPONSIVE_IMAGE_DIR}/${imageStem(fileName)}-${width}.${extension}`;
 }
 
 function responsiveSrcset(fileName, extension) {
@@ -443,7 +440,7 @@ function syncLanguagePageContext(source, lang) {
 }
 
 function syncSiteMetadata(source = {}, lang) {
-  const coverUrl = absoluteSiteUrl("/assets/og-cover-recruiter.jpg");
+  const coverUrl = absoluteSiteUrl(COVER_IMAGE_PATH);
   const pageUrl = absoluteSiteUrl(currentCanonicalPath(source, lang));
 
   setElementAttribute('link[rel="canonical"]', "href", pageUrl);
@@ -1242,7 +1239,6 @@ function renderLanguage(source, state, lang) {
     setImageSource(`#${link.id} img`, contact.icon, theme);
     if (link) {
       link.title = resolveConfiguredValue(contact?.value || label);
-      link.dataset.analyticsGoal = CONTACT_ANALYTICS_GOALS[key] || "";
       link.dataset.analyticsContact = "true";
       link.dataset.analyticsLabel = key === "email" ? "Email" : key.charAt(0).toUpperCase() + key.slice(1);
       link.dataset.analyticsSection = "contacts";

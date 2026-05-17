@@ -39,7 +39,10 @@
           return "";
         };
         const lang = storedLanguage() || browserLanguage() || defaultLang;
-        window.location.replace(pages[lang]);
+        const targetUrl = new URL(pages[lang], window.location.href);
+        targetUrl.search = window.location.search;
+        targetUrl.hash = window.location.hash;
+        window.location.replace(targetUrl.href);
       })();
     </script>
   </head>

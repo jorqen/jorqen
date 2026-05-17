@@ -8,7 +8,6 @@ required:
   - "defaultLanguage"
   - "languages"
   - "site"
-  - "analytics"
   - "person"
   - "contacts"
   - "resumeLabels"
@@ -35,8 +34,6 @@ properties:
     additionalItems: false
   site:
     "$ref": "#/definitions/site"
-  analytics:
-    "$ref": "#/definitions/analytics"
   person:
     "$ref": "#/definitions/person"
   contacts:
@@ -185,31 +182,11 @@ definitions:
     type: "object"
     required:
       - "url"
-      - "languagePathTemplate"
-      - "downloadPathTemplate"
     additionalProperties: false
     properties:
       url:
         type: "string"
         pattern: "^https://[^\\s/$.?#].[^\\s]*$"
-      languagePathTemplate:
-        allOf:
-          - "$ref": "#/definitions/pathTemplate"
-          - pattern: "\\{lang\\}"
-      downloadPathTemplate:
-        allOf:
-          - "$ref": "#/definitions/pathTemplate"
-          - pattern: "\\{lang\\}"
-          - pattern: "\\{file\\}"
-  analytics:
-    type: "object"
-    required:
-      - "yandexMetrikaId"
-    additionalProperties: false
-    properties:
-      yandexMetrikaId:
-        type: "string"
-        pattern: "^[0-9]+$"
   person:
     type: "object"
     required:
