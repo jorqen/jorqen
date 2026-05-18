@@ -11,7 +11,7 @@ CODEX_PYTHON="${HOME}/.cache/codex-runtimes/codex-primary-runtime/dependencies/p
 has_required_python_deps() {
   "$1" - <<'PY' >/dev/null 2>&1
 import docx
-import reportlab
+import weasyprint
 import yaml
 import babel.dates
 import jsonschema
@@ -28,7 +28,7 @@ if ! has_required_python_deps "$PYTHON_BIN"; then
     cat >&2 <<'EOF'
 Missing Python dependencies for resume generation.
 Install them with:
-  python3 -m pip install babel jinja2 jsonschema python-docx reportlab pyyaml
+  python3 -m pip install babel jinja2 jsonschema python-docx pyyaml weasyprint
 EOF
     exit 1
   fi

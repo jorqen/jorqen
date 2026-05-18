@@ -61,17 +61,10 @@ except ImportError as exc:  # pragma: no cover - handled at runtime for local se
     ) from exc
 
 try:
-    from reportlab.lib import colors
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-    from reportlab.lib.units import inch
-    from reportlab.lib.utils import ImageReader
-    from reportlab.pdfbase import pdfmetrics
-    from reportlab.pdfbase.ttfonts import TTFont
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+    from weasyprint import HTML
 except ImportError as exc:  # pragma: no cover - handled at runtime for local setup clarity.
     raise SystemExit(
-        "Missing PDF dependencies. Install reportlab or run through scripts/build_resume_formats.sh."
+        "Missing PDF dependencies. Install WeasyPrint or run through scripts/build_resume_formats.sh."
     ) from exc
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -124,27 +117,42 @@ DOWNLOAD_STYLES = {
         "body": {"fontSize": 9.7, "lineHeight": 12.3},
         "bullet": {"fontSize": 9.4, "lineHeight": 11.7},
     },
+    "layout": {
+        "pageMargin": 0.36,
+        "maxPages": 2,
+        "scaleSearchIterations": 12,
+        "scaleSafetyMargin": 0.003,
+        "minScale": {
+            "en": 0.76,
+            "ru": 0.72,
+        },
+        "maxScale": {
+            "en": 1.05,
+            "ru": 1.02,
+        },
+        "docxScaleAdjustment": {
+            "en": 1.0,
+            "ru": 1.0,
+        },
+        "iconSize": 10.0,
+        "contactIconSize": 8.5,
+    },
+    "spacing": {
+        "titleAfter": 1.8,
+        "contactAfter": 2.0,
+        "headlineAfter": 2.8,
+        "sectionBefore": 3.6,
+        "sectionAfter": 1.5,
+        "entryBefore": 4.2,
+        "entryHeaderAfter": 0.9,
+        "paragraphAfter": 1.7,
+        "bulletAfter": 0.65,
+        "stackAfter": 1.4,
+        "skillAfter": 0.7,
+    },
 }
-
-DOWNLOAD_DOCX_PAGE_MARGINS = {
-    "horizontal": 0.40,
-    "vertical": 0.34,
-}
-
-DOWNLOAD_PDF_PAGE_MARGINS = {
-    "horizontal": 0.28,
-    "vertical": 0.20,
-}
-
-DOCX_TYPOGRAPHY_SCALE_BY_LANG = {
-    "en": 1.07,
-    "ru": 1.0,
-}
-
-PDF_TYPOGRAPHY_SCALE_BY_LANG = {
-    "en": 0.91,
-    "ru": 0.87,
-}
+DOWNLOAD_DOCX_FONT_NAME = "Arial"
+DOWNLOAD_PDF_FONT_FAMILY = "ResumeDownloadSans"
 
 DOWNLOAD_SECTION_SOURCE_KEYS = {
     "profile": "strengths",
@@ -892,26 +900,31 @@ def scaled_typography(download_style: dict[str, Any], scale: float) -> dict[str,
     }
 
 
-def configure_docx(document: Document, download_style: dict[str, Any], lang: str) -> None:
+def configure_docx(document: Document, download_style: dict[str, Any], scale: float) -> None:
     style_colors = download_style["colors"]
-    typography = scaled_typography(download_style, DOCX_TYPOGRAPHY_SCALE_BY_LANG.get(lang, 1.0))
+    typography = scaled_typography(download_style, scale)
+    layout = download_style["layout"]
+    spacing = download_style["spacing"]
     section = document.sections[0]
     section.page_width = Mm(210)
     section.page_height = Mm(297)
-    section.top_margin = Inches(DOWNLOAD_DOCX_PAGE_MARGINS["vertical"])
-    section.bottom_margin = Inches(DOWNLOAD_DOCX_PAGE_MARGINS["vertical"])
-    section.left_margin = Inches(DOWNLOAD_DOCX_PAGE_MARGINS["horizontal"])
-    section.right_margin = Inches(DOWNLOAD_DOCX_PAGE_MARGINS["horizontal"])
+    page_margin = Inches(layout["pageMargin"])
+    section.top_margin = page_margin
+    section.bottom_margin = page_margin
+    section.left_margin = page_margin
+    section.right_margin = page_margin
+    section.header_distance = Inches(0)
+    section.footer_distance = Inches(0)
 
-    font_name = "Arial"
+    font_name = DOWNLOAD_DOCX_FONT_NAME
     styles = document.styles
     normal = styles["Normal"]
     normal.font.name = font_name
     set_docx_style_font_family(normal, font_name)
-    normal.font.size = Pt(9.2)
+    normal.font.size = Pt(typography["body"]["fontSize"])
     normal.font.color.rgb = rgb_color(style_colors["text"])
     normal.paragraph_format.space_after = Pt(0)
-    normal.paragraph_format.line_spacing = Pt(11.8)
+    normal.paragraph_format.line_spacing = Pt(typography["body"]["lineHeight"])
     normal.paragraph_format.line_spacing_rule = WD_LINE_SPACING.EXACTLY
     set_docx_style_widow_control(normal, enabled=False)
 
@@ -923,7 +936,7 @@ def configure_docx(document: Document, download_style: dict[str, Any], lang: str
         rgb_color(style_colors["text"]),
         bold=True,
         line_spacing=typography["title"]["lineHeight"],
-        space_after=1.5,
+        space_after=spacing["titleAfter"],
     )
     configure_docx_paragraph_style(
         styles,
@@ -933,7 +946,7 @@ def configure_docx(document: Document, download_style: dict[str, Any], lang: str
         rgb_color(style_colors["text"]),
         bold=True,
         line_spacing=typography["headline"]["lineHeight"],
-        space_after=2,
+        space_after=spacing["headlineAfter"],
     )
     configure_docx_paragraph_style(
         styles,
@@ -942,7 +955,7 @@ def configure_docx(document: Document, download_style: dict[str, Any], lang: str
         typography["contact"]["fontSize"],
         rgb_color(style_colors["muted"]),
         line_spacing=typography["contact"]["lineHeight"],
-        space_after=2,
+        space_after=spacing["contactAfter"],
     )
     configure_docx_paragraph_style(
         styles,
@@ -962,8 +975,8 @@ def configure_docx(document: Document, download_style: dict[str, Any], lang: str
         bold=True,
         keep_with_next=True,
         line_spacing=typography["section"]["lineHeight"],
-        space_before=5,
-        space_after=1.2,
+        space_before=spacing["sectionBefore"],
+        space_after=spacing["sectionAfter"],
     )
     configure_docx_paragraph_style(
         styles,
@@ -974,7 +987,8 @@ def configure_docx(document: Document, download_style: dict[str, Any], lang: str
         bold=True,
         keep_with_next=True,
         line_spacing=typography["company"]["lineHeight"],
-        space_after=1,
+        space_before=spacing["entryBefore"],
+        space_after=spacing["entryHeaderAfter"],
     )
     configure_docx_paragraph_style(
         styles,
@@ -983,7 +997,7 @@ def configure_docx(document: Document, download_style: dict[str, Any], lang: str
         typography["meta"]["fontSize"],
         rgb_color(style_colors["muted"]),
         line_spacing=typography["meta"]["lineHeight"],
-        space_after=1,
+        space_after=spacing["stackAfter"],
     )
     configure_docx_paragraph_style(
         styles,
@@ -992,7 +1006,16 @@ def configure_docx(document: Document, download_style: dict[str, Any], lang: str
         typography["body"]["fontSize"],
         rgb_color(style_colors["text"]),
         line_spacing=typography["body"]["lineHeight"],
-        space_after=1.4,
+        space_after=spacing["paragraphAfter"],
+    )
+    configure_docx_paragraph_style(
+        styles,
+        "ResumeSkill",
+        font_name,
+        typography["body"]["fontSize"],
+        rgb_color(style_colors["text"]),
+        line_spacing=typography["body"]["lineHeight"],
+        space_after=spacing["skillAfter"],
     )
     configure_docx_paragraph_style(
         styles,
@@ -1001,16 +1024,19 @@ def configure_docx(document: Document, download_style: dict[str, Any], lang: str
         typography["bullet"]["fontSize"],
         rgb_color(style_colors["text"]),
         line_spacing=typography["bullet"]["lineHeight"],
-        space_after=0.4,
+        space_after=spacing["bulletAfter"],
         left_indent=0.17,
         first_line_indent=-0.11,
     )
+
+
 def docx_contact_line(
     paragraph: Any,
     source: dict[str, Any],
     lang: str,
     accent_color: str,
     build_dir: Path,
+    icon_size: float,
 ) -> None:
     for index, key in enumerate(contact_keys(source)):
         contact_value_for_lang = contact(source, key, lang)
@@ -1018,7 +1044,7 @@ def docx_contact_line(
             paragraph.add_run("  |  ")
         icon_path = contact_icon_path(key, contact_value_for_lang, build_dir / "contact-icons")
         if icon_path:
-            paragraph.add_run().add_picture(str(icon_path), width=Inches(0.11))
+            paragraph.add_run().add_picture(str(icon_path), width=Pt(icon_size))
             paragraph.add_run(" ")
         href = contact_href(contact_value_for_lang)
         if href:
@@ -1027,30 +1053,41 @@ def docx_contact_line(
             paragraph.add_run(contact_link_text(contact_value_for_lang))
 
 
-def generate_docx(source: dict[str, Any], lang: str, output_path: Path, build_dir: Path) -> None:
+def generate_docx(source: dict[str, Any], lang: str, output_path: Path, build_dir: Path, scale: float) -> None:
     profile = person(source, lang)
     label_values = labels(source, lang)
     education = section(source, "education", lang)
     skills = section(source, "skills", lang)
     download_style = DOWNLOAD_STYLES
     style_colors = download_style["colors"]
+    layout = download_style["layout"]
     document = Document()
-    configure_docx(document, download_style, lang)
+    configure_docx(document, download_style, scale)
+    document.core_properties.title = f"{profile['name']} | {profile['headline']}"
+    document.core_properties.author = profile["name"]
+    document.core_properties.comments = "generated by scripts/generate_resume_outputs.py"
 
     document.add_paragraph(profile["name"], style="ResumeTitle")
     contact_paragraph = document.add_paragraph(style="ResumeContact")
-    docx_contact_line(contact_paragraph, source, lang, style_colors["accent"], build_dir)
+    docx_contact_line(
+        contact_paragraph,
+        source,
+        lang,
+        style_colors["accent"],
+        build_dir,
+        layout["contactIconSize"],
+    )
     document.add_paragraph(profile["role"], style="ResumeHeadline")
 
-    document.add_paragraph(download_section_title(source, lang, "profile"), style="ResumeSection")
+    document.add_paragraph(download_section_title(source, lang, "profile").upper(), style="ResumeSection")
     document.add_paragraph(profile["summary"], style="ResumeBody")
 
-    document.add_paragraph(download_section_title(source, lang, "experience"), style="ResumeSection")
+    document.add_paragraph(download_section_title(source, lang, "experience").upper(), style="ResumeSection")
     for item in experience_items(source, lang):
         header = document.add_paragraph(style="ResumeCompany")
         icon_path = company_icon_path(item, build_dir / "company-icons")
         if icon_path:
-            header.add_run().add_picture(str(icon_path), width=Inches(0.12))
+            header.add_run().add_picture(str(icon_path), width=Pt(layout["iconSize"]))
             header.add_run(" ")
         if item.get("url"):
             add_hyperlink(header, item["company"], item["url"], style_colors["accent"], bold=True)
@@ -1066,12 +1103,12 @@ def generate_docx(source: dict[str, Any], lang: str, output_path: Path, build_di
         stack.add_run(f"{label_values['stack']}: ").bold = True
         stack.add_run(", ".join(item["stack"]))
 
-    document.add_paragraph(download_section_title(source, lang, "education"), style="ResumeSection")
+    document.add_paragraph(download_section_title(source, lang, "education").upper(), style="ResumeSection")
     for item in education["items"]:
         paragraph = document.add_paragraph(style="ResumeBody")
         icon_path = institution_icon_path(item, build_dir / "institution-icons")
         if icon_path:
-            paragraph.add_run().add_picture(str(icon_path), width=Inches(0.12))
+            paragraph.add_run().add_picture(str(icon_path), width=Pt(layout["iconSize"]))
             paragraph.add_run(" ")
         if item.get("url"):
             add_hyperlink(paragraph, item["institution"], item["url"], style_colors["accent"], bold=True)
@@ -1079,11 +1116,9 @@ def generate_docx(source: dict[str, Any], lang: str, output_path: Path, build_di
             paragraph.add_run(item["institution"]).bold = True
         paragraph.add_run(f" | {education_header_text(item, label_values, lang)}")
 
-    document.add_paragraph(download_section_title(source, lang, "skills"), style="ResumeSection")
-    skills_paragraph = document.add_paragraph(style="ResumeBody")
-    for index, (title, values) in enumerate(skill_group_segments(skills["groups"])):
-        if index:
-            skills_paragraph.add_run(" | ")
+    document.add_paragraph(download_section_title(source, lang, "skills").upper(), style="ResumeSection")
+    for title, values in skill_group_segments(skills["groups"]):
+        skills_paragraph = document.add_paragraph(style="ResumeSkill")
         skills_paragraph.add_run(f"{title}: ").bold = True
         skills_paragraph.add_run(values)
 
@@ -1098,7 +1133,7 @@ def find_font(candidates: list[str]) -> Path | None:
             return path
     fc_match = shutil.which("fc-match")
     if fc_match:
-        for family in ("DejaVu Sans", "Arial Unicode MS", "Arial"):
+        for family in ("Arial", "Liberation Sans", "DejaVu Sans", "Arial Unicode MS"):
             result = subprocess.run(
                 [fc_match, "-f", "%{file}", family],
                 check=False,
@@ -1122,267 +1157,160 @@ def env_font_path(name: str) -> Path | None:
     return path
 
 
-def register_pdf_fonts(lang: str) -> tuple[str, str]:
-    regular = env_font_path("RESUME_PDF_FONT_REGULAR") or find_font([
-        "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+def download_font_paths() -> dict[str, str | None]:
+    regular = env_font_path("RESUME_DOWNLOAD_FONT_REGULAR") or find_font([
         "/System/Library/Fonts/Supplemental/Arial.ttf",
         "/Library/Fonts/Arial.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
         "/Library/Fonts/Arial Unicode.ttf",
     ])
-    bold = env_font_path("RESUME_PDF_FONT_BOLD") or find_font([
-        "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    bold = env_font_path("RESUME_DOWNLOAD_FONT_BOLD") or find_font([
         "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
         "/Library/Fonts/Arial Bold.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     ]) or regular
-
-    if not regular:
-        raise RuntimeError("Could not find a Unicode TrueType font for PDF generation.")
-
-    if "ResumeRegular" not in pdfmetrics.getRegisteredFontNames():
-        pdfmetrics.registerFont(TTFont("ResumeRegular", str(regular)))
-    if "ResumeBold" not in pdfmetrics.getRegisteredFontNames():
-        pdfmetrics.registerFont(TTFont("ResumeBold", str(bold)))
-    return "ResumeRegular", "ResumeBold"
-
-
-def pdf_link(text: str, url: str, color_hex: str) -> str:
-    return f'<a href="{html.escape(url, quote=True)}"><font color="#{color_hex}">{html.escape(text)}</font></a>'
-
-
-def pdf_text(text: str) -> str:
-    return html.escape(text).replace("\n", "<br/>")
-
-
-def pdf_paragraph(text: str, style: ParagraphStyle) -> Paragraph:
-    return Paragraph(pdf_text(text), style)
-
-
-def pdf_markup(markup: str, style: ParagraphStyle) -> Paragraph:
-    return Paragraph(markup, style)
-
-
-@lru_cache(maxsize=None)
-def image_dimensions(path: str) -> tuple[float, float] | None:
-    try:
-        width, height = ImageReader(path).getSize()
-    except OSError:
-        return None
-    if width <= 0 or height <= 0:
-        return None
-    return float(width), float(height)
-
-
-def pdf_icon_markup(path: Path | None, size: int = 9) -> str:
-    if not path:
-        return ""
-    dimensions = image_dimensions(str(path))
-    height = size
-    if dimensions:
-        intrinsic_width, intrinsic_height = dimensions
-        height = size * intrinsic_height / intrinsic_width
-    return (
-        f'<img src="{html.escape(str(path), quote=True)}" '
-        f'width="{size:.2f}" height="{height:.2f}" valign="middle"/>'
-    )
-
-
-def build_pdf_styles(lang: str, download_style: dict[str, Any]) -> dict[str, ParagraphStyle]:
-    style_colors = download_style["colors"]
-    typography = download_style["typography"]
-    regular, bold = register_pdf_fonts(lang)
-    base = getSampleStyleSheet()
-    scale = PDF_TYPOGRAPHY_SCALE_BY_LANG.get(lang, 0.89)
-
-    def font_size(style_key: str) -> float:
-        return typography[style_key]["fontSize"] * scale
-
-    def line_height(style_key: str) -> float:
-        return typography[style_key]["lineHeight"] * scale
-
     return {
-        "title": ParagraphStyle(
-            "ResumeTitle",
-            parent=base["Heading1"],
-            fontName=bold,
-            fontSize=font_size("title"),
-            leading=line_height("title"),
-            textColor=colors.HexColor(f"#{style_colors['text']}"),
-            spaceAfter=1.5,
-        ),
-        "headline": ParagraphStyle(
-            "ResumeHeadline",
-            parent=base["BodyText"],
-            fontName=bold,
-            fontSize=font_size("headline"),
-            leading=line_height("headline"),
-            textColor=colors.HexColor(f"#{style_colors['text']}"),
-            spaceAfter=2,
-        ),
-        "contact": ParagraphStyle(
-            "ResumeContact",
-            parent=base["BodyText"],
-            fontName=regular,
-            fontSize=font_size("contact"),
-            leading=line_height("contact"),
-            textColor=colors.HexColor(f"#{style_colors['muted']}"),
-            spaceAfter=2,
-        ),
-        "summary": ParagraphStyle(
-            "ResumeSummary",
-            parent=base["BodyText"],
-            fontName=regular,
-            fontSize=font_size("summary"),
-            leading=line_height("summary"),
-            textColor=colors.HexColor(f"#{style_colors['text']}"),
-            spaceAfter=0,
-        ),
-        "section": ParagraphStyle(
-            "ResumeSection",
-            parent=base["Heading2"],
-            fontName=bold,
-            fontSize=font_size("section"),
-            leading=line_height("section"),
-            textColor=colors.HexColor(f"#{style_colors['accent']}"),
-            spaceBefore=2,
-            spaceAfter=1.2,
-            keepWithNext=1,
-        ),
-        "company": ParagraphStyle(
-            "ResumeCompany",
-            parent=base["Heading3"],
-            fontName=bold,
-            fontSize=font_size("company"),
-            leading=line_height("company"),
-            textColor=colors.HexColor(f"#{style_colors['text']}"),
-            spaceAfter=1,
-            keepWithNext=1,
-        ),
-        "meta": ParagraphStyle(
-            "ResumeMeta",
-            parent=base["BodyText"],
-            fontName=regular,
-            fontSize=font_size("meta"),
-            leading=line_height("meta"),
-            textColor=colors.HexColor(f"#{style_colors['muted']}"),
-            spaceAfter=1,
-        ),
-        "body": ParagraphStyle(
-            "ResumeBody",
-            parent=base["BodyText"],
-            fontName=regular,
-            fontSize=font_size("body"),
-            leading=line_height("body"),
-            textColor=colors.HexColor(f"#{style_colors['text']}"),
-            spaceAfter=1.4,
-        ),
-        "bullet": ParagraphStyle(
-            "ResumeBullet",
-            parent=base["BodyText"],
-            fontName=regular,
-            fontSize=font_size("bullet"),
-            leading=line_height("bullet"),
-            leftIndent=12,
-            firstLineIndent=-8,
-            textColor=colors.HexColor(f"#{style_colors['text']}"),
-            spaceAfter=0.4,
-        ),
+        "regular": regular.resolve().as_uri() if regular else None,
+        "bold": bold.resolve().as_uri() if bold else None,
     }
 
 
-def pdf_section(story: list[Any], title: str, styles: dict[str, ParagraphStyle]) -> None:
-    story.append(Paragraph(html.escape(title.upper()), styles["section"]))
+def download_icon_src(path: Path | None) -> str | None:
+    return path.resolve().as_uri() if path else None
 
 
-def pdf_contact_markup(source: dict[str, Any], lang: str, accent_color: str, build_dir: Path) -> str:
+def download_contacts(source: dict[str, Any], lang: str, build_dir: Path) -> list[dict[str, Any]]:
     items = []
     for key in contact_keys(source):
         contact_value_for_lang = contact(source, key, lang)
-        contact_text = contact_link_text(contact_value_for_lang)
-        href = contact_href(contact_value_for_lang)
-        contact_markup = pdf_link(contact_text, href, accent_color) if href else pdf_text(contact_text)
-        items.append(
-            (
-                f'{pdf_icon_markup(contact_icon_path(key, contact_value_for_lang, build_dir / "contact-icons"))} '
-                f"{contact_markup}"
-            ).strip()
-        )
-    return " | ".join(items)
+        items.append({
+            "key": key,
+            "text": contact_link_text(contact_value_for_lang),
+            "href": contact_href(contact_value_for_lang),
+            "icon_src": download_icon_src(contact_icon_path(key, contact_value_for_lang, build_dir / "contact-icons")),
+        })
+    return items
 
 
-def generate_pdf(source: dict[str, Any], lang: str, output_path: Path, build_dir: Path) -> None:
+def download_view_model(source: dict[str, Any], lang: str, build_dir: Path) -> dict[str, Any]:
     profile = person(source, lang)
     label_values = labels(source, lang)
     education = section(source, "education", lang)
     skills = section(source, "skills", lang)
-    download_style = DOWNLOAD_STYLES
-    style_colors = download_style["colors"]
-    styles = build_pdf_styles(lang, download_style)
+    return {
+        "title": f"{profile['name']} | {profile['headline']}",
+        "profile": profile,
+        "contacts": download_contacts(source, lang, build_dir),
+        "sections": {
+            "profile": {
+                "title": download_section_title(source, lang, "profile"),
+                "summary": profile["summary"],
+            },
+            "experience": {
+                "title": download_section_title(source, lang, "experience"),
+                "items": [
+                    {
+                        "company": item["company"],
+                        "url": item.get("url"),
+                        "header": experience_header_text(item, label_values, lang),
+                        "summary": item["summary"],
+                        "highlights": item["highlights"],
+                        "stack_label": label_values["stack"],
+                        "stack": ", ".join(item["stack"]),
+                        "icon_src": download_icon_src(company_icon_path(item, build_dir / "company-icons")),
+                    }
+                    for item in experience_items(source, lang)
+                ],
+            },
+            "education": {
+                "title": download_section_title(source, lang, "education"),
+                "items": [
+                    {
+                        "institution": item["institution"],
+                        "url": item.get("url"),
+                        "header": education_header_text(item, label_values, lang),
+                        "icon_src": download_icon_src(institution_icon_path(item, build_dir / "institution-icons")),
+                    }
+                    for item in education["items"]
+                ],
+            },
+            "skills": {
+                "title": download_section_title(source, lang, "skills"),
+                "groups": [
+                    {"title": title, "values": values}
+                    for title, values in skill_group_segments(skills["groups"])
+                ],
+            },
+        },
+    }
+
+
+def render_download_html(source: dict[str, Any], lang: str, build_dir: Path, scale: float) -> str:
+    return render_template(
+        "resume_download.html.j2",
+        lang=lang,
+        model=download_view_model(source, lang, build_dir),
+        colors=DOWNLOAD_STYLES["colors"],
+        typography=scaled_typography(DOWNLOAD_STYLES, scale),
+        layout=DOWNLOAD_STYLES["layout"],
+        spacing=DOWNLOAD_STYLES["spacing"],
+        font_family=DOWNLOAD_PDF_FONT_FAMILY,
+        font_paths=download_font_paths(),
+    )
+
+
+def render_download_pdf_document(source: dict[str, Any], lang: str, build_dir: Path, scale: float) -> Any:
+    return HTML(
+        string=render_download_html(source, lang, build_dir, scale),
+        base_url=str(ROOT),
+    ).render()
+
+
+def resolve_download_pdf(source: dict[str, Any], lang: str, build_dir: Path) -> tuple[float, Any]:
+    layout = DOWNLOAD_STYLES["layout"]
+    min_scale = layout["minScale"].get(lang, 0.78)
+    max_scale = layout["maxScale"].get(lang, 1.2)
+    max_pages = layout["maxPages"]
+
+    min_document = render_download_pdf_document(source, lang, build_dir, min_scale)
+    if len(min_document.pages) > max_pages:
+        raise RuntimeError(
+            f"Generated {lang.upper()} PDF has {len(min_document.pages)} pages at minimum scale {min_scale:.2f}; "
+            f"target is {max_pages} pages."
+        )
+
+    max_document = render_download_pdf_document(source, lang, build_dir, max_scale)
+    if len(max_document.pages) <= max_pages:
+        return max_scale, max_document
+
+    lower = min_scale
+    upper = max_scale
+    best_scale = min_scale
+    for _ in range(layout["scaleSearchIterations"]):
+        scale = round((lower + upper) / 2, 4)
+        document = render_download_pdf_document(source, lang, build_dir, scale)
+        if len(document.pages) <= max_pages:
+            lower = scale
+            best_scale = scale
+        else:
+            upper = scale
+
+    scale = max(min_scale, round(best_scale - layout["scaleSafetyMargin"], 4))
+    document = render_download_pdf_document(source, lang, build_dir, scale)
+    while len(document.pages) > max_pages and scale > min_scale:
+        scale = max(min_scale, round(scale - layout["scaleSafetyMargin"], 4))
+        document = render_download_pdf_document(source, lang, build_dir, scale)
+    return scale, document
+
+
+def generate_pdf(source: dict[str, Any], lang: str, output_path: Path, build_dir: Path) -> float:
+    scale, document = resolve_download_pdf(source, lang, build_dir)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    doc = SimpleDocTemplate(
-        str(output_path),
-        pagesize=A4,
-        rightMargin=DOWNLOAD_PDF_PAGE_MARGINS["horizontal"] * inch,
-        leftMargin=DOWNLOAD_PDF_PAGE_MARGINS["horizontal"] * inch,
-        topMargin=DOWNLOAD_PDF_PAGE_MARGINS["vertical"] * inch,
-        bottomMargin=DOWNLOAD_PDF_PAGE_MARGINS["vertical"] * inch,
-        title=f"{profile['name']} | {profile['headline']}",
-        author=profile["name"],
-    )
-    story: list[Any] = []
-    story.append(pdf_paragraph(profile["name"], styles["title"]))
-    story.append(pdf_markup(pdf_contact_markup(source, lang, style_colors["accent"], build_dir), styles["contact"]))
-    story.append(pdf_paragraph(profile["role"], styles["headline"]))
-
-    pdf_section(story, download_section_title(source, lang, "profile"), styles)
-    story.append(pdf_paragraph(profile["summary"], styles["body"]))
-
-    pdf_section(story, download_section_title(source, lang, "experience"), styles)
-    for item in experience_items(source, lang):
-        icon_markup = pdf_icon_markup(company_icon_path(item, build_dir / "company-icons"), 10)
-        company_text = (
-            pdf_link(item["company"], item["url"], style_colors["accent"])
-            if item.get("url")
-            else html.escape(item["company"])
-        )
-        header_text = pdf_text(experience_header_text(item, label_values, lang))
-        story.append(pdf_markup(
-            f"{icon_markup} {company_text} | <b>{header_text}</b>".strip(),
-            styles["company"],
-        ))
-        story.append(pdf_paragraph(item["summary"], styles["body"]))
-        for bullet in item["highlights"]:
-            story.append(pdf_paragraph(f"• {bullet}", styles["bullet"]))
-        story.append(pdf_markup(
-            f"<b>{pdf_text(label_values['stack'])}:</b> {pdf_text(', '.join(item['stack']))}",
-            styles["meta"],
-        ))
-        story.append(Spacer(1, 0.4))
-
-    pdf_section(story, download_section_title(source, lang, "education"), styles)
-    for item in education["items"]:
-        icon_markup = pdf_icon_markup(institution_icon_path(item, build_dir / "institution-icons"), 10)
-        institution_text = (
-            pdf_link(item["institution"], item["url"], style_colors["accent"])
-            if item.get("url")
-            else f"<b>{pdf_text(item['institution'])}</b>"
-        )
-        header_text = pdf_text(education_header_text(item, label_values, lang))
-        story.append(pdf_markup(
-            f"{icon_markup} {institution_text} | {header_text}".strip(),
-            styles["body"],
-        ))
-
-    pdf_section(story, download_section_title(source, lang, "skills"), styles)
-    skill_markup = " | ".join(
-        f"<b>{pdf_text(title)}:</b> {pdf_text(values)}"
-        for title, values in skill_group_segments(skills["groups"])
-    )
-    story.append(pdf_markup(skill_markup, styles["body"]))
-
-    doc.build(story)
+    document.write_pdf(str(output_path))
+    return scale
 
 
 def link_target_attributes(href: str | None) -> str:
@@ -1818,8 +1746,9 @@ def generate_outputs(
     for lang in source["languages"]:
         lang_dir = output_root / lang
         generate_txt(source, lang, lang_dir / file_names["txt"])
-        generate_docx(source, lang, lang_dir / file_names["docx"], build_dir)
-        generate_pdf(source, lang, lang_dir / file_names["pdf"], build_dir)
+        download_scale = generate_pdf(source, lang, lang_dir / file_names["pdf"], build_dir)
+        docx_scale = download_scale * DOWNLOAD_STYLES["layout"]["docxScaleAdjustment"].get(lang, 1.0)
+        generate_docx(source, lang, lang_dir / file_names["docx"], build_dir, docx_scale)
 
 
 def parse_args() -> argparse.Namespace:

@@ -33,8 +33,8 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y fonts-dejavu-core imagemagick libheif-plugin-aomenc librsvg2-bin
-          python3 -m pip install --user babel jinja2 jsonschema python-docx reportlab pillow pyyaml
+          sudo apt-get install -y fonts-dejavu-core fonts-liberation imagemagick libheif-plugin-aomenc libpango-1.0-0 libpangoft2-1.0-0 librsvg2-bin
+          python3 -m pip install --user babel jinja2 jsonschema python-docx pillow pyyaml weasyprint
 
       - name: Generate resume files
         run: |

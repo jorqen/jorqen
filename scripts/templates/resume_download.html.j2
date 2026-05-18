@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="{{ lang }}">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="author" content="{{ model.profile.name }}" />
+    <title>{{ model.title }}</title>
+    <style>
+      {% if font_paths.regular %}
+      @font-face {
+        font-family: "{{ font_family }}";
+        src: url("{{ font_paths.regular }}") format("truetype");
+        font-weight: 400;
+      }
+      {% endif %}
+      {% if font_paths.bold %}
+      @font-face {
+        font-family: "{{ font_family }}";
+        src: url("{{ font_paths.bold }}") format("truetype");
+        font-weight: 700;
+      }
+      {% endif %}
+
+      @page {
+        size: A4;
+        margin: {{ layout.pageMargin }}in;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        color: #{{ colors.text }};
+        font-family: "{{ font_family }}", Arial, "Liberation Sans", "DejaVu Sans", sans-serif;
+        font-size: {{ typography.body.fontSize }}pt;
+        line-height: {{ typography.body.lineHeight }}pt;
+        overflow-wrap: break-word;
+        orphans: 2;
+        widows: 2;
+      }
+
+      a {
+        color: #{{ colors.accent }};
+        text-decoration: none;
+      }
+
+      .resume-title {
+        color: #{{ colors.text }};
+        font-size: {{ typography.title.fontSize }}pt;
+        line-height: {{ typography.title.lineHeight }}pt;
+        font-weight: 700;
+        margin: 0 0 {{ spacing.titleAfter }}pt;
+      }
+
+      .contact-row {
+        color: #{{ colors.muted }};
+        font-size: {{ typography.contact.fontSize }}pt;
+        line-height: {{ typography.contact.lineHeight }}pt;
+        margin: 0 0 {{ spacing.contactAfter }}pt;
+      }
+
+      .contact-item {
+        display: inline;
+        white-space: nowrap;
+      }
+
+      .contact-separator {
+        color: #{{ colors.muted }};
+        display: inline;
+        padding: 0 3pt;
+      }
+
+      .icon {
+        display: inline-block;
+        height: {{ layout.iconSize }}pt;
+        max-width: {{ layout.iconSize }}pt;
+        object-fit: contain;
+        vertical-align: -1.2pt;
+      }
+
+      .contact-icon {
+        height: {{ layout.contactIconSize }}pt;
+        max-width: {{ layout.contactIconSize }}pt;
+        vertical-align: -1pt;
+      }
+
+      .headline {
+        color: #{{ colors.text }};
+        font-size: {{ typography.headline.fontSize }}pt;
+        line-height: {{ typography.headline.lineHeight }}pt;
+        font-weight: 700;
+        margin: 0 0 {{ spacing.headlineAfter }}pt;
+      }
+
+      .section-title {
+        break-after: avoid;
+        color: #{{ colors.accent }};
+        font-size: {{ typography.section.fontSize }}pt;
+        line-height: {{ typography.section.lineHeight }}pt;
+        font-weight: 700;
+        margin: {{ spacing.sectionBefore }}pt 0 {{ spacing.sectionAfter }}pt;
+        text-transform: uppercase;
+      }
+
+      .paragraph,
+      .entry-summary,
+      .education-entry,
+      .skills-group {
+        font-size: {{ typography.body.fontSize }}pt;
+        line-height: {{ typography.body.lineHeight }}pt;
+        margin: 0 0 {{ spacing.paragraphAfter }}pt;
+      }
+
+      .skills-list {
+        margin: 0;
+      }
+
+      .skills-group {
+        margin-bottom: {{ spacing.skillAfter }}pt;
+      }
+
+      .entry {
+        margin: {{ spacing.entryBefore }}pt 0 0;
+      }
+
+      .entry-header {
+        break-after: avoid;
+        font-size: {{ typography.company.fontSize }}pt;
+        line-height: {{ typography.company.lineHeight }}pt;
+        font-weight: 700;
+        margin: 0 0 {{ spacing.entryHeaderAfter }}pt;
+      }
+
+      .entry-list {
+        font-size: {{ typography.bullet.fontSize }}pt;
+        line-height: {{ typography.bullet.lineHeight }}pt;
+        margin: 0 0 {{ spacing.bulletAfter }}pt;
+        padding-left: 12pt;
+      }
+
+      .entry-list li {
+        margin: 0 0 {{ spacing.bulletAfter }}pt;
+        padding-left: 0;
+      }
+
+      .stack-line {
+        color: #{{ colors.muted }};
+        font-size: {{ typography.meta.fontSize }}pt;
+        line-height: {{ typography.meta.lineHeight }}pt;
+        margin: 0 0 {{ spacing.stackAfter }}pt;
+      }
+
+      .education-entry {
+        break-inside: avoid;
+      }
+    </style>
+  </head>
+  <body>
+    <h1 class="resume-title">{{ model.profile.name }}</h1>
+    <p class="contact-row">
+      {% for contact in model.contacts %}
+      <span class="contact-item">{% if contact.icon_src %}<img class="icon contact-icon" src="{{ contact.icon_src }}" alt="" /> {% endif %}{% if contact.href %}<a href="{{ contact.href }}">{{ contact.text }}</a>{% else %}{{ contact.text }}{% endif %}</span>{% if not loop.last %}<span class="contact-separator">|</span>{% endif %}
+      {% endfor %}
+    </p>
+    <p class="headline">{{ model.profile.role }}</p>
+
+    <h2 class="section-title">{{ model.sections.profile.title }}</h2>
+    <p class="paragraph">{{ model.sections.profile.summary }}</p>
+
+    <h2 class="section-title">{{ model.sections.experience.title }}</h2>
+    {% for item in model.sections.experience["items"] %}
+    <article class="entry">
+      <p class="entry-header">{% if item.icon_src %}<img class="icon" src="{{ item.icon_src }}" alt="" /> {% endif %}{% if item.url %}<a href="{{ item.url }}">{{ item.company }}</a>{% else %}{{ item.company }}{% endif %} | {{ item.header }}</p>
+      <p class="entry-summary">{{ item.summary }}</p>
+      <ul class="entry-list">
+        {% for bullet in item.highlights %}
+        <li>{{ bullet }}</li>
+        {% endfor %}
+      </ul>
+      <p class="stack-line"><strong>{{ item.stack_label }}:</strong> {{ item.stack }}</p>
+    </article>
+    {% endfor %}
+
+    <h2 class="section-title">{{ model.sections.education.title }}</h2>
+    {% for item in model.sections.education["items"] %}
+    <p class="education-entry">{% if item.icon_src %}<img class="icon" src="{{ item.icon_src }}" alt="" /> {% endif %}{% if item.url %}<a href="{{ item.url }}">{{ item.institution }}</a>{% else %}<strong>{{ item.institution }}</strong>{% endif %} | {{ item.header }}</p>
+    {% endfor %}
+
+    <h2 class="section-title">{{ model.sections.skills.title }}</h2>
+    <div class="skills-list">
+      {% for group in model.sections.skills.groups %}
+      <p class="skills-group"><strong>{{ group.title }}:</strong> {{ group["values"] }}</p>
+      {% endfor %}
+    </div>
+  </body>
+</html>
