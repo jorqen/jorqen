@@ -146,19 +146,11 @@ PDF_TYPOGRAPHY_SCALE_BY_LANG = {
     "ru": 0.87,
 }
 
-DOWNLOAD_SECTION_TITLES = {
-    "en": {
-        "profile": "ABOUT ME",
-        "experience": "PROFESSIONAL EXPERIENCE",
-        "education": "EDUCATION",
-        "skills": "PROGRAMMING SKILLS",
-    },
-    "ru": {
-        "profile": "ОБО МНЕ",
-        "experience": "ПРОФЕССИОНАЛЬНЫЙ ОПЫТ",
-        "education": "ОБРАЗОВАНИЕ",
-        "skills": "ТЕХНИЧЕСКИЕ НАВЫКИ",
-    },
+DOWNLOAD_SECTION_SOURCE_KEYS = {
+    "profile": "strengths",
+    "experience": "experience",
+    "education": "education",
+    "skills": "skills",
 }
 
 def localized_tree(value: Any, lang: str, languages: list[str]) -> Any:
@@ -538,8 +530,9 @@ def institution_icon_path(item: dict[str, Any], build_dir: Path) -> Path | None:
     return resolve_image(item.get("icon"), build_dir, 40)
 
 
-def download_section_title(lang: str, key: str) -> str:
-    return DOWNLOAD_SECTION_TITLES[lang][key]
+def download_section_title(source: dict[str, Any], lang: str, key: str) -> str:
+    section_key = DOWNLOAD_SECTION_SOURCE_KEYS[key]
+    return localized_tree(source[section_key]["title"], lang, source["languages"])
 
 
 def skill_group_segments(groups: list[dict[str, Any]]) -> list[tuple[str, str]]:
@@ -755,13 +748,13 @@ def generate_txt(source: dict[str, Any], lang: str, output_path: Path) -> None:
     add_txt_line(lines, profile["role"])
 
     add_txt_line(lines)
-    lines.append(download_section_title(lang, "profile"))
-    lines.append("-" * len(download_section_title(lang, "profile")))
+    lines.append(download_section_title(source, lang, "profile"))
+    lines.append("-" * len(download_section_title(source, lang, "profile")))
     add_txt_line(lines, profile["summary"])
 
     add_txt_line(lines)
-    lines.append(download_section_title(lang, "experience"))
-    lines.append("-" * len(download_section_title(lang, "experience")))
+    lines.append(download_section_title(source, lang, "experience"))
+    lines.append("-" * len(download_section_title(source, lang, "experience")))
     for item in experience_items(source, lang):
         add_txt_line(lines)
         lines.append(f"{item['company']} | {experience_header_text(item, label_values, lang)}")
@@ -775,8 +768,8 @@ def generate_txt(source: dict[str, Any], lang: str, output_path: Path) -> None:
         lines.append(f"{label_values['stack']}: {', '.join(item['stack'])}")
 
     add_txt_line(lines)
-    lines.append(download_section_title(lang, "education"))
-    lines.append("-" * len(download_section_title(lang, "education")))
+    lines.append(download_section_title(source, lang, "education"))
+    lines.append("-" * len(download_section_title(source, lang, "education")))
     for item in education["items"]:
         add_txt_line(lines)
         lines.append(f"{item['institution']} | {education_header_text(item, label_values, lang)}")
@@ -785,8 +778,8 @@ def generate_txt(source: dict[str, Any], lang: str, output_path: Path) -> None:
             lines.append(f"{education_site_label}: {item['url']}")
 
     add_txt_line(lines)
-    lines.append(download_section_title(lang, "skills"))
-    lines.append("-" * len(download_section_title(lang, "skills")))
+    lines.append(download_section_title(source, lang, "skills"))
+    lines.append("-" * len(download_section_title(source, lang, "skills")))
     for title, values in skill_group_segments(skills["groups"]):
         lines.append(f"{title}: {values}")
 
@@ -1049,10 +1042,10 @@ def generate_docx(source: dict[str, Any], lang: str, output_path: Path, build_di
     docx_contact_line(contact_paragraph, source, lang, style_colors["accent"], build_dir)
     document.add_paragraph(profile["role"], style="ResumeHeadline")
 
-    document.add_paragraph(download_section_title(lang, "profile"), style="ResumeSection")
+    document.add_paragraph(download_section_title(source, lang, "profile"), style="ResumeSection")
     document.add_paragraph(profile["summary"], style="ResumeBody")
 
-    document.add_paragraph(download_section_title(lang, "experience"), style="ResumeSection")
+    document.add_paragraph(download_section_title(source, lang, "experience"), style="ResumeSection")
     for item in experience_items(source, lang):
         header = document.add_paragraph(style="ResumeCompany")
         icon_path = company_icon_path(item, build_dir / "company-icons")
@@ -1073,7 +1066,7 @@ def generate_docx(source: dict[str, Any], lang: str, output_path: Path, build_di
         stack.add_run(f"{label_values['stack']}: ").bold = True
         stack.add_run(", ".join(item["stack"]))
 
-    document.add_paragraph(download_section_title(lang, "education"), style="ResumeSection")
+    document.add_paragraph(download_section_title(source, lang, "education"), style="ResumeSection")
     for item in education["items"]:
         paragraph = document.add_paragraph(style="ResumeBody")
         icon_path = institution_icon_path(item, build_dir / "institution-icons")
@@ -1086,7 +1079,7 @@ def generate_docx(source: dict[str, Any], lang: str, output_path: Path, build_di
             paragraph.add_run(item["institution"]).bold = True
         paragraph.add_run(f" | {education_header_text(item, label_values, lang)}")
 
-    document.add_paragraph(download_section_title(lang, "skills"), style="ResumeSection")
+    document.add_paragraph(download_section_title(source, lang, "skills"), style="ResumeSection")
     skills_paragraph = document.add_paragraph(style="ResumeBody")
     for index, (title, values) in enumerate(skill_group_segments(skills["groups"])):
         if index:
@@ -1343,10 +1336,10 @@ def generate_pdf(source: dict[str, Any], lang: str, output_path: Path, build_dir
     story.append(pdf_markup(pdf_contact_markup(source, lang, style_colors["accent"], build_dir), styles["contact"]))
     story.append(pdf_paragraph(profile["role"], styles["headline"]))
 
-    pdf_section(story, download_section_title(lang, "profile"), styles)
+    pdf_section(story, download_section_title(source, lang, "profile"), styles)
     story.append(pdf_paragraph(profile["summary"], styles["body"]))
 
-    pdf_section(story, download_section_title(lang, "experience"), styles)
+    pdf_section(story, download_section_title(source, lang, "experience"), styles)
     for item in experience_items(source, lang):
         icon_markup = pdf_icon_markup(company_icon_path(item, build_dir / "company-icons"), 10)
         company_text = (
@@ -1368,7 +1361,7 @@ def generate_pdf(source: dict[str, Any], lang: str, output_path: Path, build_dir
         ))
         story.append(Spacer(1, 0.4))
 
-    pdf_section(story, download_section_title(lang, "education"), styles)
+    pdf_section(story, download_section_title(source, lang, "education"), styles)
     for item in education["items"]:
         icon_markup = pdf_icon_markup(institution_icon_path(item, build_dir / "institution-icons"), 10)
         institution_text = (
@@ -1382,7 +1375,7 @@ def generate_pdf(source: dict[str, Any], lang: str, output_path: Path, build_dir
             styles["body"],
         ))
 
-    pdf_section(story, download_section_title(lang, "skills"), styles)
+    pdf_section(story, download_section_title(source, lang, "skills"), styles)
     skill_markup = " | ".join(
         f"<b>{pdf_text(title)}:</b> {pdf_text(values)}"
         for title, values in skill_group_segments(skills["groups"])
@@ -1796,7 +1789,7 @@ def generate_site_html(source: dict[str, Any], lang: str) -> str:
         preferences_title=data["preferences"]["title"],
         preferences_items=safe_html(render_preferences(data["preferences"]["items"])),
         photos_title=data["gallery"]["title"],
-        photos_subtitle=data["gallery"]["subtitle"],
+        photos_subtitle=data["gallery"].get("subtitle", ""),
         gallery_items=safe_html(render_gallery(data["gallery"]["items"], lightbox_labels["openPhoto"])),
         lightbox_close=lightbox_labels["close"],
         lightbox_previous=lightbox_labels["previous"],

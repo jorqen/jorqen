@@ -441,13 +441,10 @@ definitions:
     type: "object"
     required:
       - "title"
-      - "subtitle"
       - "items"
     additionalProperties: false
     properties:
       title:
-        "$ref": "#/definitions/localizedString"
-      subtitle:
         "$ref": "#/definitions/localizedString"
       items:
         type: "array"
