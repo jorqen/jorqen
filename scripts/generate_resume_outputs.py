@@ -105,20 +105,22 @@ DOWNLOAD_STYLES = {
         "accent": "1D5FD1",
         "text": "0F1F36",
         "muted": "526581",
+        "tagBg": "E7EFFB",
+        "tagText": "1649A3",
     },
     "typography": {
         "title": {"fontSize": 25.0, "lineHeight": 29.0},
-        "headline": {"fontSize": 11.2, "lineHeight": 13.4},
-        "contact": {"fontSize": 8.7, "lineHeight": 10.5},
-        "summary": {"fontSize": 9.7, "lineHeight": 12.3},
-        "section": {"fontSize": 11.8, "lineHeight": 13.7},
-        "company": {"fontSize": 10.9, "lineHeight": 12.8},
-        "meta": {"fontSize": 9.1, "lineHeight": 11.0},
-        "body": {"fontSize": 9.7, "lineHeight": 12.3},
-        "bullet": {"fontSize": 9.4, "lineHeight": 11.7},
+        "headline": {"fontSize": 12.2, "lineHeight": 14.6},
+        "contact": {"fontSize": 9.9, "lineHeight": 12.2},
+        "summary": {"fontSize": 11.0, "lineHeight": 14.1},
+        "section": {"fontSize": 12.6, "lineHeight": 14.6},
+        "company": {"fontSize": 11.8, "lineHeight": 14.2},
+        "meta": {"fontSize": 9.9, "lineHeight": 12.2},
+        "body": {"fontSize": 11.0, "lineHeight": 14.1},
+        "bullet": {"fontSize": 10.6, "lineHeight": 13.6},
     },
     "layout": {
-        "pageMargin": 0.36,
+        "pageMargin": 0.45,
         "maxPages": 2,
         "scaleSearchIterations": 12,
         "scaleSafetyMargin": 0.003,
@@ -127,28 +129,26 @@ DOWNLOAD_STYLES = {
             "ru": 0.72,
         },
         "maxScale": {
-            "en": 1.05,
-            "ru": 1.02,
+            "en": 1.16,
+            "ru": 1.12,
         },
         "docxScaleAdjustment": {
             "en": 1.0,
             "ru": 1.0,
         },
-        "iconSize": 10.0,
-        "contactIconSize": 8.5,
     },
     "spacing": {
-        "titleAfter": 1.8,
-        "contactAfter": 2.0,
-        "headlineAfter": 2.8,
-        "sectionBefore": 3.6,
-        "sectionAfter": 1.5,
-        "entryBefore": 4.2,
-        "entryHeaderAfter": 0.9,
-        "paragraphAfter": 1.7,
-        "bulletAfter": 0.65,
-        "stackAfter": 1.4,
-        "skillAfter": 0.7,
+        "titleAfter": 2.0,
+        "contactAfter": 2.6,
+        "headlineAfter": 3.4,
+        "sectionBefore": 5.4,
+        "sectionAfter": 1.8,
+        "entryBefore": 6.2,
+        "entryHeaderAfter": 1.6,
+        "paragraphAfter": 2.6,
+        "bulletAfter": 1.6,
+        "tagGap": 4.0,
+        "skillAfter": 1.0,
     },
 }
 DOWNLOAD_DOCX_FONT_NAME = "Arial"
@@ -213,7 +213,6 @@ def analytics_runtime_config() -> dict[str, str]:
 
 
 def runtime_page_data(source: dict[str, Any], lang: str) -> dict[str, Any]:
-    data = localized_tree(source, lang, source["languages"])
     return {
         "lang": lang,
         "languages": source["languages"],
@@ -223,10 +222,6 @@ def runtime_page_data(source: dict[str, Any], lang: str) -> dict[str, Any]:
         },
         "analytics": analytics_runtime_config(),
         "theme": localized_tree(source["siteUi"]["theme"], lang, source["languages"]),
-        "lightbox": {
-            "labels": localized_tree(source["siteUi"]["lightbox"], lang, source["languages"]),
-            "items": [data["person"]["photo"], *data["gallery"]["items"]],
-        },
     }
 
 
@@ -326,9 +321,6 @@ def collect_photo_file_names(source: dict[str, Any]) -> list[str]:
     photo = source.get("person", {}).get("photo", {})
     if photo.get("src"):
         files.append(photo["src"])
-    for item in source.get("gallery", {}).get("items", []):
-        if item.get("src"):
-            files.append(item["src"])
     return sorted(set(files))
 
 
@@ -479,28 +471,6 @@ def contact_link_text(contact: dict[str, str], *, shorten_web_urls: bool = True)
     return value
 
 
-def convert_svg_to_png(source: Path, build_dir: Path, size: int = 48) -> Path | None:
-    rsvg = shutil.which("rsvg-convert")
-    if not rsvg:
-        raise RuntimeError(
-            "rsvg-convert is required to embed SVG icons in generated PDF/DOCX files. "
-            f"Missing converter while processing {source.relative_to(ROOT)}."
-        )
-    build_dir.mkdir(parents=True, exist_ok=True)
-    relative_source = source.relative_to(ROOT)
-    cache_key = hashlib.sha1(f"{relative_source}:preserve-aspect-v2".encode("utf-8")).hexdigest()[:10]
-    output = build_dir / f"{source.stem}-{cache_key}-{size}.png"
-    if output.exists() and output.stat().st_mtime >= source.stat().st_mtime:
-        return output
-    subprocess.run(
-        [rsvg, "-w", str(size), "-o", str(output), str(source)],
-        check=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    return output
-
-
 def is_safe_media_file_name(file_name: str) -> bool:
     path = Path(file_name)
     return not path.is_absolute() and path.name == file_name and ".." not in path.parts
@@ -513,29 +483,6 @@ def media_source(file_name: str) -> Path:
         if path.exists():
             return path
     return MEDIA_ROOT / file_name
-
-
-def resolve_image(file_name: str | None, build_dir: Path, size: int = 48) -> Path | None:
-    if not file_name:
-        return None
-    source = media_source(file_name)
-    if source.suffix.lower() == ".svg":
-        return convert_svg_to_png(source, build_dir, size)
-    if source.suffix.lower() in {".png", ".jpg", ".jpeg"}:
-        return source
-    return None
-
-
-def contact_icon_path(contact_key: str, contact: dict[str, str], build_dir: Path) -> Path | None:
-    return resolve_image(contact.get("icon") or ("website.svg" if contact_key == "website" else None), build_dir, 32)
-
-
-def company_icon_path(item: dict[str, Any], build_dir: Path) -> Path | None:
-    return resolve_image(item.get("icon"), build_dir, 40)
-
-
-def institution_icon_path(item: dict[str, Any], build_dir: Path) -> Path | None:
-    return resolve_image(item.get("icon"), build_dir, 40)
 
 
 def download_section_title(source: dict[str, Any], lang: str, key: str) -> str:
@@ -582,7 +529,11 @@ def format_education_period(item: dict[str, Any], labels: dict[str, str], lang: 
 def experience_header_text(item: dict[str, Any], labels: dict[str, str], lang: str) -> str:
     period = format_period(item, labels, lang)
     duration = experience_duration(item, lang)
-    return f"{item['role']} ({item['location']}, {period}, {duration})"
+    return f"{item['role']} ({period}, {duration})"
+
+
+def experience_tag_values(item: dict[str, Any]) -> list[str]:
+    return [value for value in (item.get("location"), item.get("employmentType")) if value]
 
 
 def education_header_text(item: dict[str, Any], labels: dict[str, str], lang: str) -> str:
@@ -766,6 +717,9 @@ def generate_txt(source: dict[str, Any], lang: str, output_path: Path) -> None:
     for item in experience_items(source, lang):
         add_txt_line(lines)
         lines.append(f"{item['company']} | {experience_header_text(item, label_values, lang)}")
+        tags = experience_tag_values(item)
+        if tags:
+            lines.append(" · ".join(tags))
         if item.get("url"):
             lines.append(f"{experience['companySiteLabel']}: {item['url']}")
         add_txt_line(lines, item["summary"])
@@ -773,7 +727,6 @@ def generate_txt(source: dict[str, Any], lang: str, output_path: Path) -> None:
             for index, bullet_line in enumerate(str(bullet).splitlines()):
                 prefix = "- " if index == 0 else "  "
                 lines.append(f"{prefix}{bullet_line}")
-        lines.append(f"{label_values['stack']}: {', '.join(item['stack'])}")
 
     add_txt_line(lines)
     lines.append(download_section_title(source, lang, "education"))
@@ -825,6 +778,32 @@ def add_hyperlink(paragraph: Any, text: str, url: str, color_hex: str, bold: boo
     run.append(text_node)
     hyperlink.append(run)
     paragraph._p.append(hyperlink)  # noqa: SLF001 - python-docx exposes no public hyperlink writer.
+
+
+def add_docx_tag_run(
+    paragraph: Any,
+    text: str,
+    *,
+    font_name: str,
+    font_size: float,
+    fill_hex: str,
+    text_hex: str,
+) -> None:
+    run = paragraph.add_run(f" {text} ")
+    run.bold = False
+    run.font.name = font_name
+    run.font.size = Pt(font_size)
+    run.font.color.rgb = rgb_color(text_hex)
+    properties = run._element.get_or_add_rPr()  # noqa: SLF001
+    fonts = OxmlElement("w:rFonts")
+    for attribute in ("ascii", "hAnsi", "eastAsia", "cs"):
+        fonts.set(qn(f"w:{attribute}"), font_name)
+    properties.append(fonts)
+    shading = OxmlElement("w:shd")
+    shading.set(qn("w:val"), "clear")
+    shading.set(qn("w:color"), "auto")
+    shading.set(qn("w:fill"), hex_color(fill_hex))
+    properties.append(shading)
 
 
 def docx_paragraph_style(styles: Any, name: str) -> Any:
@@ -992,15 +971,6 @@ def configure_docx(document: Document, download_style: dict[str, Any], scale: fl
     )
     configure_docx_paragraph_style(
         styles,
-        "ResumeMeta",
-        font_name,
-        typography["meta"]["fontSize"],
-        rgb_color(style_colors["muted"]),
-        line_spacing=typography["meta"]["lineHeight"],
-        space_after=spacing["stackAfter"],
-    )
-    configure_docx_paragraph_style(
-        styles,
         "ResumeBody",
         font_name,
         typography["body"]["fontSize"],
@@ -1035,17 +1005,11 @@ def docx_contact_line(
     source: dict[str, Any],
     lang: str,
     accent_color: str,
-    build_dir: Path,
-    icon_size: float,
 ) -> None:
     for index, key in enumerate(contact_keys(source)):
         contact_value_for_lang = contact(source, key, lang)
         if index:
             paragraph.add_run("  |  ")
-        icon_path = contact_icon_path(key, contact_value_for_lang, build_dir / "contact-icons")
-        if icon_path:
-            paragraph.add_run().add_picture(str(icon_path), width=Pt(icon_size))
-            paragraph.add_run(" ")
         href = contact_href(contact_value_for_lang)
         if href:
             add_hyperlink(paragraph, contact_link_text(contact_value_for_lang), href, accent_color)
@@ -1061,6 +1025,7 @@ def generate_docx(source: dict[str, Any], lang: str, output_path: Path, build_di
     download_style = DOWNLOAD_STYLES
     style_colors = download_style["colors"]
     layout = download_style["layout"]
+    typography = scaled_typography(download_style, scale)
     document = Document()
     configure_docx(document, download_style, scale)
     document.core_properties.title = f"{profile['name']} | {profile['headline']}"
@@ -1074,8 +1039,6 @@ def generate_docx(source: dict[str, Any], lang: str, output_path: Path, build_di
         source,
         lang,
         style_colors["accent"],
-        build_dir,
-        layout["contactIconSize"],
     )
     document.add_paragraph(profile["role"], style="ResumeHeadline")
 
@@ -1085,31 +1048,30 @@ def generate_docx(source: dict[str, Any], lang: str, output_path: Path, build_di
     document.add_paragraph(download_section_title(source, lang, "experience").upper(), style="ResumeSection")
     for item in experience_items(source, lang):
         header = document.add_paragraph(style="ResumeCompany")
-        icon_path = company_icon_path(item, build_dir / "company-icons")
-        if icon_path:
-            header.add_run().add_picture(str(icon_path), width=Pt(layout["iconSize"]))
-            header.add_run(" ")
         if item.get("url"):
             add_hyperlink(header, item["company"], item["url"], style_colors["accent"], bold=True)
         else:
             company_run = header.add_run(item["company"])
             company_run.bold = True
         header.add_run(f" | {experience_header_text(item, label_values, lang)}").bold = True
+        for tag in experience_tag_values(item):
+            header.add_run(" ").bold = False
+            add_docx_tag_run(
+                header,
+                tag,
+                font_name=DOWNLOAD_DOCX_FONT_NAME,
+                font_size=typography["meta"]["fontSize"],
+                fill_hex=style_colors["tagBg"],
+                text_hex=style_colors["tagText"],
+            )
 
         document.add_paragraph(item["summary"], style="ResumeBody")
         for bullet in item["highlights"]:
             document.add_paragraph(f"• {bullet}", style="ResumeBullet")
-        stack = document.add_paragraph(style="ResumeMeta")
-        stack.add_run(f"{label_values['stack']}: ").bold = True
-        stack.add_run(", ".join(item["stack"]))
 
     document.add_paragraph(download_section_title(source, lang, "education").upper(), style="ResumeSection")
     for item in education["items"]:
         paragraph = document.add_paragraph(style="ResumeBody")
-        icon_path = institution_icon_path(item, build_dir / "institution-icons")
-        if icon_path:
-            paragraph.add_run().add_picture(str(icon_path), width=Pt(layout["iconSize"]))
-            paragraph.add_run(" ")
         if item.get("url"):
             add_hyperlink(paragraph, item["institution"], item["url"], style_colors["accent"], bold=True)
         else:
@@ -1178,10 +1140,6 @@ def download_font_paths() -> dict[str, str | None]:
     }
 
 
-def download_icon_src(path: Path | None) -> str | None:
-    return path.resolve().as_uri() if path else None
-
-
 def download_contacts(source: dict[str, Any], lang: str, build_dir: Path) -> list[dict[str, Any]]:
     items = []
     for key in contact_keys(source):
@@ -1190,7 +1148,6 @@ def download_contacts(source: dict[str, Any], lang: str, build_dir: Path) -> lis
             "key": key,
             "text": contact_link_text(contact_value_for_lang),
             "href": contact_href(contact_value_for_lang),
-            "icon_src": download_icon_src(contact_icon_path(key, contact_value_for_lang, build_dir / "contact-icons")),
         })
     return items
 
@@ -1216,11 +1173,9 @@ def download_view_model(source: dict[str, Any], lang: str, build_dir: Path) -> d
                         "company": item["company"],
                         "url": item.get("url"),
                         "header": experience_header_text(item, label_values, lang),
+                        "tags": experience_tag_values(item),
                         "summary": item["summary"],
                         "highlights": item["highlights"],
-                        "stack_label": label_values["stack"],
-                        "stack": ", ".join(item["stack"]),
-                        "icon_src": download_icon_src(company_icon_path(item, build_dir / "company-icons")),
                     }
                     for item in experience_items(source, lang)
                 ],
@@ -1232,7 +1187,6 @@ def download_view_model(source: dict[str, Any], lang: str, build_dir: Path) -> d
                         "institution": item["institution"],
                         "url": item.get("url"),
                         "header": education_header_text(item, label_values, lang),
-                        "icon_src": download_icon_src(institution_icon_path(item, build_dir / "institution-icons")),
                     }
                     for item in education["items"]
                 ],
@@ -1422,6 +1376,10 @@ def render_experience(section_data: dict[str, Any], labels_data: dict[str, str],
             company = f'<span class="company-link">{html_text(item["company"])}</span>'
             site_link = ""
         highlights = "\n".join(f"          <li>{html_text(bullet)}</li>" for bullet in item["highlights"])
+        work_tags = "".join(
+            f'<span class="work-tag">{html_text(value)}</span>'
+            for value in experience_tag_values(item)
+        )
         articles.append(
             f"""<article class="timeline-item">
         <div class="timeline-company-row">
@@ -1429,7 +1387,8 @@ def render_experience(section_data: dict[str, Any], labels_data: dict[str, str],
           {site_link}
         </div>
         <h3 class="timeline-role">{html_text(item["role"])}</h3>
-        <p class="timeline-meta">{html_text(format_period(item, labels_data, lang))} · {html_text(item["location"])}</p>
+        <p class="timeline-meta">{html_text(format_period(item, labels_data, lang))}</p>
+        <div class="work-tags">{work_tags}</div>
         <p class="timeline-intro">{html_text(item["summary"])}</p>
         <ul class="timeline-list">
 {highlights}
@@ -1491,29 +1450,6 @@ def render_skills(groups: list[dict[str, Any]]) -> str:
 
 def render_preferences(items: list[str]) -> str:
     return "\n          ".join(f"<li>{html_text(item)}</li>" for item in items)
-
-
-def render_gallery(items: list[dict[str, Any]], lightbox_label: str) -> str:
-    cards = []
-    for offset, item in enumerate(items):
-        style = ""
-        if item.get("position"):
-            style += f"object-position: {item['position']};"
-        if item.get("filter"):
-            style += f"--photo-filter: {item['filter']};"
-        image = responsive_picture_html(
-            item["src"],
-            css_class="gallery-photo",
-            alt=item["caption"],
-            sizes="(max-width: 640px) 46vw, 31vw",
-            style=style or None,
-        )
-        cards.append(
-            f"""<article class="gallery-card" data-photo-index="{offset + 1}" data-photo-id="{html_attr(slug_file_stem(item["src"]))}" data-analytics-section="photos" tabindex="0" role="button" aria-label="{html_attr(f'{lightbox_label}: {item["caption"]}')}">
-{image}
-      </article>"""
-        )
-    return "\n      ".join(cards)
 
 
 def render_resume_actions(source: dict[str, Any], lang: str) -> str:
@@ -1622,7 +1558,6 @@ def generate_site_html(source: dict[str, Any], lang: str) -> str:
     title = f"{profile['name']} | {profile['headline']}"
     canonical_url = page_url(source, lang)
     cover_url = absolute_site_url(source, SITE_COVER_IMAGE)
-    lightbox_labels = localized_tree(site_ui["lightbox"], lang, source["languages"])
     theme_labels = localized_tree(site_ui["theme"], lang, source["languages"])
     description = profile["role"]
     og_locale = "ru_RU" if lang == "ru" else "en_US"
@@ -1685,7 +1620,6 @@ def generate_site_html(source: dict[str, Any], lang: str) -> str:
         role=profile["role"],
         summary=profile["summary"],
         contact_links=safe_html(contact_links),
-        hero_photo_label=f'{lightbox_labels["openPhoto"]}: {profile["photo"]["caption"]}',
         hero_photo=safe_html(
             responsive_picture_html(
                 profile["photo"]["src"],
@@ -1716,12 +1650,6 @@ def generate_site_html(source: dict[str, Any], lang: str) -> str:
         skills_groups=safe_html(render_skills(data["skills"]["groups"])),
         preferences_title=data["preferences"]["title"],
         preferences_items=safe_html(render_preferences(data["preferences"]["items"])),
-        photos_title=data["gallery"]["title"],
-        photos_subtitle=data["gallery"].get("subtitle", ""),
-        gallery_items=safe_html(render_gallery(data["gallery"]["items"], lightbox_labels["openPhoto"])),
-        lightbox_close=lightbox_labels["close"],
-        lightbox_previous=lightbox_labels["previous"],
-        lightbox_next=lightbox_labels["next"],
         footer_text=footer_text,
     )
 

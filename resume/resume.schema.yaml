@@ -17,7 +17,6 @@ required:
   - "strengths"
   - "skills"
   - "preferences"
-  - "gallery"
 additionalProperties: false
 properties:
   schema:
@@ -82,8 +81,6 @@ properties:
     "$ref": "#/definitions/skillsSection"
   preferences:
     "$ref": "#/definitions/preferencesSection"
-  gallery:
-    "$ref": "#/definitions/gallerySection"
 definitions:
   stringValue:
     type: "string"
@@ -114,7 +111,6 @@ definitions:
       - "langSwitcherLabel"
       - "theme"
       - "resumeDownloads"
-      - "lightbox"
       - "footer"
     additionalProperties: false
     properties:
@@ -159,23 +155,6 @@ definitions:
                 "$ref": "#/definitions/localizedStringMap"
               txt:
                 "$ref": "#/definitions/localizedStringMap"
-      lightbox:
-        type: "object"
-        required:
-          - "openPhoto"
-          - "close"
-          - "previous"
-          - "next"
-        additionalProperties: false
-        properties:
-          openPhoto:
-            "$ref": "#/definitions/localizedStringMap"
-          close:
-            "$ref": "#/definitions/localizedStringMap"
-          previous:
-            "$ref": "#/definitions/localizedStringMap"
-          next:
-            "$ref": "#/definitions/localizedStringMap"
       footer:
         "$ref": "#/definitions/localizedStringMap"
   site:
@@ -307,6 +286,8 @@ definitions:
         "$ref": "#/definitions/localizedString"
       role:
         "$ref": "#/definitions/stringValue"
+      employmentType:
+        "$ref": "#/definitions/localizedString"
       startDate:
         "$ref": "#/definitions/yearMonth"
       endDate:
@@ -437,20 +418,6 @@ definitions:
         minItems: 1
         items:
           "$ref": "#/definitions/localizedString"
-  gallerySection:
-    type: "object"
-    required:
-      - "title"
-      - "items"
-    additionalProperties: false
-    properties:
-      title:
-        "$ref": "#/definitions/localizedString"
-      items:
-        type: "array"
-        minItems: 1
-        items:
-          "$ref": "#/definitions/imageAsset"
   stringList:
     type: "array"
     minItems: 1
