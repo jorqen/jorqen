@@ -12,15 +12,15 @@ person:
   name:
     en: "Matvey Sizov"
     ru: "Матвей Сизов"
-  headline: "Backend Developer / Software Engineer"
+  headline: "Senior Go Backend Engineer"
   role:
-    en: "Backend Engineer | distributed systems, high-load & low-latency | service mesh, vehicle telemetry, secure APIs | 70K+ RPS, p99 <50 ms"
-    ru: "Backend-инженер | распределённые системы, high-load и low-latency | service mesh, телеметрия автомобиля, безопасные API | 70K+ RPS, p99 <50 мс"
+    en: "Distributed systems, high-load & low-latency | service mesh, vehicle telemetry, secure APIs | 70K+ RPS, p99 <50 ms"
+    ru: "Распределённые системы, high-load и low-latency | service mesh, телеметрия автомобиля, безопасные API | 70K+ RPS, p99 <50 мс"
   summary:
     en: >-
-      Go backend engineer focused on distributed systems, production infrastructure, and high-load, low-latency services. 5 years of commercial experience across electric-vehicle telemetry, service mesh, retail pricing, crypto payments, utility billing, and public digital services, with earlier backend work in Java. I own backend work end to end: clarify ambiguous requirements, choose architecture through trade-offs, implement core services, add tests, observability, and security, and ship through CI/CD.
+      Backend engineer focused on distributed systems, production infrastructure, and high-load, low-latency services. 5 years of commercial experience across electric-vehicle telemetry, service mesh, retail pricing, crypto payments, utility billing, and public digital services, with earlier backend work in Java. I own backend work end to end: clarify ambiguous requirements, choose architecture through trade-offs, implement core services, add tests, observability, and security, and ship through CI/CD.
     ru: >-
-      Go backend-инженер с фокусом на распределённые системы, production-инфраструктуру и высоконагруженные, низколатентные сервисы. 5 лет коммерческого опыта в телеметрии электромобилей, service mesh, ценообразовании в ритейле, криптоплатежах, коммунальном биллинге и государственных цифровых сервисах, с более ранним backend-опытом на Java. Я веду backend-задачи end-to-end: проясняю неоднозначные требования, выбираю архитектуру через компромиссы, реализую ключевые сервисы, добавляю тесты, observability и security и довожу поставку через CI/CD.
+      Backend-инженер с фокусом на распределённые системы, production-инфраструктуру и высоконагруженные, низколатентные сервисы. 5 лет коммерческого опыта в телеметрии электромобилей, service mesh, ценообразовании в ритейле, криптоплатежах, коммунальном биллинге и государственных цифровых сервисах, с более ранним backend-опытом на Java. Я веду backend-задачи end-to-end: проясняю неоднозначные требования, выбираю архитектуру через компромиссы, реализую ключевые сервисы, добавляю тесты, observability и security и довожу поставку через CI/CD.
   photo:
     src: "matvey-formal.png"
     position: "center 22%"
