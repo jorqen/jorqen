@@ -14,8 +14,8 @@ person:
     ru: "Матвей Сизов"
   headline: "Backend Developer / Software Engineer"
   role:
-    en: "Go Backend Engineer | distributed systems, high-load & low-latency | service mesh, vehicle telemetry, secure APIs | 70K+ RPS, p99 <50 ms"
-    ru: "Go Backend-инженер | распределённые системы, high-load и low-latency | service mesh, телеметрия автомобиля, безопасные API | 70K+ RPS, p99 <50 мс"
+    en: "Backend Engineer | distributed systems, high-load & low-latency | service mesh, vehicle telemetry, secure APIs | 70K+ RPS, p99 <50 ms"
+    ru: "Backend-инженер | распределённые системы, high-load и low-latency | service mesh, телеметрия автомобиля, безопасные API | 70K+ RPS, p99 <50 мс"
   summary:
     en: >-
       Go backend engineer focused on distributed systems, production infrastructure, and high-load, low-latency services. 5 years of commercial experience across electric-vehicle telemetry, service mesh, retail pricing, crypto payments, utility billing, and public digital services, with earlier backend work in Java. I own backend work end to end: clarify ambiguous requirements, choose architecture through trade-offs, implement core services, add tests, observability, and security, and ship through CI/CD.
