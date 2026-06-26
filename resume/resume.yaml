@@ -175,7 +175,7 @@ experience:
       url: "https://atom.auto"
     - icon: "sbertech.svg"
       company: "Sber Tech"
-      role: "Software Engineer"
+      role: "Middle Software Engineer"
       employmentType:
         en: "Employment contract"
         ru: "ТК РФ"
@@ -218,11 +218,11 @@ experience:
       url: "https://sbertech.ru"
     - icon: "magnus.svg"
       company: "Magnus Tech"
-      role: "Software Engineer"
+      role: "Middle Go Backend Engineer"
       employmentType:
         en: "Self-employed"
         ru: "Самозанятость"
-      startDate: "2023-03"
+      startDate: "2023-01"
       endDate: "2024-01"
       location:
         en: "Remote"
@@ -257,12 +257,12 @@ experience:
       url: "https://magnustech.com"
     - icon: "exnode.svg"
       company: "Exnode"
-      role: "Backend Engineer"
+      role: "Junior Go Backend Engineer"
       employmentType:
         en: "Contract"
         ru: "Контракт"
       startDate: "2022-06"
-      endDate: "2023-03"
+      endDate: "2023-01"
       location:
         en: "Moscow, Russia"
         ru: "Москва, Россия"
@@ -297,7 +297,7 @@ experience:
       company:
         en: "Kaluga Power Supply Company"
         ru: "Калужская сбытовая компания"
-      role: "Backend Engineer (Go)"
+      role: "Junior Go Backend Engineer"
       employmentType:
         en: "Service contract"
         ru: "ГПХ"
@@ -327,10 +327,10 @@ experience:
     - company:
         en: "Center for Regional Management of Lipetsk Oblast (CUR)"
         ru: "Центр Управления Регионом Липецкой области (ЦУР)"
-      role: "Java Developer"
+      role: "Intern Java Developer"
       employmentType:
-        en: "Employment contract"
-        ru: "ТК РФ"
+        en: "Contract"
+        ru: "Контракт"
       startDate: "2021-08"
       endDate: "2021-12"
       location:

@@ -716,10 +716,11 @@ def generate_txt(source: dict[str, Any], lang: str, output_path: Path) -> None:
     lines.append("-" * len(download_section_title(source, lang, "experience")))
     for item in experience_items(source, lang):
         add_txt_line(lines)
-        lines.append(f"{item['company']} | {experience_header_text(item, label_values, lang)}")
+        header_line = f"{item['company']} | {experience_header_text(item, label_values, lang)}"
         tags = experience_tag_values(item)
         if tags:
-            lines.append(" · ".join(tags))
+            header_line = f"{header_line} · {' · '.join(tags)}"
+        lines.append(header_line)
         if item.get("url"):
             lines.append(f"{experience['companySiteLabel']}: {item['url']}")
         add_txt_line(lines, item["summary"])
@@ -1380,15 +1381,15 @@ def render_experience(section_data: dict[str, Any], labels_data: dict[str, str],
             f'<span class="work-tag">{html_text(value)}</span>'
             for value in experience_tag_values(item)
         )
+        work_tags_block = f'<div class="work-tags">{work_tags}</div>' if work_tags else ""
         articles.append(
             f"""<article class="timeline-item">
         <div class="timeline-company-row">
-          <div class="timeline-company-main">{company_icon}{company}</div>
+          <div class="timeline-company-main">{company_icon}{company}{work_tags_block}</div>
           {site_link}
         </div>
         <h3 class="timeline-role">{html_text(item["role"])}</h3>
         <p class="timeline-meta">{html_text(format_period(item, labels_data, lang))}</p>
-        <div class="work-tags">{work_tags}</div>
         <p class="timeline-intro">{html_text(item["summary"])}</p>
         <ul class="timeline-list">
 {highlights}

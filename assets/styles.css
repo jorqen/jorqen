@@ -529,7 +529,8 @@ h1 {
 }
 
 .timeline-company-main {
-  display: inline-flex;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 9px;
   min-width: 0;
@@ -591,9 +592,10 @@ h1 {
 }
 
 .work-tags {
-  margin: 9px 0 0;
+  margin: 0;
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
 }
 
