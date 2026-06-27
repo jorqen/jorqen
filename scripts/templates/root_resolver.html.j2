@@ -8,47 +8,104 @@
     <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
     <link rel="canonical" href="{{ canonical_url }}" />
 {{ alternate_links }}
+    <noscript>
+      <meta http-equiv="refresh" content="0; url={{ default_path }}" />
+    </noscript>
     <title>{{ title }}</title>
     <script>
       (function () {
-        const languageStorageKey = "jorqen.language";
-        const pages = {{ pages_json }};
-        const defaultLang = {{ default_lang_json }};
-        const hasPage = function (lang) {
+        "use strict";
+        var languageStorageKey = "jorqen.language";
+        var pages = {{ pages_json }};
+        var defaultLang = {{ default_lang_json }};
+
+        function hasPage(lang) {
           return Object.prototype.hasOwnProperty.call(pages, lang);
-        };
-        const normalizeLanguage = function (value) {
+        }
+        function normalizeLanguage(value) {
           return String(value).toLowerCase().split(/[-_]/)[0];
-        };
-        const supportedLanguage = function (value) {
-          const lang = normalizeLanguage(value);
-          return hasPage(lang) ? lang : "";
-        };
-        const storedLanguage = function () {
-          return supportedLanguage(window.localStorage.getItem(languageStorageKey));
-        };
-        const browserLanguage = function () {
-          const languages = Array.isArray(window.navigator.languages) ? window.navigator.languages.slice() : [];
-          if (typeof window.navigator.language === "string") {
-            languages.push(window.navigator.language);
+        }
+        function supportedLanguage(value) {
+          if (value === null || value === undefined || value === "") {
+            return "";
           }
-          for (const value of languages) {
-            const lang = supportedLanguage(value);
+          var lang = normalizeLanguage(value);
+          return hasPage(lang) ? lang : "";
+        }
+        function storedLanguage() {
+          try {
+            return supportedLanguage(window.localStorage.getItem(languageStorageKey));
+          } catch (storageError) {
+            return "";
+          }
+        }
+        function browserCandidates() {
+          var candidates = [];
+          try {
+            var nav = window.navigator || {};
+            if (Array.isArray(nav.languages)) {
+              candidates = candidates.concat(nav.languages);
+            }
+            if (typeof nav.language === "string") {
+              candidates.push(nav.language);
+            }
+            if (typeof nav.userLanguage === "string") {
+              candidates.push(nav.userLanguage);
+            }
+          } catch (navigatorError) {
+            return [];
+          }
+          return candidates;
+        }
+        function browserLanguage() {
+          var candidates = browserCandidates();
+          for (var i = 0; i < candidates.length; i += 1) {
+            var lang = supportedLanguage(candidates[i]);
             if (lang) {
               return lang;
             }
           }
           return "";
-        };
-        const lang = storedLanguage() || browserLanguage() || defaultLang;
-        const targetUrl = new URL(pages[lang], window.location.href);
-        targetUrl.search = window.location.search;
-        targetUrl.hash = window.location.hash;
-        window.location.replace(targetUrl.href);
+        }
+        function resolveLanguage() {
+          var lang = storedLanguage() || browserLanguage() || defaultLang;
+          return hasPage(lang) ? lang : defaultLang;
+        }
+        function targetHref(lang) {
+          var page = pages[lang];
+          var search = "";
+          var hash = "";
+          try {
+            search = window.location.search || "";
+            hash = window.location.hash || "";
+            var url = new URL(page, window.location.href);
+            url.search = search;
+            url.hash = hash;
+            return url.href;
+          } catch (urlError) {
+            return page + search + hash;
+          }
+        }
+        function redirect(href) {
+          try {
+            window.location.replace(href);
+          } catch (replaceError) {
+            window.location.href = href;
+          }
+        }
+        try {
+          redirect(targetHref(resolveLanguage()));
+        } catch (resolveError) {
+          redirect(pages[defaultLang]);
+        }
       })();
     </script>
   </head>
   <body>
-    <p>Language resolver failed.</p>
+    <nav aria-label="Language selection">
+      {%- for link in language_links %}
+      <a href="{{ link.path }}" hreflang="{{ link.code | lower }}">{{ link.code }}</a>
+      {%- endfor %}
+    </nav>
   </body>
 </html>

@@ -1540,6 +1540,7 @@ def generate_root_resolver_html(source: dict[str, Any]) -> str:
     data = localized_tree(source, default_lang, source["languages"])
     title = f"{data['person']['name']} - {data['siteUi']['navResume']}"
     page_paths = {lang: relative_public_path(page_path(source, lang), depth=0) for lang in source["languages"]}
+    language_links = [{"code": lang.upper(), "path": page_paths[lang]} for lang in source["languages"]]
     return render_template(
         "root_resolver.html.j2",
         default_lang=default_lang,
@@ -1548,6 +1549,8 @@ def generate_root_resolver_html(source: dict[str, Any]) -> str:
         title=title,
         pages_json=safe_html(script_json(json.dumps(page_paths, ensure_ascii=False, sort_keys=True))),
         default_lang_json=safe_html(script_json(json.dumps(default_lang))),
+        default_path=page_paths[default_lang],
+        language_links=language_links,
     )
 
 
