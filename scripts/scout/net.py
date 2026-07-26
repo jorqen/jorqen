@@ -45,6 +45,46 @@ class FetchError(RuntimeError):
         super().__init__(f"{reason} ({url})")
 
 
+class BlockedError(FetchError):
+    """Площадка упёрлась в антибот-проверку или капчу.
+
+    Отдельный класс, потому что это НЕ поломка и лечится не повтором, а человеком.
+    Смысл в том, чтобы такая площадка выпадала из прогона аккуратно: остальные
+    четырнадцать отрабатывают, в отчёте появляется строка «нужен твой заход»,
+    и прогон не считается провалившимся целиком.
+
+    Проверку мы не проходим и капчу не решаем — это обход защиты от ботов.
+    Заходит пользователь сам, дальше сессия живёт в `.auth/`.
+    """
+
+
+# Признаки антибот-стены в теле ответа. Проверены живьём на hh, Avito, Cloudflare.
+_BLOCK_MARKERS = (
+    "являетесь роботом", "вы не робот", "подтвердите, что вы",
+    "доступ ограничен", "проблема с ip", "captcha", "recaptcha", "hcaptcha",
+    "just a moment", "checking your browser", "cf-browser-verification",
+    "cf_chl_opt", "attention required! | cloudflare",
+    "access to this page has been denied", "enable javascript and cookies to continue",
+    "unusual traffic from your computer",
+)
+
+
+def looks_blocked(text: str, status: int | None = None) -> str | None:
+    """Возвращает найденный маркер антибот-стены или None.
+
+    Смотрим только в начало документа: на полноценной странице вакансий слово
+    «captcha» может встретиться в тексте вакансии, и путать это с блокировкой
+    нельзя — иначе живой источник объявится заблокированным.
+    """
+    head = text[:6000].lower()
+    for marker in _BLOCK_MARKERS:
+        if marker in head:
+            return marker
+    if status == 403 and len(text) < 3000:
+        return f"HTTP 403, короткий ответ ({len(text)} б)"
+    return None
+
+
 def _decode(resp) -> bytes:
     data = resp.read()
     enc = (resp.headers.get("Content-Encoding") or "").lower()
@@ -92,8 +132,28 @@ def fetch(
             with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
                 raw = _decode(resp)
                 charset = resp.headers.get_content_charset() or "utf-8"
-                return raw.decode(charset, errors="replace"), resp.geturl()
+                text = raw.decode(charset, errors="replace")
+                marker = looks_blocked(text, resp.status)
+                if marker:
+                    # Повторять бесполезно: стена не рассосётся от второго запроса.
+                    raise BlockedError(resp.geturl(), f"антибот-проверка ({marker})",
+                                       resp.status)
+                return text, resp.geturl()
+        except BlockedError:
+            raise
         except urllib.error.HTTPError as e:
+            body = ""
+            try:
+                # Тело ошибки приходит сжатым ровно так же, как успешный ответ.
+                # Без распаковки маркеры искались бы в гzip-байтах, и стена Cloudflare
+                # выглядела бы обычным «HTTP 403» вместо «нужен твой заход».
+                body = _decode(e).decode(
+                    e.headers.get_content_charset() or "utf-8", errors="replace")
+            except Exception:  # noqa: BLE001
+                pass
+            marker = looks_blocked(body, e.code)
+            if marker:
+                raise BlockedError(url, f"антибот-проверка ({marker})", e.code) from e
             last = FetchError(url, f"HTTP {e.code}", e.code)
             # 4xx кроме 429 повторять бессмысленно — ответ не изменится.
             if e.code < 500 and e.code != 429:

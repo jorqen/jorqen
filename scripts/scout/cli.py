@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 
 from . import store
 from .model import Vacancy
-from .net import parallel
+from .net import BlockedError, parallel
 from .sources import NEEDS_LOGIN, RAW_SOURCES, SOURCES, Ctx, raw_dump
 
 
@@ -65,7 +65,11 @@ def cmd_collect(args) -> int:
             report.append({"source": name, "status": "ok", "found": len(payload),
                            "elapsed_ms": timings.get(name, 0), "error": None})
         else:
-            report.append({"source": name, "status": "error", "found": 0,
+            # Антибот-стена — это не поломка: чинится заходом человека, а не кодом.
+            # Отдельный статус нужен, чтобы прогон не выглядел провалившимся из-за
+            # одной площадки, куда просто надо зайти руками.
+            status = "blocked" if isinstance(payload, BlockedError) else "error"
+            report.append({"source": name, "status": status, "found": 0,
                            "elapsed_ms": timings.get(name, 0), "error": str(payload)})
 
     new = updated = 0
@@ -82,7 +86,10 @@ def cmd_collect(args) -> int:
                                     elapsed_ms=r["elapsed_ms"])
             store.finish_run(conn, run_id)
 
-    failed = [r for r in report if r["status"] != "ok"]
+    # Заблокированное антиботом в счёт провалов не идёт: прогон отработал как задумано,
+    # а стену снимает человек. Иначе вызывающий видит «упало» на каждом запуске
+    # и перестаёт различать реальную поломку и обычную капчу.
+    failed = [r for r in report if r["status"] == "error"]
     if args.format == "json":
         print(json.dumps({
             "query": ctx.query, "days": ctx.days, "coverage": report,
@@ -97,21 +104,29 @@ def cmd_collect(args) -> int:
     return 1 if failed else 0
 
 
+_MARK = {"ok": "ok", "blocked": "АНТИБОТ", "error": "УПАЛ"}
+
+
 def _print_coverage(report, total, new, updated, elapsed) -> None:
     print(f"\n## Покрытие прогона ({elapsed:.1f}s)\n")
-    print(f"{'источник':<14} {'статус':<8} {'найдено':>8}  примечание")
+    print(f"{'источник':<14} {'статус':<9} {'найдено':>8}  примечание")
     print("-" * 78)
-    for r in sorted(report, key=lambda x: (x["status"] != "error", x["source"])):
-        mark = "ok" if r["status"] == "ok" else "УПАЛ"
-        note = (r["error"] or "")[:44]
-        print(f"{r['source']:<14} {mark:<8} {r['found']:>8}  {note}")
+    for r in sorted(report, key=lambda x: (x["status"] == "ok", x["source"])):
+        print(f"{r['source']:<14} {_MARK[r['status']]:<9} {r['found']:>8}  "
+              f"{(r['error'] or '')[:42]}")
     print("-" * 78)
-    print(f"{'ИТОГО':<14} {'':<8} {total:>8}  новых: {new}, обновлено: {updated}")
+    print(f"{'ИТОГО':<14} {'':<9} {total:>8}  новых: {new}, обновлено: {updated}")
 
     if RAW_SOURCES:
         print(f"\nБез парсера (забирать `raw`, разбирать глазами): {', '.join(RAW_SOURCES)}")
     print(f"Требуют входа пользователя (сборщик не трогает): {', '.join(NEEDS_LOGIN)}")
-    failed = [r["source"] for r in report if r["status"] != "ok"]
+
+    blocked = [r["source"] for r in report if r["status"] == "blocked"]
+    failed = [r["source"] for r in report if r["status"] == "error"]
+    if blocked:
+        print(f"\n🔒 АНТИБОТ-ПРОВЕРКА: {', '.join(blocked)}. Это не поломка и не чинится "
+              f"кодом — проверку проходит человек.\n   Зайди на площадку в браузере "
+              f"сам, потом `scout auth login <площадка>`, и сессия переживёт перезапуск.")
     if failed:
         print(f"\n⚠️  НЕ ОТРАБОТАЛИ: {', '.join(failed)} — обход неполный, "
               f"это надо сказать в отчёте, а не замолчать.")
