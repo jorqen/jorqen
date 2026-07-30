@@ -9,8 +9,10 @@
 from __future__ import annotations
 
 import gzip
+import html
 import json
 import random
+import re
 import ssl
 import time
 import urllib.error
@@ -66,6 +68,21 @@ _BLOCK_MARKERS = (
     "cf_chl_opt", "attention required! | cloudflare",
     "access to this page has been denied", "enable javascript and cookies to continue",
     "unusual traffic from your computer",
+    # Стены, которых здесь не хватало и которые проезжали как «обычная страница»:
+    # AWS WAF (levels.fyi отдаёт 202 с challenge.js), DataDome, PerimeterX,
+    # Incapsula. Через рендер это выглядело хуже всего — 344 КБ «страницы»,
+    # в которой ноль вакансий, и парсер честно докладывал «ничего не нашлось».
+    "awswaf.com", "challenge.js", "datadome", "px-captcha", "_incapsula_resource",
+)
+
+# Заголовки страниц-стен. Проверяются ОТДЕЛЬНО от тела и точным вхождением
+# в <title>: «один момент» в свободном тексте вакансии встречается на раз,
+# а в заголовке документа — только у Cloudflare. Русского челленджа Glassdoor
+# («Один момент…», английского «Just a moment» в теле нет вовсе) не видел
+# ни один маркер выше, и стена уезжала дальше как нормальная выдача.
+_WALL_TITLES = (
+    "один момент", "just a moment", "attention required", "security | glassdoor",
+    "проверка браузера", "checking your browser", "access denied", "доступ ограничен",
 )
 
 
@@ -80,9 +97,18 @@ def looks_blocked(text: str, status: int | None = None) -> str | None:
     for marker in _BLOCK_MARKERS:
         if marker in head:
             return marker
+    title = _TITLE_RE.search(text[:4000])
+    if title:
+        low = html.unescape(title.group(1)).strip().lower()
+        for marker in _WALL_TITLES:
+            if marker in low:
+                return f"заголовок страницы: {marker}"
     if status == 403 and len(text) < 3000:
         return f"HTTP 403, короткий ответ ({len(text)} б)"
     return None
+
+
+_TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.S | re.I)
 
 
 def _decode(resp) -> bytes:
@@ -142,16 +168,22 @@ def fetch(
         except BlockedError:
             raise
         except urllib.error.HTTPError as e:
-            body = ""
+            # ОТДЕЛЬНАЯ переменная, а не `body`. Раньше тело ошибки писалось прямо
+            # в `body` — то самое, из которого собирается запрос, — и следующая
+            # попытка уходила со СТРОКОЙ вместо байтов: «TypeError: POST data
+            # should be bytes». То есть любой повтор после 502 у POST-источника
+            # падал не там, где сломалось, и площадка пропадала из прогона
+            # (ловилось на первом же 502 dreamoffer).
+            err_body = ""
             try:
                 # Тело ошибки приходит сжатым ровно так же, как успешный ответ.
                 # Без распаковки маркеры искались бы в гzip-байтах, и стена Cloudflare
                 # выглядела бы обычным «HTTP 403» вместо «нужен твой заход».
-                body = _decode(e).decode(
+                err_body = _decode(e).decode(
                     e.headers.get_content_charset() or "utf-8", errors="replace")
             except Exception:  # noqa: BLE001
                 pass
-            marker = looks_blocked(body, e.code)
+            marker = looks_blocked(err_body, e.code)
             if marker:
                 raise BlockedError(url, f"антибот-проверка ({marker})", e.code) from e
             last = FetchError(url, f"HTTP {e.code}", e.code)

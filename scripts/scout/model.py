@@ -20,15 +20,98 @@ _CUR = {
     "AMD": "AMD", "UZS": "UZS", "KGS": "KGS", "AZN": "AZN", "GBP": "GBP",
 }
 
+# `external_id` служебной строки-сводки источника. Такая запись хранится рядом
+# с вакансиями (в ней лежат счётчики обхода), но вакансией НЕ является: её нельзя
+# считать в «найдено», «новых» и показывать человеку.
+SUMMARY_ID = "_summary"
+
 _WS = re.compile(r"\s+")
 _PUNCT = re.compile(r"[^\w\s]+", re.UNICODE)
 # Слова, которыми площадки украшают одну и ту же роль; для ключа дубля они шум.
+#
+# ГРЕЙДА здесь НЕТ, и это разбор живой потери. Пока «senior/junior/старший» лежали
+# в шуме, костяк у «Junior Software Engineer with Accounting Experience» и
+# «Senior Software Engineer with Accounting Experience» совпадал до символа —
+# и `run_enrich` выбрасывал вторую как дубль первой. Это разные вакансии: разные
+# требования и разные деньги. Замер по базе 30.07.2026 (4091 запись): таких
+# склеек «под одним костяком названия РАЗНЫЕ» было 42 (Sezzle Junior/Senior в
+# четырёх странах, Canonical Junior/Senior Ubuntu, OKX Junior/Senior PM,
+# datadog Staff/Senior Staff, Авито «Python-разработчик»/«Старший Python»).
+#
+# Цена размена нулевая: все 15 групп НАСТОЯЩИХ кросс-площадочных дублей (17
+# записей — Okko на hh+habr+shadowhint, Exness на getmatch+linkedin+wantapply)
+# склеиваются по-прежнему, потому что грейд в них совпадает. Вернулось 19 записей,
+# рискованных склеек осталось 18 вместо 42.
 _NOISE = {
     "разработчик", "developer", "engineer", "инженер", "программист",
-    "senior", "middle", "junior", "lead", "ведущий", "старший", "главный",
     "remote", "удаленно", "удалённо", "релокация", "relocation", "москва", "спб",
     "в", "на", "и", "с", "the", "a", "an", "of", "for", "to",
 }
+
+# Грейд — не доказательство, а уточнение: сам по себе костяк «senior» ничего
+# не различает. Поэтому грейд не шум (его нельзя терять), но и не различитель
+# (см. STACK_ONLY_TITLE ниже — костяк из одного грейда и стека доказательством
+# дубля не считается).
+GRADE_WORDS = frozenset({
+    "senior", "middle", "junior", "lead", "principal", "staff", "intern",
+    "ведущий", "старший", "главный", "младший", "стажер", "стажёр",
+})
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Заглушки вместо работодателя
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# Строки, которыми площадка закрывает НАСТОЯЩЕГО нанимателя. Для ключа дубля это
+# яд: ключ «компания + костяк названия» склеивает по ним не одну вакансию, а всех,
+# кто спрятался под одним словом. Замер по базе 30.07.2026 (4091 запись):
+#
+#   «nda|backend»                     → 62 РАЗНЫХ работодателя (hirehi);
+#   «nda|go», «nda|golang»            → по 34;
+#   «jobgether|full software stack»   → 43 разных объявления одной доски.
+#
+# Всего таких ложных склеек было 296 групп из 397, а стоили они 1032 настоящие
+# вакансии: `run_enrich` выбрасывает записи с уже виденным dup_key, то есть до
+# карточки доезжала одна из шестидесяти двух.
+#
+# Проверка ПОТОКЕННАЯ, а не подстрокой, и это принципиально: «Anaconda» содержит
+# «nda», «Netcompany» — «company», и подстрочное сравнение выкинуло бы настоящих
+# работодателей — ошибка ровно того же рода, только в другую сторону.
+PLACEHOLDER_COMPANY = frozenset({
+    # Наниматель скрыт самой площадкой.
+    "nda", "скрыт", "скрыта", "скрыто", "скрытая", "скрыты",
+    "конфиденциально", "конфиденциальная", "конфиденциальный",
+    "confidential", "hidden", "anonymous", "undisclosed", "stealth",
+    # «не указана» / «не указан» / «не разглашается» — те же нули, но словами.
+    "указана", "указано", "указан", "разглашается", "неизвестна", "неизвестен",
+    # Токены досок-агрегаторов: у них `company` — имя ДОСКИ, а не нанимателя.
+    # Признак ровно один: под одним и тем же company лежат вакансии разных
+    # компаний (jobgether — 709 строк в базе, 43 из них с одним названием).
+    # Обычные ATS-доски (canonical, datadog, okx, gitlab) сюда НЕ входят: там
+    # company — настоящий работодатель, чья это доска, и склейка по нему честная.
+    "jobgether",
+})
+
+# Слова, которые называют СТЕК, а не конкретное объявление. Костяк названия,
+# целиком собранный из них, — не доказательство, а совпадение: у «Ozon» в одной
+# только hirehi 21 разная вакансия с костяком «go», у «Wildberries» — 16.
+# Поэтому «ozon|go» это не «одна вакансия на двух площадках», а «двадцать одна
+# вакансия одного работодателя», и склеивать их нельзя.
+STACK_ONLY_TITLE = frozenset({
+    "go", "golang", "гоу", "backend", "back", "end", "бэкенд", "бекенд",
+    "frontend", "фронтенд", "fullstack", "full", "stack", "python", "java",
+    "kotlin", "scala", "rust", "ruby", "php", "perl", "swift", "js",
+    "javascript", "typescript", "node", "nodejs", "cpp", "csharp", "dotnet",
+    "net", "elixir", "erlang", "haskell", "sql", "nosql", "devops", "sre",
+    "qa", "aqa", "ml", "mlops", "ai", "data", "science", "web", "mobile",
+    "ios", "android", "desktop", "cloud", "platform", "infrastructure", "infra",
+    "system", "systems", "network", "embedded", "gamedev", "game", "software",
+    "hardware", "разработка", "разработки", "программирование", "специалист",
+# Грейд сюда входит по той же причине: «senior go» — это стек плюс уточнение,
+# а не название конкретного объявления. Без этой строки грейд, убранный из
+# `_NOISE`, начал бы работать различителем: «Senior Backend» перестало бы
+# считаться костяком-из-стека и склеивалось бы со всеми «Senior Backend»
+# того же работодателя (замер: 157 склеек превратились бы в 200).
+} | GRADE_WORDS)
 
 
 def norm_currency(raw: str | None) -> str | None:
@@ -36,6 +119,35 @@ def norm_currency(raw: str | None) -> str | None:
         return None
     s = str(raw).strip()
     return _CUR.get(s, _CUR.get(s.upper(), s.upper() if len(s) <= 4 else None))
+
+
+# Период вилки. Три значения, потому что ровно для трёх есть честная подпись;
+# всё остальное (смена, неделя, день) — None, и вилка показывается без суффикса.
+PERIOD_SUFFIX = {"hour": "/час", "month": "/мес", "year": "/год"}
+
+
+def norm_period(raw: str | None) -> str | None:
+    """`annual` / `monthly` / `per-year-salary` / `в час` → hour | month | year | None.
+
+    Период приезжает от каждой площадки по-своему: himalayas — `annual`,
+    jobicy — `yearly`, careered — `year`, lever — `per-year-salary`, hh — `MONTH`.
+    Сводим к трём значениям и НЕ придумываем недостающее: неизвестный период —
+    это None, а не «месяц по умолчанию». Ровно из-за такой подстановки почасовые
+    19–23 USD стояли в таблице рядом с годовыми 168 000–333 500 USD и читались
+    как одна и та же зарплата.
+    """
+    if raw is None:
+        return None
+    s = str(raw).strip().lower()
+    if not s:
+        return None
+    if "hour" in s or "hr" in s or "час" in s:
+        return "hour"
+    if "month" in s or "мес" in s:
+        return "month"
+    if "year" in s or "annual" in s or "год" in s:
+        return "year"
+    return None
 
 
 def norm_text(s: str | None) -> str:
@@ -46,20 +158,62 @@ def norm_text(s: str | None) -> str:
     return _WS.sub(" ", s).strip()
 
 
-def dup_key(company: str | None, title: str | None) -> str:
+def _core(s: str | None) -> str:
+    """Костяк строки: без пунктуации, без слов-украшений, слова отсортированы."""
+    s = _PUNCT.sub(" ", norm_text(s).lower())
+    words = [w for w in s.split() if w not in _NOISE and len(w) > 1]
+    return " ".join(sorted(set(words)))
+
+
+def no_dup_evidence(company_core: str, title_core: str) -> str | None:
+    """Почему по этой паре нельзя утверждать «это одна и та же вакансия», или None.
+
+    Возвращает ПРИЧИНУ строкой, а не булево: причина уезжает в комментарий теста
+    и в отладку, и без неё «ключ вдруг стал другим» не диагностируется.
+    """
+    if not company_core:
+        return "работодатель не назван"
+    if set(company_core.split()) & PLACEHOLDER_COMPANY:
+        return f"компания-заглушка «{company_core}»"
+    if not title_core:
+        return "от названия ничего не осталось"
+    if set(title_core.split()) <= STACK_ONLY_TITLE:
+        return f"костяк названия — только стек «{title_core}»"
+    return None
+
+
+def dup_key(company: str | None, title: str | None, *, source: str | None = None,
+            external_id: str | None = None, url: str | None = None) -> str:
     """Грубый ключ для ПОДСКАЗКИ о дубле — не для автоматического слияния.
 
     Скилл прямо запрещает склеивать вакансии автоматикой по похожести текста:
     одна вакансия в двух формулировках даёт низкое сходство, а разные вакансии одной
     компании — высокое. Поэтому здесь только консервативный ключ (компания + костяк
     названия), а решение «это один и тот же наниматель» принимает модель.
-    """
-    def core(s: str) -> str:
-        s = _PUNCT.sub(" ", norm_text(s).lower())
-        words = [w for w in s.split() if w not in _NOISE and len(w) > 1]
-        return " ".join(sorted(set(words)))
 
-    return f"{core(company or '')}|{core(title or '')}"
+    Главное правило: **нет доказательства — нет склейки**. Доказательства нет,
+    когда работодатель спрятан за заглушкой (`PLACEHOLDER_COMPANY`) или когда от
+    названия остался один стек (`STACK_ONLY_TITLE`). В обоих случаях ключом
+    становится собственный адрес записи — `источник:id` (или `источник:url`),
+    то есть внутри одного источника разные url дают РАЗНЫЕ ключи и не склеиваются
+    никогда. Это не педантизм: ровно такая склейка съедала 1032 живые вакансии,
+    потому что `run_enrich` выбрасывает запись с уже виденным ключом.
+
+    Ошибаться этот ключ обязан в сторону РАЗДЕЛЕНИЯ: лишний раскол стоит одного
+    повторного запроса деталей, лишняя склейка — потерянной вакансии.
+
+    Без `source`/`external_id`/`url` (голый вызов «сравни две строки») развести
+    записи нечем, и ключ остаётся прежним «компания|название»: это честнее, чем
+    выдумывать идентичность там, где о записи ничего не известно.
+    """
+    cc, tc = _core(company), _core(title)
+    if no_dup_evidence(cc, tc):
+        own = external_id or url
+        if source and own:
+            # «|» в ключе не бывает: он разделитель обычного ключа, и запись
+            # с собственным адресом не должна случайно совпасть ни с одним из них.
+            return f"@{source}:{str(own).replace('|', '/')}"
+    return f"{cc}|{tc}"
 
 
 def _iso(value) -> str | None:
@@ -89,6 +243,42 @@ def _iso(value) -> str | None:
     return dt.astimezone(timezone.utc).isoformat()
 
 
+def _amount(v) -> int | None:
+    if v is None or isinstance(v, bool):
+        return None
+    if isinstance(v, (int, float)):
+        return int(v)
+    digits = re.sub(r"[^\d]", "", str(v))
+    return int(digits) if digits else None
+
+
+def salary_str(salary_from: int | None, salary_to: int | None,
+               currency: str | None, gross: bool | None = None,
+               period: str | None = None) -> str:
+    """Форматирует вилку. Вынесена из Vacancy, чтобы `detail` не собирал фиктивный объект.
+
+    `period` печатается суффиксом (`/час`, `/мес`, `/год`). Неизвестный период —
+    без суффикса: «60 000–90 000 RUB» честно означает «период площадка не назвала»,
+    а дописать «/мес» значило бы выдать догадку за факт площадки.
+    """
+    # Числа приезжают и строками («250» у Recruitee) — приводим, иначе форматирование
+    # падает прямо в момент печати денег.
+    salary_from, salary_to = _amount(salary_from), _amount(salary_to)
+    if salary_from is None and salary_to is None:
+        return ""
+    cur = norm_currency(currency) or ""
+    fmt = lambda n: f"{n:,}".replace(",", " ")
+    if salary_from and salary_to:
+        body = f"{fmt(salary_from)}–{fmt(salary_to)}"
+    elif salary_from:
+        body = f"от {fmt(salary_from)}"
+    else:
+        body = f"до {fmt(salary_to)}"
+    g = "" if gross is None else (" gross" if gross else " net")
+    per = PERIOD_SUFFIX.get(norm_period(period) or "", "")
+    return f"{body} {cur}{per}{g}".strip()
+
+
 @dataclass
 class Vacancy:
     source: str
@@ -100,6 +290,9 @@ class Vacancy:
     salary_to: int | None = None
     currency: str | None = None
     salary_gross: bool | None = None
+    # hour | month | year | None. None — площадка период не назвала; подставлять
+    # месяц по умолчанию нельзя, разница между почасовой и годовой вилкой — 12–2000 раз.
+    salary_period: str | None = None
     location: str | None = None
     remote: bool | None = None
     published_at: str | None = None
@@ -116,6 +309,7 @@ class Vacancy:
         self.company = norm_text(self.company) or None
         self.location = norm_text(self.location) or None
         self.currency = norm_currency(self.currency)
+        self.salary_period = norm_period(self.salary_period)
         self.published_at = _iso(self.published_at)
         self.updated_at = _iso(self.updated_at)
         self.external_id = str(self.external_id)
@@ -128,22 +322,16 @@ class Vacancy:
 
     @property
     def dup_key(self) -> str:
-        return dup_key(self.company, self.title)
+        # Источник и id передаются ОБЯЗАТЕЛЬНО: без них ключ не сможет развести
+        # записи, у которых работодатель скрыт, и 62 разных нанимателя снова
+        # схлопнутся в один «nda|backend».
+        return dup_key(self.company, self.title, source=self.source,
+                       external_id=self.external_id, url=self.url)
 
     def salary_str(self) -> str:
         """Человекочитаемая вилка. Пустая строка — значит вилки нет, и это факт для карточки."""
-        if self.salary_from is None and self.salary_to is None:
-            return ""
-        cur = self.currency or ""
-        fmt = lambda n: f"{n:,}".replace(",", " ")
-        if self.salary_from and self.salary_to:
-            body = f"{fmt(self.salary_from)}–{fmt(self.salary_to)}"
-        elif self.salary_from:
-            body = f"от {fmt(self.salary_from)}"
-        else:
-            body = f"до {fmt(self.salary_to)}"
-        gross = "" if self.salary_gross is None else (" gross" if self.salary_gross else " net")
-        return f"{body} {cur}{gross}".strip()
+        return salary_str(self.salary_from, self.salary_to, self.currency,
+                          self.salary_gross, self.salary_period)
 
     def to_dict(self) -> dict:
         d = asdict(self)
