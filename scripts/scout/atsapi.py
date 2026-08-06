@@ -1,5 +1,5 @@
 """Единый доступ к API ATS-досок: Greenhouse, Lever, Ashby, Recruitee, Workable,
-SmartRecruiters, BambooHR.
+SmartRecruiters, BambooHR, Teamtailor, Personio, JazzHR, Workday.
 
 Сюда портированы бывшие scripts/ats/*.sh (check, tr2, fin, sniff) — но в виде одного
 слоя данных, которым пользуются сразу три команды: `scout ats`, `scout detail`
@@ -15,10 +15,13 @@ Insider, SmartRecruiters отдаёт 200 и ноль для несуществ�
 
 from __future__ import annotations
 
+import datetime as dt
+import email.utils
 import html as H
 import json
 import re
 import urllib.parse
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
 from .net import FetchError, fetch, fetch_json
@@ -26,11 +29,17 @@ from .net import FetchError, fetch, fetch_json
 UA_NOTE = None  # UA задаёт net.py — здесь ничего не переопределяется
 
 ATS_KINDS = ("greenhouse", "lever", "ashby", "recruitee", "workable",
-             "smartrecruiters", "bamboohr")
+             "smartrecruiters", "bamboohr", "teamtailor", "personio",
+             "jazzhr", "workday")
 
-# Синонимы, которыми пользователь называет ATS в командной строке.
+# Синонимы, которыми пользователь называет ATS в командной строке. Имя хоста —
+# тоже синоним: `ats sniff` печатает находки доменами (`acme.applytojob.com`),
+# и переспрашивать «а как это называется у тебя» после собственной же подсказки
+# было бы издевательством.
 ATS_ALIASES = {"gh": "greenhouse", "smart": "smartrecruiters", "sr": "smartrecruiters",
-               "bamboo": "bamboohr"}
+               "bamboo": "bamboohr", "tt": "teamtailor", "jazz": "jazzhr",
+               "applytojob": "jazzhr", "wd": "workday",
+               "myworkdayjobs": "workday", "personio.de": "personio"}
 
 
 @dataclass
@@ -237,6 +246,342 @@ def _board_bamboohr(token: str, query: str | None = None) -> Board:
                  note="API списка не отдаёт название компании")
 
 
+# ── Teamtailor ────────────────────────────────────────────────────────────────
+
+# Пространство имён, в котором Teamtailor отдаёт локации внутри своего RSS.
+_TT_NS = {"tt": "https://teamtailor.com/locations"}
+
+
+def _rfc2822_iso(value: str | None) -> str | None:
+    """RFC-2822 (`Wed, 13 May 2026 17:12:26 +0200`) → ISO.
+
+    Все остальные доски здесь отдают ISO, и смешивать форматы в одном поле нельзя:
+    свежесть сравнивается СТРОКАМИ, и «Wed, …» окажется старше любого «2026-…».
+    """
+    if not value:
+        return None
+    try:
+        return email.utils.parsedate_to_datetime(value).isoformat()
+    except (TypeError, ValueError):
+        return None
+
+
+def _board_teamtailor(token: str, query: str | None = None) -> Board:
+    """Список берётся из RSS, а НЕ из /jobs.json — хотя JSON у Teamtailor тоже есть.
+
+    /jobs.json — это JSON Feed 1.1 (id, title, url, date_published, content_html),
+    и локаций в нём НЕТ ВООБЩЕ: ни поля, ни страны, ни города. С таким источником
+    структурный матч локаций (см. докстринг модуля) отваливается молча — вакансия
+    в Стокгольме выглядит вакансией без места и по стране не находится никогда.
+    В /jobs.rss те же самые вакансии приходят с <tt:locations>, где есть и город,
+    и страна. Второе отличие в ту же сторону: <link> в RSS ведёт на собственный
+    careers-домен компании (career.anyfin.com), а url в JSON — на поддомен
+    teamtailor, то есть на промежуточную страницу.
+
+    Несуществующий поддомен отдаёт честный 404 — ловушки «200 и ноль» здесь нет.
+    """
+    url = f"https://{urllib.parse.quote(token)}.teamtailor.com/jobs.rss"
+    text, _ = fetch(url)
+    # Разбор через stdlib-ET, а не регуляркой: у локаций своё пространство имён,
+    # и вытаскивать вложенные <tt:location> регуляркой — это тот же способ
+    # промахнуться мимо строки, на котором уже обожглись в Workable.
+    try:
+        channel = ET.fromstring(text).find("channel")
+    except ET.ParseError as e:
+        raise FetchError(url, f"ответ не разобрался как RSS: {e}") from e
+    if channel is None:
+        raise FetchError(url, "в ответе нет <channel> — это не лента Teamtailor")
+
+    jobs = []
+    for item in channel.findall("item"):
+        locs: list[str] = []
+        for loc in item.findall("tt:locations/tt:location", _TT_NS):
+            locs += [loc.findtext("tt:name", "", _TT_NS),
+                     loc.findtext("tt:city", "", _TT_NS),
+                     loc.findtext("tt:country", "", _TT_NS)]
+        # У полностью удалённой вакансии <tt:locations> обычно пуст, и без этой
+        # строки она уезжает в отчёт вообще без места — как будто поле потеряли.
+        if (item.findtext("remoteStatus") or "").strip().lower() == "fully":
+            locs.append("Remote")
+        jobs.append(BoardJob(
+            id=(item.findtext("guid") or "").strip(),
+            title=(item.findtext("title") or "").strip(),
+            url=(item.findtext("link") or "").strip(),
+            locations=[x.strip() for x in locs if x and x.strip()],
+            published_at=_rfc2822_iso(item.findtext("pubDate")),
+        ))
+    return Board("teamtailor", token, (channel.findtext("title") or "").strip() or None,
+                 jobs, len(jobs),
+                 note=None if jobs else "доска отвечает, но открытых вакансий нет")
+
+
+# ── Personio ──────────────────────────────────────────────────────────────────
+
+def _board_personio(token: str, query: str | None = None) -> Board:
+    """search.json на {token}.jobs.personio.de, с откатом на .com.
+
+    Оба домена живые и принадлежат разным арендаторам, а по названию компании
+    угадать нужный нельзя — поэтому .de пробуется первым (их большинство), и
+    только его 404 отправляет на .com.
+
+    ДАТЫ ПУБЛИКАЦИИ ЗДЕСЬ НЕТ ВОВСЕ. search.json отдаёт id/name/office/offices/
+    department/keywords/seniority — и всё. `createdAt` есть только в /xml, но
+    /xml включён не у всех: проверено живьём — у personio он отвечает, а у
+    getsafe и hometogo 404 при полностью рабочем search.json. Поэтому
+    published_at пуст у всех вакансий, и это сказано в note, а не подменено
+    датой скана: подставленная дата выглядела бы фактом о свежести.
+    """
+    last: FetchError | None = None
+    base = d = None
+    for tld in ("de", "com"):
+        base = f"https://{urllib.parse.quote(token)}.jobs.personio.{tld}"
+        try:
+            d = fetch_json(f"{base}/search.json")
+            break
+        except FetchError as e:
+            last = e
+            if e.status == 429:
+                # 429 прилетает и на заведомо несуществующий поддомен — значит
+                # лимит стоит на весь хост jobs.personio.* и считается по нашему
+                # IP, а не по компании. Отличить «доски нет» от «нас придержали»
+                # в этот момент нечем, и молчаливый ноль тут был бы враньём.
+                raise FetchError(e.url, "HTTP 429 — Personio придерживает по IP весь хост "
+                                        "jobs.personio.*, а не эту доску; повтори позже",
+                                 429) from e
+            if e.status != 404:
+                raise
+    else:
+        raise last or FetchError(f"personio:{token}", "доски нет ни на .de, ни на .com")
+
+    rows = d if isinstance(d, list) else []
+    jobs = []
+    for j in rows:
+        # `office` — это НЕ один офис, а склейка через запятую («Kaunas,Vilnius,
+        # Kaunas/Vilnius»), тот же набор, что в offices[]. Берём оба и режем по
+        # запятой: целиком такая строка не совпадёт ни с одной страной.
+        locs = [str(x) for x in (j.get("offices") or [])]
+        locs += [p for p in re.split(r"\s*,\s*", j.get("office") or "") if p]
+        jid = str(j.get("id") or "")
+        jobs.append(BoardJob(
+            id=jid, title=j.get("name") or "",
+            url=f"{base}/job/{jid}",
+            locations=[x for x in dict.fromkeys(locs) if x],
+        ))
+    # subcompany заполнено далеко не у всех (у hometogo пусто, у personio —
+    # «Personio SE & Co. KG»); пустое — это None, а не токен под видом названия.
+    company = next((r.get("subcompany") for r in rows if r.get("subcompany")), None)
+    note = "search.json не отдаёт дату публикации — published_at пуст у всех вакансий"
+    if not jobs:
+        note = "доска отвечает, но открытых вакансий нет"
+    return Board("personio", token, company, jobs, len(jobs), note=note)
+
+
+# ── JazzHR ────────────────────────────────────────────────────────────────────
+
+# Строка таблицы вакансий. Публичного JSON/RSS у JazzHR нет (проверены
+# /apply/jobs/rss, /apply/jobs.json, /apply/jobs/feed, ?rss=1, ?format=json —
+# всё либо 404, либо та же HTML-страница), XML-фид выдаётся из личного кабинета
+# и привязан к аккаунту. Зато сама таблица разложена аккуратно и стабильно.
+_JAZZHR_ROW = re.compile(r'<tr id="row_job_(?P<ts>\d{14})_[A-Za-z0-9]+"[^>]*>(?P<body>.*?)</tr>',
+                         re.S)
+_JAZZHR_LINK = re.compile(
+    r'<a[^>]*class="job_title_link"[^>]*href="/apply/jobs/details/(?P<code>[A-Za-z0-9]+)[^"]*"'
+    r'[^>]*>(?P<title>.*?)</a>', re.S)
+_JAZZHR_DEPT = re.compile(r'<span class="resumator_department">(?P<dept>.*?)</span>', re.S)
+_JAZZHR_CELL = re.compile(r"<td[^>]*>(.*?)</td>", re.S)
+_LD_JSON = re.compile(r'<script[^>]+application/ld\+json[^>]*>(.*?)</script>', re.S)
+
+
+def _flat_text(raw: str | None) -> str:
+    """Ячейка таблицы → строка: без тегов, без сущностей, без переносов."""
+    return re.sub(r"\s+", " ", H.unescape(re.sub(r"<[^>]+>", " ", raw or ""))).strip()
+
+
+def _jazzhr_date(raw: str) -> str | None:
+    """Дата из id строки таблицы: `row_job_20260604213845_…`.
+
+    Больше её брать негде — список JazzHR не печатает дат вообще: ни колонкой,
+    ни в разметке, ни в ld+json (там только Organization). В id лежит время
+    создания записи о вакансии, и оно не обязано совпадать с датой публикации:
+    у DTEX Systems строка row_job_20260604213845 против datePosted 2026-06-05
+    на самой вакансии — разница в сутки. Для отбора по свежести годится,
+    для утверждения «опубликовано ровно тогда-то» — нет.
+    """
+    try:
+        return dt.datetime.strptime(raw, "%Y%m%d%H%M%S").isoformat()
+    except ValueError:
+        return None
+
+
+def _board_jazzhr(token: str, query: str | None = None) -> Board:
+    url = f"https://{urllib.parse.quote(token)}.applytojob.com/apply/jobs"
+    text, final = fetch(url)
+    # НЕСУЩЕСТВУЮЩИЙ поддомен не отдаёт 404: applytojob молча уводит на
+    # маркетинговый www.jazzhr.com, где таблицы просто нет. Без этой проверки
+    # опечатка в токене возвращалась бы как «доска жива, вакансий ноль».
+    if "applytojob.com" not in urllib.parse.urlsplit(final).netloc.lower():
+        raise FetchError(url, f"доски нет: applytojob увёл на {final}")
+
+    # Одна и та же таблица отрисована в странице дважды (широкая и узкая вёрстка).
+    # Без склейки по коду вакансии удваиваются — и удваиваются ПРАВДОПОДОБНО,
+    # с теми же id, то есть на глаз это не поломка, а «активная компания».
+    seen: dict[str, BoardJob] = {}
+    for m in _JAZZHR_ROW.finditer(text):
+        body = m.group("body")
+        link = _JAZZHR_LINK.search(body)
+        if not link:
+            continue
+        cells = _JAZZHR_CELL.findall(body)
+        dept = _JAZZHR_DEPT.search(body)
+        # Первая ячейка — название со ссылкой, последняя — локация.
+        locs = [_flat_text(cells[-1]) if len(cells) > 1 else "",
+                _flat_text(dept.group("dept")) if dept else ""]
+        code = link.group("code")
+        seen.setdefault(code, BoardJob(
+            id=code, title=_flat_text(link.group("title")),
+            url=f"https://{token}.applytojob.com/apply/{code}",
+            locations=[x for x in locs if x],
+            published_at=_jazzhr_date(m.group("ts")),
+        ))
+
+    company = None
+    for blob in _LD_JSON.findall(text):
+        try:
+            data = json.loads(blob)
+        except ValueError:
+            continue
+        if isinstance(data, dict) and data.get("@type") == "Organization":
+            company = data.get("name") or None
+            break
+
+    note = None
+    if not seen:
+        # Выключенная доска отвечает 200 и полноценной страницей — просто без
+        # вакансий. Это не «ноль вакансий», это «сюда ходить больше незачем».
+        note = ("доска выключена (JazzHR: Inactive Career Page)"
+                if "Inactive Career Page" in text else
+                "таблица вакансий не найдена — вёрстка JazzHR могла поменяться")
+    return Board("jazzhr", token, company, list(seen.values()), len(seen), note=note)
+
+
+# ── Workday ───────────────────────────────────────────────────────────────────
+
+# limit=21 отвечает HTTP 400: двадцать — жёсткий потолок страницы, не наш выбор.
+_WORKDAY_PAGE = 20
+# Потолок обхода. У PwC на доске 4586 вакансий — это 230 запросов по 20 штук,
+# то есть один работодатель съедает прогон целиком. Обрезка не молчаливая:
+# сколько взяли из скольких, всегда написано в note.
+_WORKDAY_CAP = 500
+
+# «3 Locations» вместо места — счётчик, а не локация (см. _board_workday).
+_WORKDAY_LOC_COUNT = re.compile(r"^\d+\s+locations?$", re.I)
+
+# Workday переводит СВОИ служебные строки по Accept-Language, а сборщик ходит
+# с ru-RU (так требует hh). В результате тот же счётчик приезжал как
+# «Количество месторасположений: 6» — мимо регулярки выше, и счётчик уезжал
+# в locations как будто это место. Названия вакансий это не трогает: они
+# лежат в данных как есть (у PwC заголовки по-португальски и остаются такими).
+_WORKDAY_HEADERS = {"Accept-Language": "en-US,en;q=0.9"}
+
+# Тенант + номер хоста wdN + site id. Принимается и адрес доски целиком, и
+# компактная запись через `:`, `/` или `.`.
+_WORKDAY_SPEC = re.compile(
+    r"(?:https?://)?(?P<tenant>[a-z0-9][a-z0-9-]*)[.:/]"
+    r"(?P<host>wd\d+)(?:\.myworkdayjobs\.com)?"
+    r"(?:/[a-z]{2}(?:-[A-Za-z]{2})?(?=/))?"
+    r"[.:/](?P<site>[A-Za-z0-9_-]+)", re.I)
+
+
+def _workday_parts(token: str) -> tuple[str, str, str]:
+    """Разбирает «токен» Workday — а он у него тройной.
+
+    Одного имени доски, как у всех остальных движков, здесь не существует: адрес
+    складывается из тенанта, номера хоста (wd1…wd12) и site id, и ни номер, ни
+    site id по названию компании не угадываются — их берут с careers-страницы.
+    Поэтому принимаем и готовый URL, и компактную запись.
+    """
+    m = _WORKDAY_SPEC.search(token.strip())
+    if not m:
+        raise ValueError(
+            "токен Workday состоит из трёх частей — тенант, хост wdN и site id: "
+            "'nvidia:wd5:NVIDIAExternalCareerSite' либо адрес доски целиком "
+            "'https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite'; "
+            f"получено {token!r}")
+    return m.group("tenant").lower(), m.group("host").lower(), m.group("site")
+
+
+def _board_workday(token: str, query: str | None = None) -> Board:
+    """Приватный cxs-API careers-сайта: POST, без ключей, отвечает всем.
+
+    Даты публикации в выдаче списка нет. `postedOn` — человеческая фраза на языке
+    заголовка Accept-Language («Posted 2 Days Ago», у нас — «Опубликовано
+    сегодня»), а не дата; настоящий `startDate` лежит только в деталке, то есть
+    стоит отдельного запроса на каждую вакансию. Класть фразу в published_at
+    нельзя: поле сравнивается как дата и молча сломает сортировку по свежести.
+    """
+    tenant, host, site = _workday_parts(token)
+    base = f"https://{tenant}.{host}.myworkdayjobs.com"
+    api = f"{base}/wday/cxs/{tenant}/{site}/jobs"
+
+    jobs: list[BoardJob] = []
+    offset, total, counted_only = 0, 0, 0
+    while True:
+        d = fetch_json(api, method="POST", headers=_WORKDAY_HEADERS,
+                       data={"appliedFacets": {}, "limit": _WORKDAY_PAGE,
+                             "offset": offset, "searchText": query or ""})
+        # total считается ТОЛЬКО на первой странице. Дальше Workday присылает
+        # `total: 0` при полной странице вакансий, и наивное `total = d["total"]`
+        # на каждом витке останавливало обход после второго запроса: у NVIDIA
+        # получалось 40 вакансий из 2000, причём с пометкой «ноль вакансий».
+        # Самая дорогая из возможных поломок — тихая недостача в полсотни раз.
+        if offset == 0:
+            total = int(d.get("total") or 0)
+        batch = d.get("jobPostings") or []
+        for j in batch:
+            path = j.get("externalPath") or ""
+            loc = (j.get("locationsText") or "").strip()
+            # «3 Locations» — это СЧЁТЧИК, а не место: стран в выдаче списка нет
+            # вовсе, они только в деталке вакансии. Положить счётчик в locations
+            # значит получить заполненное с виду поле, по которому не совпадёт
+            # ни одна страна, — ровно тот молчаливый промах, ради которого
+            # locations и собирает все поля разом.
+            if _WORKDAY_LOC_COUNT.match(loc):
+                counted_only += 1
+                loc = ""
+            bullets = [str(x) for x in (j.get("bulletFields") or []) if x]
+            jobs.append(BoardJob(
+                # bulletFields[0] — номер реквизиции (JR2017740, R169992, 729320WD);
+                # проверено одинаковым у nvidia, adobe, cisco, pwc и самого Workday.
+                id=bullets[0] if bullets else path,
+                title=j.get("title") or "",
+                url=f"{base}/{site}{path}" if path else "",
+                locations=[loc] if loc else [],
+            ))
+        offset += len(batch)
+        # Выход ОБЯЗАН упираться в total. Offset за пределами выдачи не отдаёт
+        # пустую страницу, а заворачивается на первую — то есть «идти, пока
+        # страница полная» здесь крутится вечно, каждый раз добавляя те же
+        # двадцать вакансий (проверено: total=22, offset=40 → снова первые 20).
+        if not batch or offset >= total or offset >= _WORKDAY_CAP:
+            break
+
+    notes = []
+    if total == 0:
+        # Живой тенант с чужим site id отвечает 200 и total: 0 — проверено на
+        # dell/External. То есть ноль здесь неотличим от «site id не тот».
+        notes.append("0 вакансий при HTTP 200 — у Workday так отвечает и живой тенант "
+                     "с неверным site id")
+    elif len(jobs) < total:
+        notes.append(f"взяты первые {len(jobs)} из {total}: Workday отдаёт по "
+                     f"{_WORKDAY_PAGE} за запрос — сузь выдачу через --grep")
+    if counted_only:
+        notes.append(f"у {counted_only} вакансий вместо места стоит счётчик «N Locations» — "
+                     f"страны есть только в деталке")
+    notes.append("название компании API не отдаёт — сверь по тенанту "
+                 f"{tenant}.{host}.myworkdayjobs.com")
+    return Board("workday", token, None, jobs, total or len(jobs), note="; ".join(notes))
+
+
 BOARD_IMPL = {
     "greenhouse": _board_greenhouse,
     "lever": _board_lever,
@@ -245,6 +590,10 @@ BOARD_IMPL = {
     "workable": _board_workable,
     "smartrecruiters": _board_smartrecruiters,
     "bamboohr": _board_bamboohr,
+    "teamtailor": _board_teamtailor,
+    "personio": _board_personio,
+    "jazzhr": _board_jazzhr,
+    "workday": _board_workday,
 }
 
 
@@ -275,6 +624,22 @@ _URL_PATTERNS: list[tuple[str, re.Pattern]] = [
         r"//(?P<token>[a-z0-9-]+)\.bamboohr\.com/careers/(?P<id>\d+)")),
     ("smartrecruiters", re.compile(
         r"jobs\.smartrecruiters\.com/(?P<token>[^/?#]+)/(?P<id>\d+)")),
+    ("teamtailor", re.compile(
+        r"//(?P<token>[a-z0-9-]+)\.teamtailor\.com/jobs/(?P<id>\d+)")),
+    ("personio", re.compile(
+        r"//(?P<token>[a-z0-9-]+)\.jobs\.personio\.(?:de|com)/job/(?P<id>\d+)")),
+    # `/apply/{code}` — канонический адрес вакансии, `/apply/jobs/details/{code}` —
+    # то, чем на неё ссылается сама таблица. Отрицательный просмотр отсекает
+    # `/apply/jobs` — это СПИСОК, и принять его за вакансию с id «jobs» значит
+    # потом молча дёргать деталку несуществующей вакансии.
+    ("jazzhr", re.compile(
+        r"//(?P<token>[a-z0-9-]+)\.applytojob\.com/apply/"
+        r"(?:jobs/details/)?(?P<id>(?!jobs(?:/|$))[A-Za-z0-9]+)")),
+    # Токен Workday — сам кусок адреса до /job/: тенант, хост и site id вместе,
+    # ровно в том виде, который понимает _workday_parts.
+    ("workday", re.compile(
+        r"(?P<token>[a-z0-9-]+\.wd\d+\.myworkdayjobs\.com"
+        r"(?:/[a-z]{2}(?:-[A-Za-z]{2})?(?=/))?/[A-Za-z0-9_-]+)/(?P<id>job/[^?#\s]+)", re.I)),
 ]
 
 # Greenhouse-embed: адрес вида greenhouse.io/embed/job_app?for=<token>&token=<id>
@@ -344,6 +709,15 @@ COUNTRY_ALIASES: dict[str, list[str]] = {
     "GB": ["united kingdom", "великобритания", "london", "лондон"],
     "US": ["united states", "usa", "u.s.", "new york", "san francisco", "сша"],
     "UZ": ["uzbekistan", "узбекистан", "tashkent", "ташкент"],
+    # Северная Европа добавлена 05.08.2026 вместе с teamtailor: это шведский ATS,
+    # и его доски (Anyfin, Tibber, Quinyx) пишут город без страны. Без этих
+    # строк «Stockholm» не совпадал ни с чем, и вакансия отсеивалась как
+    # «страна не наша» — то есть площадку подключили бы, а выдачу потеряли.
+    "SE": ["sweden", "швеция", "stockholm", "стокгольм", "gothenburg", "göteborg",
+           "malmo", "malmö"],
+    "NO": ["norway", "норвегия", "oslo", "осло", "bergen"],
+    "FI": ["finland", "финляндия", "helsinki", "хельсинки", "espoo"],
+    "DK": ["denmark", "дания", "copenhagen", "københavn", "копенгаген"],
 }
 
 
