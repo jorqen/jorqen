@@ -34,6 +34,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from datetime import datetime, timezone
 
 AUTH_DIR = os.environ.get("SCOUT_AUTH_DIR") or os.path.join(
@@ -147,6 +148,41 @@ def token_from_cookie(platform: str, value: str) -> tuple[str | None, str]:
     return token, "токен из куки (срок не указан)"
 
 
+def bearer_from_state(platform: str) -> tuple[str | None, str]:
+    """(Bearer из localStorage сохранённого storage_state, пояснение).
+
+    Для площадок, где сессия живёт НЕ в куках (careered): куки браузера
+    пользователя тут не помогают вовсе, единственный источник — `.auth/
+    <площадка>.json`, который заводит `scout auth login <площадка>`. Playwright
+    сохраняет localStorage в origins[] по умолчанию — отдельного флага при
+    записи storage_state не нужно, а filter_state() origins не выбрасывает.
+
+    Никаких сетевых запросов: только чтение файла. Протухший токен отсюда
+    не виден (JWT не разбираем) — его честно назовёт 401 в месте использования.
+    """
+    cfg = PLATFORMS.get(platform) or {}
+    pair = cfg.get("localstorage_token")
+    if not pair:
+        return None, f"{platform}: localStorage-токен для площадки не описан"
+    origin_want, name = pair
+    if not have(platform):
+        return None, (f"нет .auth/{platform}.json — одноразовый вход: "
+                      f"scout auth login {platform}")
+    try:
+        with open(state_path(platform), encoding="utf-8") as f:
+            state = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        return None, f".auth/{platform}.json не читается: {type(e).__name__}: {e}"
+    for o in state.get("origins", []):
+        if (o.get("origin") or "").rstrip("/") != origin_want:
+            continue
+        for item in o.get("localStorage", []):
+            if item.get("name") == name and item.get("value"):
+                return item["value"], f"токен из localStorage {origin_want}"
+    return None, (f"в .auth/{platform}.json нет localStorage {name!r} — вход не "
+                  f"сохранился, повтори: scout auth login {platform}")
+
+
 def session_token(platform: str, *, cookies_from: str | None = None) -> tuple[str | None, str]:
     """(Bearer-токен площадки, пояснение) — БЕЗ запуска браузера.
 
@@ -187,6 +223,11 @@ def session_probe(platform: str, *, cookies_from: str | None = None) -> tuple[st
     cfg = PLATFORMS.get(platform) or {}
     if cfg.get("login_gains") is None and "login_gains" in cfg:
         return "not_needed", f"вход не нужен: анонимно доступно {cfg.get('anon_ok')}"
+    if cfg.get("localstorage_token"):
+        # Сессия в localStorage (careered): по кукам её не видно в принципе,
+        # смотрим сохранённый storage_state — тоже без браузера и без сети.
+        token, why = bearer_from_state(platform)
+        return ("logged_in" if token else "anonymous"), why
     if not cfg.get("session_cookie"):
         return "unknown", "по кукам не понять — нужна страница (auth check)"
     token, why = session_token(platform, cookies_from=cookies_from)
@@ -329,6 +370,32 @@ PLATFORMS: dict[str, dict] = {
         "anon_ok": "всё, что есть у площадки",
         "login_gains": None,
     },
+    "careered": {
+        "login_url": "https://careered.io/",
+        "check_url": "https://careered.io/",
+        # careered.io — SPA-шелл на 547 байт: анонимный HTML и залогиненный
+        # неотличимы до исполнения скриптов, поэтому уверенно назвать маркеры
+        # ВХОДА по вёрстке нельзя — alive_if пуст сознательно, чтобы login_state
+        # не объявлял вход там, где мы его не видели. «Sign in» на отрендеренной
+        # странице — честный признак анонима. Настоящая проверка живости — токен
+        # в localStorage сохранённого storage_state, см. bearer_from_state().
+        "alive_if": [],
+        "dead_if": ["Sign in"],
+        "domains": ["careered.io"],
+        "note": "контакты вакансий раскрываются только залогиненному "
+                "(бесплатная регистрация); лента и описания — анонимно",
+        "client_side_session": True,
+        # Сессия НЕ в куках: после POST /api/users/sign-in access_token ложится
+        # в localStorage и шлётся заголовком Authorization: Bearer. Куки браузера
+        # пользователя mode='full' поэтому не открывают — работает только
+        # storage_state от `scout auth login careered` (Playwright кладёт
+        # localStorage в origins[] сам, отдельного флага не нужно).
+        "localstorage_token": ("https://careered.io", "access_token"),
+        "anon_ok": "вся лента и полные описания (контакт в mode=preview зарезан до '#')",
+        "login_gains": "живой контакт работодателя в деталке (mode=full, t.me/почта)",
+        # Сбор работает анонимно целиком — вход стоит ровно контактов в деталке.
+        "login_optional": True,
+    },
     "hirehi": {
         "login_url": "https://hirehi.ru/",
         "check_url": "https://hirehi.ru/vacancies/go,backend",
@@ -388,7 +455,36 @@ def _page_state(page, platform: str) -> tuple[str, str]:
         return "unknown", f"страницу не прочитать: {type(e).__name__}: {e}"
 
 
-def login(platform: str, *, browser: str | None = None) -> int:
+def wait_for_login(page, platform: str, seconds: int) -> tuple[str, str]:
+    """Ждёт входа, опрашивая саму страницу, вместо `input()` на stdin.
+
+    Нужно ровно там, где stdin недоступен: команду запускает агент фоновой
+    задачей, окно у пользователя открывается, а нажимать Enter в терминале
+    некому — раньше это давало EOFError и «отменено» при живом окне.
+    Опрос — это чтение состояния страницы, ничего не вводится и не отправляется.
+    """
+    deadline = time.monotonic() + seconds
+    st, why = "anon", "ещё не входил"
+    shown = 0
+    while time.monotonic() < deadline:
+        try:
+            st, why = _page_state(page, platform)
+        except Exception as e:  # noqa: BLE001 — окно могло быть в переходе
+            st, why = "unknown", f"{type(e).__name__}: {e}"
+        if st == "logged_in":
+            return st, why
+        left = int(deadline - time.monotonic())
+        if left // 15 != shown // 15:
+            print(f"  жду входа… осталось {left} с", flush=True)
+        shown = left
+        try:
+            page.wait_for_timeout(3000)
+        except Exception:  # noqa: BLE001 — окно закрыли руками
+            break
+    return st, why
+
+
+def login(platform: str, *, browser: str | None = None, wait: int = 0) -> int:
     """Открывает НАСТОЯЩИЙ браузер пользователя на странице площадки.
 
     Порядок именно такой и он важен:
@@ -431,8 +527,12 @@ def login(platform: str, *, browser: str | None = None) -> int:
     except ValueError as e:
         print(str(e), file=sys.stderr)
         return 2
-    if name == BUNDLED:
-        return _login_bundled(platform, cfg)
+    # Площадки с сессией в localStorage (careered) логинятся ТОЛЬКО bundled-путём:
+    # он сохраняет storage_state (куки + origins/localStorage) в .auth/<площадка>.json,
+    # откуда Bearer читают session_probe и деталка. Постоянный профиль настоящего
+    # браузера держит localStorage у себя внутри — файла бы просто не появилось.
+    if name == BUNDLED or cfg.get("localstorage_token"):
+        return _login_bundled(platform, cfg, wait=wait)
 
     try:
         with real_context(name, offscreen=False, domains=domains) as ctx:
@@ -461,14 +561,19 @@ def login(platform: str, *, browser: str | None = None) -> int:
             print(f"  Это ОТДЕЛЬНЫЙ профиль scout, твой обычный браузер не затронут;")
             print("  сессия здесь дальше продлевается сама.")
             print("=" * 72)
-            try:
-                input("  Enter, когда вошёл: ")
-            except (EOFError, KeyboardInterrupt):
-                print("\nотменено", file=sys.stderr)
-                return 1
-            page.goto(cfg["check_url"], wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_timeout(3000)
-            st, why = _page_state(page, platform)
+            if wait:
+                print(f"  Жду до {wait} с и проверяю страницу сам — Enter не нужен.")
+                st, why = wait_for_login(page, platform, wait)
+            else:
+                try:
+                    input("  Enter, когда вошёл: ")
+                except (EOFError, KeyboardInterrupt):
+                    print("\nотменено (stdin недоступен — запусти с `--wait 180`)",
+                          file=sys.stderr)
+                    return 1
+                page.goto(cfg["check_url"], wait_until="domcontentloaded", timeout=60000)
+                page.wait_for_timeout(3000)
+                st, why = _page_state(page, platform)
     except ProfileBusy as e:
         print(str(e), file=sys.stderr)
         return 4
@@ -481,7 +586,7 @@ def login(platform: str, *, browser: str | None = None) -> int:
     return 0 if st == "logged_in" else 1
 
 
-def _login_bundled(platform: str, cfg: dict) -> int:
+def _login_bundled(platform: str, cfg: dict, *, wait: int = 0) -> int:
     """Запасной вход через встроенный chromium — для машин без своего браузера."""
     sync_playwright = _require_playwright()
     with sync_playwright() as pw:
@@ -499,12 +604,17 @@ def _login_bundled(platform: str, cfg: dict) -> int:
         print("  Войди в открывшемся окне САМ — пароль и код вводишь только ты.")
         print("  Когда профиль загрузится, вернись сюда и нажми Enter.")
         print("=" * 72)
-        try:
-            input("  Enter, когда вошёл: ")
-        except (EOFError, KeyboardInterrupt):
-            browser.close()
-            print("\nотменено", file=sys.stderr)
-            return 1
+        if wait:
+            print(f"  Жду до {wait} с и проверяю страницу сам — Enter не нужен.")
+            wait_for_login(page, platform, wait)
+        else:
+            try:
+                input("  Enter, когда вошёл: ")
+            except (EOFError, KeyboardInterrupt):
+                browser.close()
+                print("\nотменено (stdin недоступен — запусти с `--wait 180`)",
+                      file=sys.stderr)
+                return 1
         state = ctx.storage_state()
         browser.close()
 
@@ -514,6 +624,15 @@ def _login_bundled(platform: str, cfg: dict) -> int:
     print(f"\nСессия сохранена: {state_path(platform)} — кук {n_kept} "
           f"(из {n_all}; остальное — чужие домены, они отброшены)")
     print("Файл в .gitignore, права 0600, с машины не уезжает.")
+    if cfg.get("localstorage_token"):
+        # У этой площадки кук может быть ноль — сессия в localStorage, и «кук 0»
+        # выше выглядел бы провалом. Вердикт по тому единственному, что решает.
+        token, why = bearer_from_state(platform)
+        if token:
+            print(f"Вход подтверждён: {why}.")
+        else:
+            print(f"⚠️  Вход НЕ сохранился: {why}", file=sys.stderr)
+            return 1
     return 0
 
 

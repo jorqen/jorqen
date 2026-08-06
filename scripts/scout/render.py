@@ -530,6 +530,47 @@ def _blocked_or_html(html: str, status: int | None, final: str, origin: str) -> 
 # Рендер
 # ──────────────────────────────────────────────────────────────────────────────
 
+def evaluate_on(url: str, script: str, *, wait: float = 3.0, timeout: float = 60.0,
+                browser: str | None = None, cookies_from: str | None = None):
+    """Открыть страницу настоящим браузером и выполнить на ней JS. Вернуть результат.
+
+    Зачем это нужно, если есть `render_page`. Есть площадки, чей собственный
+    JSON-эндпоинт из stdlib недостижим: Glassdoor режет запрос по TLS-отпечатку
+    клиента, а не по заголовкам, поэтому подделать его нечем — 403 приходит
+    даже с идеальными заголовками. Зато СО СТРАНИЦЫ, уже открытой настоящим
+    браузером, тот же запрос уходит нормально: он same-origin, и проверку
+    браузер прошёл сам, честно.
+
+    Это НЕ обход защиты: ничего не подделывается и не решается за площадку,
+    запрос делает тот самый браузер, которому она уже ответила. Если страница
+    показала челлендж — здесь по-прежнему BlockedError, как и в render_page.
+
+    Возвращает то, что вернул JS (Playwright сам сериализует в python-типы).
+    Скрипт обязан быть выражением-функцией (`() => {...}`) — так его и передавай.
+    """
+    from . import cookiesrc  # noqa: PLC0415
+
+    domains = cookiesrc.domains_for_url(url)
+    name = pick_browser(browser, domains)
+    if name == BUNDLED:
+        # Встроенный шелл против таких стен не помогает: у него другой UA и
+        # другой отпечаток. Честнее сказать это вслух, чем молча вернуть None
+        # и оставить вызывающего думать, что площадка отдала пустоту.
+        raise FetchError(url, "нужен настоящий браузер (--browser chrome): "
+                              "встроенный шелл эту площадку не проходит")
+    with real_context(name, offscreen=True, domains=domains) as ctx:
+        top_up_cookies(ctx, domains, cookies_from)
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        status = _goto(page, url, timeout)
+        _settle(page, wait, timeout)
+        html = page.content()
+        marker = looks_blocked(html, status)
+        if marker:
+            raise BlockedError(page.url, f"антибот-проверка ({marker}) — "
+                                         f"проверку проходит человек")
+        return page.evaluate(script)
+
+
 def render_page(url: str, *, session: str | None = None,
                 session_file: str | None = None, wait: float = 3.0,
                 timeout: float = 60.0, cookies_from: str | None = None,

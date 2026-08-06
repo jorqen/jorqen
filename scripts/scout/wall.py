@@ -13,10 +13,16 @@
    и площадки отвечают на него 403 даже там, где стены нет.
 2. **Терпеливо ждёт**, пока промежуточная страница сменится содержимым: опрашивает
    маркеры челленджа, а не спит фиксированную паузу.
-3. **Решает капчу по необходимости**
-4. **Не прошло само — зовёт человека**: открывает видимое окно того же профиля,
+3. **Не прошло само — зовёт человека**: открывает видимое окно того же профиля,
    человек проходит проверку сам, и полученная кука остаётся в профиле. Следующие
    прогоны идут молча. САМЫЙ КРАЙНИЙ И НЕЖЕЛАТЕЛЬНЫЙ СЛУЧАЙ!!! - он не должен происходить почти никогда
+
+Капчу модуль НЕ решает и решать не будет — ни распознаванием, ни внешним
+сервисом. 05.08.2026 был написан и по требованию владельца снят промежуточный
+вариант (картинка уезжала ему в Telegram, ответ возвращался в поле): канал
+признан неподходящим. Осталось то, что было: капчу проходит человек в браузере,
+а лучшая защита от неё — не встречать её вовсе, то есть ходить через API там,
+где он есть (hh, Хабр, rabota.ru уже переведены).
 """
 
 from __future__ import annotations
@@ -142,3 +148,42 @@ def fetch_through(url: str, *, browser: str | None = None, wait: float = 3.0,
             return fetch_through(url, browser=name, wait=wait, patience=patience,
                                  domains=domains, ask_human=False)
     return html, final, state
+
+
+def fetch_many_through(urls: list[str], *, browser: str | None = None,
+                       wait: float = 3.0, patience: float = 45.0,
+                       domains: tuple[str, ...] = ()) -> list[tuple[str, str, str]]:
+    """Несколько адресов ОДНИМ браузерным контекстом. Порядок сохраняется.
+
+    Зачем отдельная функция. `fetch_through` открывает контекст на каждый вызов,
+    и зонд канала найма (три адреса на компанию) запускал браузер трижды подряд.
+    На двадцати компаниях это шестьдесят запусков вместо двадцати: каждый —
+    это профиль под локом, секунды ожидания и лишний повод для площадки
+    посчитать нас ботом.
+
+    Адрес, упавший или закрытый стеной, не рвёт обход остальных: у него будет
+    своё состояние в своём элементе списка.
+    """
+    from .render import BUNDLED, pick_browser, real_context  # noqa: PLC0415
+
+    if not urls:
+        return []
+    name = pick_browser(browser, domains)
+    if name == BUNDLED:
+        # Без настоящего браузера переиспользовать нечего — идём штатным путём.
+        return [fetch_through(u, browser=name, wait=wait, patience=patience,
+                              domains=domains, ask_human=False) for u in urls]
+    out: list[tuple[str, str, str]] = []
+    with real_context(name, offscreen=True, domains=domains) as ctx:
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        for url in urls:
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                state = wait_out(page, patience=patience)
+                if state == "clear":
+                    page.wait_for_timeout(wait * 1000)
+                out.append((page.content(), page.url, state))
+            except Exception as e:  # noqa: BLE001 — один адрес не рвёт обход
+                out.append(("", url,
+                            "human" if "антибот" in str(e).lower() else "error"))
+    return out
