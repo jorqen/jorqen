@@ -85,11 +85,19 @@ def skill_variants(path: str = RESUME_PATH) -> tuple[list[list[str]], str | None
     data, why = _resume(path)
     if why:
         return [], why
+    # Пункт навыка бывает локализованным ({en: …, ru: …}) — так записаны
+    # разговорные языки. Через str() он превращался в кусок питоновского
+    # словаря и уезжал в поиск целиком: «{'en': 'russian» вместо «russian».
+    def _text(x) -> str:
+        if isinstance(x, dict):
+            return str(x.get("en") or next(iter(x.values()), ""))
+        return str(x)
+
     out: list[str] = []
     for group in ((data.get("skills") or {}).get("groups") or []):
-        out += [str(x) for x in (group.get("items") or [])]
+        out += [_text(x) for x in (group.get("items") or [])]
     for item in ((data.get("experience") or {}).get("items") or []):
-        out += [str(x) for x in (item.get("stack") or [])]
+        out += [_text(x) for x in (item.get("stack") or [])]
     groups: list[list[str]] = []
     seen: set[str] = set()
     for raw in out:
