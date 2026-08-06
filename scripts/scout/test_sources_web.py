@@ -14,7 +14,10 @@
 * поиск площадки, который на деле не ищет, не принимается на веру: буквальный
   ILIKE (dreamoffer), подмешивающий своё (relocate.me), префиксный (HN);
 * между страницами есть пауза, а TLS-обрыв — это троттлинг, а не поломка
-  (rabota.ru). Паузы в тестах записываются, а не отсыпаются, см. `_Net.naps`.
+  (rabota.ru). Паузы в тестах записываются, а не отсыпаются, см. `_Net.naps`;
+* деталки hirehi/careered собираются из JSON API, и путь отклика назван честно:
+  метерируемое раскрытие у hirehi, бесплатный логин или раскрытый контакт у
+  careered — а собственные каналы площадки (offers) контактом не выдаются.
 
     python3 -m scripts.scout.test_sources_web
 """
@@ -96,6 +99,12 @@ class _Net:
 
     def fetch_json(self, url, **kw):
         self.asked.append(url)
+        # Тело POST записывается и здесь, а не только в fetch: у rabota.ru
+        # обязательная обёртка `request`, и без неё API молча отдаёт выдачу по
+        # ПУСТОМУ запросу. Проверить это можно только по телу — по URL не видно.
+        body = kw.get("data")
+        if isinstance(body, bytes):
+            self.bodies.append(body.decode())
         for frag, payload in self.json_routes.items():
             if frag in url:
                 if isinstance(payload, Exception):
@@ -158,6 +167,25 @@ GLASSDOOR_WALL = """<!DOCTYPE html><html lang="en" dir="ltr"><head>
 LEVELS_WALL = """<!DOCTYPE html><html><head><title>levels.fyi</title>
 <script src="https://e7d39a0b83b3.073fd99d.eu-north-1.token.awswaf.com/challenge.js"></script>
 </head><body><div id="challenge-container"></div></body></html>"""
+
+
+def test_json_about_captcha_is_data_not_wall():
+    """Валидный JSON со словом «captcha» в данных — это данные, а не стена.
+
+    Живой случай: вакансия SteelMount ПРО антифрод («CAPTCHA, антибот-системы»
+    в первых байтах ответа wantapply) объявлялась антибот-проверкой, и живость
+    вакансии было не узнать. HTML-челлендж при этом обязан остаться стеной."""
+    from . import net
+    api_json = ('{"data":[{"id":"3f36d31e","title":"Senior Golang Backend",'
+                '"description":"эксперт в антифроде (CAPTCHA, антибот-системы '
+                'и Proof-of-Work)"}],"total":1}')
+    true(net.wall_marker(api_json, 200) is None,
+         "JSON с «captcha» в данных ошибочно объявлен стеной")
+    true(net.wall_marker(GLASSDOOR_WALL, 200) is not None,
+         "HTML-челлендж перестал считаться стеной")
+    broken_json = '{"oops": подтвердите, что вы не робот'
+    true(net.wall_marker(broken_json, 200) is not None,
+         "нераспарсившийся псевдо-JSON со стеной пропущен")
 
 
 def test_wall_is_recognized_not_parsed():
@@ -562,7 +590,7 @@ RABOTA_HTML = """<html><head><title>Работа backend-разработчик�
 def test_rabota_reads_ldjson_and_zero_max_is_not_zero():
     """maxValue = 0 означает «сверху не указано». Прямой перенос дал бы «350 000–0»."""
     net = _Net({"rabota.ru": RABOTA_HTML})
-    rows = with_net(net, lambda: W.src_rabota(Ctx(query="Golang", days=3650)))
+    rows = with_net(net, lambda: W._src_rabota_html(Ctx(query="Golang", days=3650)))
     js = jobs_of(rows)
     eq(len(js), 2, "оба JobPosting разобраны")
     sber = js[0]
@@ -578,7 +606,7 @@ def test_rabota_skips_two_letter_query():
     """`query=Go` отдаёт ноль — это ловушка, а не «вакансий нет». Такой запрос
     не отправляется вовсе, и в сводке написано почему."""
     net = _Net({"rabota.ru": RABOTA_HTML})
-    rows = with_net(net, lambda: W.src_rabota(Ctx(query="Go", days=3650)))
+    rows = with_net(net, lambda: W._src_rabota_html(Ctx(query="Go", days=3650)))
     eq(len(jobs_of(rows)), 0, "короткий запрос не должен ничего приносить")
     true(any("коротк" in n for n in summary_of(rows).raw["notes"]),
          "в сводке не сказано, что запрос пропущен из-за длины")
@@ -600,7 +628,7 @@ def test_rabota_reads_the_second_page_and_pauses_between_requests():
     страница даёт вакансии, которых на первой нет. И между запросами обязана
     быть пауза — площадка уже закрывала нам TLS за частоту."""
     net = _Net({"page=2": RABOTA_PAGE2, "rabota.ru": RABOTA_HTML})
-    rows = with_net(net, lambda: W.src_rabota(Ctx(query="Golang", days=3650)))
+    rows = with_net(net, lambda: W._src_rabota_html(Ctx(query="Golang", days=3650)))
     ids = [v.external_id for v in jobs_of(rows)]
     true("99999999" in ids, f"вторая страница не прочитана: {ids}")
     true(any("page=2" in u for u in net.asked), "запрос второй страницы не ушёл")
@@ -620,7 +648,7 @@ def test_rabota_tls_drop_is_throttling_not_a_crash():
          "обычная ошибка объявлена троттлингом")
     net = _Net({"rabota.ru": err})
     try:
-        with_net(net, lambda: W.src_rabota(Ctx(query="Golang")))
+        with_net(net, lambda: W._src_rabota_html(Ctx(query="Golang")))
         FAILS.append("rabota: TLS-обрыв молча стал нулём вакансий")
     except W.ThrottledError as e:
         true("троттлинг" in str(e).lower(), f"причина названа непонятно: {e}")
@@ -634,7 +662,7 @@ def test_rabota_keeps_what_it_managed_to_collect_before_the_throttle():
     err = FetchError("https://www.rabota.ru/vacancy/?page=2",
                      "URLError: <urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING]>")
     net = _Net({"page=2": err, "rabota.ru": RABOTA_HTML})
-    rows = with_net(net, lambda: W.src_rabota(Ctx(query="Golang", days=3650)))
+    rows = with_net(net, lambda: W._src_rabota_html(Ctx(query="Golang", days=3650)))
     eq(len(jobs_of(rows)), 2, "собранное до троттлинга выброшено")
     notes = summary_of(rows).raw["notes"]
     true(any("ТРОТТЛИНГ" in n for n in notes), f"троттлинг не назван в сводке: {notes}")
@@ -646,10 +674,61 @@ def test_rabota_without_ldjson_is_a_failure():
     Заголовок страницы проверять нельзя: он зашит SEO-текстом и запрос не отражает."""
     net = _Net({"rabota.ru": "<html><h1>Вакансии backend-разработчика</h1></html>"})
     try:
-        with_net(net, lambda: W.src_rabota(Ctx(query="Golang")))
+        with_net(net, lambda: W._src_rabota_html(Ctx(query="Golang")))
         FAILS.append("rabota: страница без ld+json не уронила источник")
     except FetchError:
         pass
+
+
+RABOTA_API_JSON = {"response": {"relevant": 2, "total": 2, "vacancies": [
+    {"id": 111, "title": "Senior Golang-разработчик",
+     "modified_date": "2026-08-05T10:00:00+03:00",
+     "salary": {"from": 350000, "to": 0, "currency": "руб./мес.", "pay_type": "net"},
+     "company": {"name": "СБЕР", "slug": "sber"},
+     "contact_person": {"name": "Рекрутмент", "email": "hr@sberbank.ru", "phones": []},
+     "places": [{"location": {"name": "Москва"}}],
+     "description": "<p>Писать сервисы на Go</p>"},
+    {"id": 222, "title": "Backend-разработчик",
+     "modified_date": "2026-08-04T10:00:00+03:00",
+     "salary": {"from": 0, "to": 0, "currency": "руб./мес.", "pay_type": "gross"},
+     "company": {"name": "Джейкет"}, "contact_person": {},
+     "places": [], "description": ""},
+]}}
+
+
+def test_rabota_api_keeps_the_recruiter_contact_and_zero_is_not_a_salary():
+    """Ради контакта источник и переведён на API: в ld+json почты рекрутёра нет.
+
+    И та же ловушка, что была в разметке: `to: 0` — это «сверху не указано»,
+    а не «до нуля». Перенести ноль числом значит показать «350 000–0 ₽»."""
+    net = _Net({}, {"api.rabota.ru": RABOTA_API_JSON})
+    rows = with_net(net, lambda: W.src_rabota(Ctx(query="Golang", days=3650)))
+    js = jobs_of(rows)
+    eq(len(js), 2, "обе записи разобраны")
+    sber = js[0]
+    eq(sber.raw["contact"]["email"], "hr@sberbank.ru", "почта рекрутёра сохранена")
+    eq((sber.salary_from, sber.salary_to), (350000, None),
+       "ноль сверху — это «не указано»")
+    eq(sber.salary_gross, False, "pay_type=net → на руки")
+    eq(js[1].salary_gross, True, "pay_type=gross → до вычета")
+    eq((js[1].salary_from, js[1].salary_to, js[1].currency), (None, None, None),
+       "обе границы нулевые — вилки нет вовсе, и валюты тоже")
+    eq(sber.location, "Москва", "город из places")
+    eq("api.rabota.ru" in net.asked[0], True, "запрос ушёл в API, а не на страницу")
+    body = net.bodies[0] if net.bodies else ""
+    eq('"request"' in body, True,
+       "тело в обёртке request: без неё API молча отдаёт выдачу по ПУСТОМУ запросу")
+
+
+def test_rabota_falls_back_to_ldjson_when_the_api_refuses():
+    """Отказ API не должен стоить площадки: разбор ld+json остаётся живым,
+    и в сводке видно, что выдача снята запасным путём."""
+    net = _Net({"rabota.ru": RABOTA_HTML},
+               {"api.rabota.ru": FetchError("api.rabota.ru", "502")})
+    rows = with_net(net, lambda: W.src_rabota(Ctx(query="Golang", days=3650)))
+    eq(len(jobs_of(rows)), 2, "вакансии приехали разбором страницы")
+    notes = " ".join(summary_of(rows).raw.get("notes") or [])
+    eq("API не сработал" in notes, True, "путь получения выдачи назван вслух")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -813,6 +892,30 @@ def test_eures_does_not_stop_at_the_first_page_without_hits():
        "попадания с третьей страницы не доехали до отчёта")
     true(any("подряд без свежих попаданий" in n for n in summary_of(rows).raw["notes"]),
          "в сводке не объяснено, почему обход остановился")
+
+
+def test_eures_limit_raises_the_page_ceiling():
+    """--limit обязан УМЕТЬ поднять потолок страниц (контракт row_budget). Жёсткий
+    min(EURES_MAX_PAGES, …) съедал его молча: прогон 04.08.2026 с --limit 20000
+    остался при 10 страницах из ~100, а сводка врала «подними --limit»."""
+    pages: dict[int, int] = {}
+
+    class _Pages(_Net):
+        def fetch(self, url, **kw):
+            self.asked.append(url)
+            body = kw.get("data")
+            if isinstance(body, bytes):
+                self.bodies.append(body.decode())
+            page = json.loads(self.bodies[-1])["page"]
+            pages[page] = pages.get(page, 0) + 1
+            return (_eures_page(f"p{page}", True), url)
+
+    net = _Pages({}, {"public/jv/id/": EURES_DETAIL})
+    rows = with_net(net, lambda: W.src_eures(Ctx(query="Golang", days=3650, limit=600)))
+    true(max(pages) > W.EURES_MAX_PAGES,
+         f"потолок страниц не поднялся выше умолчания: спрошены {sorted(pages)}")
+    eq(len(jobs_of(rows)), 12 * W.EURES_PAGE,
+       "строки сверх умолчальных 10 страниц не доехали до отчёта")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1064,40 +1167,241 @@ def test_hn_salary_helper():
 # levels.fyi — справочник, а не вакансии
 # ──────────────────────────────────────────────────────────────────────────────
 
-LEVELS_HTML = """<html><head><title>Backend Salary</title></head><body>
-<script id="__NEXT_DATA__" type="application/json">""" + json.dumps({"props": {"pageProps": {
-    "locationCurrency": "USD",
-    "jobTitle": {"name": "Backend Software Engineer", "slug": "backend-software-engineer"},
-    "defaultCountryMedian": 194480,
-    "serverJobTitlePercentiles": {
-        "jobFamily": "Software Engineer", "jobTitle": "Backend Software Engineer",
-        "count": 7237,
-        "totalCompensation": {"p10": 109000, "p25": 145000, "p50": 194480,
-                              "p75": 261000, "p90": 340000},
-        "baseSalary": {"p50": 160000}, "bonus": {"p50": 0},
-        "stockGrant": {"p50": 17668.758}},
-}}}) + """</script></body></html>"""
+# Ответ .md-маршрута (снято живьём 05.08.2026, FAQ выброшен). Раньше здесь лежал
+# HTML с `__NEXT_DATA__`: площадка убрала оттуда `serverJobTitlePercentiles`,
+# и старый разбор падал бы даже с браузером. Разбор самого markdown проверяется
+# подробно в test_scout; здесь — поведение ИСТОЧНИКА: чем он ходит и что отдаёт.
+LEVELS_MD = """# Levels.fyi – Backend Software Engineer Salary
+
+**URL:** https://www.levels.fyi/t/software-engineer/title/backend-software-engineer
+**Location:** United States
+**Currency:** USD ($)
+
+---
+## Aggregate Highlights
+- Median Total Compensation: $194,000
+- 25th / 75th Percentile: $145,000 / $260,000
+- 90th Percentile: $340,000
+- Last Updated: August 5, 2026
+
+---
+## Attribution
+Include: "Data source: Levels.fyi (https://www.levels.fyi)" in any derived work.
+"""
 
 
 def test_levels_benchmark_is_a_reference_not_a_vacancy():
     """Функция отдаёт словарь-справочник: суммы годовые и подписаны как годовые,
-    иначе медиана 194 480 встанет в колонку «деньги» рядом с месячными вилками."""
-    got = with_render(LEVELS_HTML, lambda: W.levels_benchmark("backend"),
-                      url="https://www.levels.fyi/t/software-engineer/title/backend")
-    eq(got["median_total"], 194480, "медиана взята из стейта, а не из «$194K» вёрстки")
-    eq(got["currency"], "USD", "валюта из locationCurrency")
+    иначе медиана 194 000 встанет в колонку «деньги» рядом с месячными вилками.
+
+    Заодно проверяется маршрут: браузера у источника больше нет, ходит обычный
+    GET по адресу с `.md` на конце."""
+    net = _Net({"levels.fyi": LEVELS_MD})
+    got = with_net(net, lambda: W.levels_benchmark("backend"))
+    eq(got["median_total"], 194000, "медиана из .md")
+    eq(got["currency"], "USD", "валюта из шапки .md")
     eq(got["period"], "year", "levels.fyi считает компенсацию за год")
-    eq(got["sample_size"], 7237, "размер выборки — часть ответа, без него цифра голая")
+    eq(got["attribution"], W.LEVELS_ATTRIBUTION,
+       "лицензия требует атрибуции — строка обязана быть в каждой записи")
+    true(net.asked and net.asked[0].endswith(".md"),
+         f"источник ушёл не на .md-маршрут: {net.asked}")
     true("levels" not in W.WEB_SOURCES, "справочник зарплат не должен быть источником вакансий")
+    true("levels" not in W.WEB_NEEDS_BROWSER_MAP,
+         "браузер источнику больше не нужен — пометка врёт про Playwright")
+
+    rows = with_net(_Net({"levels.fyi": LEVELS_MD}), lambda: W.src_levels(Ctx(query="Golang")))
+    row = summary_of(rows)
+    if row:
+        true(W.LEVELS_ATTRIBUTION in json.dumps(row.raw, ensure_ascii=False),
+             "атрибуция не доехала до raw сводки")
+        true("выборка" not in row.title,
+             "размера выборки площадка не отдаёт — писать «выборка None» нельзя")
 
 
 def test_levels_wall_is_not_data():
-    """AWS WAF отдаёт 202 с челленджем. Это АНТИБОТ, а не «нет данных»."""
+    """AWS WAF отдаёт челлендж. Это АНТИБОТ, а не «нет данных».
+
+    Стена дожила до .md-маршрута гипотетически, но проверка нужна прежняя:
+    HTML-челлендж вместо markdown обязан стать BlockedError, а не «медианы нет».
+    """
     try:
-        with_render(LEVELS_WALL, lambda: W.levels_benchmark("backend"))
+        with_net(_Net({"levels.fyi": LEVELS_WALL}), lambda: W.levels_benchmark("backend"))
         FAILS.append("levels.fyi: челлендж не превратился в BlockedError")
     except BlockedError:
         pass
+
+
+def test_levels_note_admits_what_the_md_route_lost():
+    """Потеря полей названа словами. Молча потерять p10/p99 и размер выборки —
+    это ровно та болезнь, из-за которой источник и лежал: цифра осталась, а то,
+    чего в ней больше нет, узнать неоткуда."""
+    for word in ("p10", "base", "выборки"):
+        true(word in W.LEVELS_LOST, f"в LEVELS_LOST не сказано про {word}")
+    true(W.LEVELS_LOST in W.WEB_SOURCE_NOTES["levels"],
+         "пометка источника молчит о потерянных полях")
+    true("браузер" not in W.WEB_SOURCE_NOTES["levels"].replace("браузер не нужен", ""),
+         "пометка всё ещё обещает браузер")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Деталки hirehi и careered (detail.py)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def with_detail_json(routes, fn):
+    """Подменяет detail.fetch_json и источник кук: ни сети, ни Keychain в тестах.
+
+    Возвращает (результат, [(url, cookies), ...]) — по второму видно, с какими
+    куками ушёл каждый запрос: для careered это и есть проверяемое поведение."""
+    from . import detail as D
+
+    asked: list[tuple[str, str | None]] = []
+
+    def fake(url, **kw):
+        asked.append((url, kw.get("cookies")))
+        for frag, payload in routes.items():
+            if frag in url:
+                if isinstance(payload, Exception):
+                    raise payload
+                return payload
+        raise AssertionError(f"json-фикстуры под {url} нет")
+
+    real_json, real_cookies = D.fetch_json, D._cookie_header_for
+    D.fetch_json = fake
+    D._cookie_header_for = lambda domain, spec, cache: "session=test-cookie"
+    try:
+        return fn(), asked
+    finally:
+        D.fetch_json, D._cookie_header_for = real_json, real_cookies
+
+
+# Обрезанный реальный ответ hirehi.ru/api/jobs/70186, снят живьём 30.07.2026.
+_HIREHI_JOB = {
+    "id": 70186, "title": "Golang разработчик", "company": "Selectel",
+    "category": "development",
+    "description": "Команда разрабатывает инфраструктурные продукты.",
+    "description_details": "<p>Команда разрабатывает инфраструктурные продукты: "
+                           "домены, DNS-хостинг, CDN.</p>",
+    "requirements_details": "<ul><li>Опыт коммерческой разработки API на Go;</li>"
+                            "<li>Практический опыт работы с PostgreSQL.</li></ul>",
+    "requirements": "- Опыт коммерческой разработки API на Go;",
+    "tasks_details": "<ul><li>Разрабатывать бэкенд-сервисы команды.</li></ul>",
+    "conditions_details": "<ul><li>ДМС с первого дня.</li></ul>",
+    "skills": "go, postgresql, docker",
+    "skills_list": ["go", "postgresql", "docker"],
+    "language": None, "level": "senior",
+    "location": "Питер", "region": "Russia", "country": "Russia",
+    "industry": "it_tech", "format": "гибрид Питер",
+    "salary": "зп не указана", "salary_display": "зп не указана",
+    "status": "active", "views": 4,
+    "created_at": "Thu, 30 Jul 2026 19:29:05 GMT",
+    "is_from_recruiter": False, "is_premium": False,
+    "important_info_enabled": False, "important_info_text": "",
+}
+
+
+def test_hirehi_detail_reads_json_api_not_the_spa_shell():
+    """Страница hirehi — Supabase-SPA, generic-ветка видела каркас. Деталка идёт
+    в /api/jobs/{id}; id вырезается из обоих форматов URL, а путь отклика назван
+    честно: контакт метерируемый, программно не берётся."""
+    from .detail import get_detail
+
+    url = "https://hirehi.ru/development/golang-developer-70186"
+    d, asked = with_detail_json({"hirehi.ru/api/jobs/70186": dict(_HIREHI_JOB)},
+                                lambda: get_detail(url))
+    eq(asked[0][0], "https://hirehi.ru/api/jobs/70186", "запрошен JSON API, не страница")
+    eq(d.source, "hirehi", "разобрано парсером, а не generic-фолбэком")
+    eq(d.title, "Golang разработчик", "title из API")
+    eq(d.company, "Selectel", "company из API")
+    true(d.requirements and "PostgreSQL" in d.requirements,
+         "требования из requirements_details не пусты")
+    true("бэкенд-сервисы" in (d.description or ""), "tasks_details вошли в описание")
+    true("ДМС" in (d.description or ""), "conditions_details вошли в описание")
+    eq(d.salary, None, "«зп не указана» — заглушка площадки, а не вилка")
+    eq(str(d.published_at)[:10], "2026-07-30", "RFC-1123 дата приведена к ISO")
+    eq(d.location, "Питер, Russia", "дубль region/country схлопнут")
+    eq(d.work_format, "гибрид Питер", "формат — как назвала площадка")
+    eq(d.extra.get("skills"), ["go", "postgresql", "docker"], "скиллы из skills_list")
+    eq(d.apply_url, None, "контакт программно не берётся — раскрытие метерируемое")
+    true("лимитируемым раскрытием" in (d.apply_note or "") and url in (d.apply_note or ""),
+         "путь отклика: команда reveal со списанием, с URL страницы")
+    true("scout reveal" in (d.apply_note or ""),
+         "назван инструмент раскрытия — reveal, а не абстрактный «клик в браузере»")
+
+    d2, _ = with_detail_json({"hirehi.ru/api/jobs/70186": dict(_HIREHI_JOB)},
+                             lambda: get_detail("https://hirehi.ru/development/x-70186"))
+    eq(d2.source, "hirehi", "формат /x-{id} распознан тем же парсером")
+
+
+_CAREERED_UUID = "9a3cdd68-5b66-492c-9f57-c15112b37bec"
+
+
+def _careered_job(mode, links, content="Building Go services for fintech."):
+    """Каркас ответа careered /api/jobs/{uuid}; тесты меняют mode/links/content."""
+    return {
+        "id": _CAREERED_UUID, "kind": "job", "mode": mode,
+        "tag": {"name": "Backend"},
+        "content": content,
+        "features": [
+            {"key": "name", "value": "Senior Go Engineer"},
+            {"key": "company", "value": "Acme"},
+            {"key": "summary", "value": "Go, PostgreSQL, Kafka."},
+            {"key": "salary_from", "value": "4000"},
+            {"key": "salary_to", "value": "6000"},
+            {"key": "salary_currency", "value": "USD"},
+            {"key": "salary_period", "value": "month"},
+            {"key": "location", "value": "Remote"},
+            {"key": "work_format", "value": "remote"},
+            {"key": "source", "value": "telegram"},
+            {"key": "has_owner", "value": "false"},
+        ],
+        "links": links,
+        # Собственные каналы площадки: перепутать их с контактом работодателя —
+        # значит отправить отклик в рекламную ленту.
+        "offers": [{"kind": "telegram_channel", "link": "https://t.me/golang_jobs_top",
+                    "name": "Подписаться на канал"}],
+        "posted_at": 1785435471,
+    }
+
+
+def test_careered_preview_needs_free_login_and_offers_are_not_contacts():
+    """Анонимный GET отдаёт preview: mode='preview', в links '#', в content бывает
+    show_placeholder. Это НЕ «контакта нет» — это «залогинься бесплатно», и выжимка
+    обязана сказать это словами. offers[] контактом не считаются."""
+    from .detail import get_detail
+
+    job = _careered_job("preview",
+                        [{"key": "telegram", "value": "#"},
+                         {"key": "other_apply", "value": "#"}],
+                        content="show_placeholder")
+    d, asked = with_detail_json(
+        {f"careered.io/api/jobs/{_CAREERED_UUID}": job},
+        lambda: get_detail(f"https://careered.io/jobs/{_CAREERED_UUID}"))
+    eq(d.apply_url, None, "preview: контакта нет, подставлять нечего")
+    true("БЕСПЛАТНОЙ регистрацией" in (d.apply_note or ""),
+         "сказано, что регистрация бесплатная — это не платный посредник")
+    true("auth login careered" in (d.apply_note or ""),
+         "назван следующий шаг пользователя — вход, сессия careered в localStorage")
+    blob = json.dumps([d.apply_url, d.apply_note], ensure_ascii=False)
+    true("golang_jobs_top" not in blob, "канал площадки из offers не выдан за контакт")
+    eq(asked[0][1], "session=test-cookie",
+       "запрос ушёл с куками пользователя — так preview и превращается в full")
+
+
+def test_careered_full_mode_reveals_employer_telegram():
+    """С куками залогиненного пользователя mode='full' и в links живой telegram —
+    это и есть путь отклика, а не пометка «нужен логин»."""
+    from .detail import get_detail
+
+    job = _careered_job("full", [{"key": "telegram", "value": "https://t.me/some_hr"},
+                                 {"key": "linkedin_company", "value": "#"}])
+    d, _ = with_detail_json(
+        {f"careered.io/api/jobs/{_CAREERED_UUID}": job},
+        lambda: get_detail(f"https://careered.io/jobs/{_CAREERED_UUID}"))
+    eq(d.apply_url, "https://t.me/some_hr", "раскрытый контакт подставлен в путь отклика")
+    true("раскрыт" in (d.apply_note or ""), "подпись говорит, что контакт раскрыт")
+    eq(d.salary, "4 000–6 000 USD/мес", "вилка с периодом из своих полей")
+    eq(d.work_format, "remote", "work_format из features, а не догадка по локации")
+    eq(d.published_at, "2026-07-30T18:17:51+00:00", "posted_at unix → ISO")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1131,6 +1435,7 @@ def test_query_relevance_understands_go():
 
 def main() -> int:
     for fn in (test_tally_shows_mismatch,
+               test_json_about_captcha_is_data_not_wall,
                test_wall_is_recognized_not_parsed,
                test_glassdoor_reports_wall_and_never_bypasses,
                test_glassdoor_parses_when_wall_is_down,
@@ -1155,11 +1460,14 @@ def main() -> int:
                test_rabota_keeps_what_it_managed_to_collect_before_the_throttle,
                test_rabota_skips_two_letter_query,
                test_rabota_without_ldjson_is_a_failure,
+               test_rabota_api_keeps_the_recruiter_contact_and_zero_is_not_a_salary,
+               test_rabota_falls_back_to_ldjson_when_the_api_refuses,
                test_getmatch_drops_promo_and_prefixes_url,
                test_getmatch_ats_all_keeps_everything,
                test_eures_filters_fuzzy_hits_and_takes_period_from_source,
                test_eures_asks_for_full_pages_only,
                test_eures_does_not_stop_at_the_first_page_without_hits,
+               test_eures_limit_raises_the_page_ceiling,
                test_relocateme_takes_the_whole_board_and_filters_itself,
                test_relocateme_stops_when_a_page_brings_nothing_new,
                test_jobsdb_salary_range_keeps_upper_bound,
@@ -1171,6 +1479,10 @@ def main() -> int:
                test_hn_salary_helper,
                test_levels_benchmark_is_a_reference_not_a_vacancy,
                test_levels_wall_is_not_data,
+               test_levels_note_admits_what_the_md_route_lost,
+               test_hirehi_detail_reads_json_api_not_the_spa_shell,
+               test_careered_preview_needs_free_login_and_offers_are_not_contacts,
+               test_careered_full_mode_reveals_employer_telegram,
                test_registry_is_coherent,
                test_query_relevance_understands_go):
         fn()

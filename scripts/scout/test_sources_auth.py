@@ -630,6 +630,116 @@ def test_wantapply_apply_url_reads_the_real_link():
            "ссылки нет → None, а не мусор из чужого поля")
 
 
+def test_wantapply_dead_statuses_are_filtered_and_named():
+    """Каталог отдаёт снятые вакансии обычными строками: deleted находится
+    поиском наравне с живыми. В карточки им нельзя, но и исчезнуть молча
+    они не должны — иначе баланс сводки перестаёт сходиться."""
+    rows = [
+        {**_WANTAPPLY_ROW, "id": "live", "url": "slug-live", "status": "published",
+         "statusChangedAt": None, "expirationDate": "2026-10-27T18:21:31.217Z"},
+        {**_WANTAPPLY_ROW, "id": "arch", "url": "slug-arch", "status": "archived",
+         "statusChangedAt": "2026-05-01T00:00:00.000Z"},
+        {**_WANTAPPLY_ROW, "id": "del", "url": "slug-del", "status": "deleted",
+         "statusChangedAt": "2025-09-09T16:33:09.864Z"},
+    ]
+
+    def fake(url, **kw):
+        spec = json.loads(urllib.parse.unquote(
+            urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)["filters"][0]))
+        if spec.get("search") is None:
+            return {"total": 9168, "data": [], "hasNextPage": False}
+        return {"total": len(rows), "hasNextPage": False, "data": rows}
+
+    with patched(sa, "fetch_json", fake), \
+            patched(sa, "WANTAPPLY_QUERIES", ("Golang",)):
+        got = sa.src_wantapply(Ctx(query="Golang", extra_queries=()))
+    body = [v for v in got if v.external_id != "_summary"]
+    summary = [v for v in got if v.external_id == "_summary"][0]
+    eq([v.external_id for v in body], ["live"], "в выдаче только published")
+    eq(summary.raw["skipped_dead"], 2, "снятые посчитаны, а не потеряны")
+    eq(summary.raw["lost"], 0, "баланс сводки сошёлся")
+    ok("archived 1" in summary.title and "deleted 1" in summary.title,
+       f"в сводке названо, что именно отсеяно: {summary.title}")
+    v = body[0]
+    eq(v.published_at, "2026-07-29T10:00:00+00:00",
+       "published_at взят из publishedAt площадки, а не из времени краулинга")
+    eq(v.raw["status"], "published", "status сохранён в raw")
+    eq(v.raw["statusChangedAt"], None, "statusChangedAt сохранён в raw")
+    eq(v.raw["expirationDate"], "2026-10-27T18:21:31.217Z",
+       "expirationDate сохранён в raw")
+
+
+def test_wantapply_check_reads_status_not_presence():
+    """Сам факт «нашлось по слагу» — ещё не жизнь: живой пример
+    senior-golang-backend-at-steelmount находится как ни в чём не бывало,
+    но со status=deleted и датой снятия 2025-09-09."""
+    def catalog(row, total):
+        return lambda url, **kw: {"total": total, "hasNextPage": False,
+                                  "data": [row] if row else []}
+
+    alive = {**_WANTAPPLY_ROW, "status": "published", "expirationDate": _ago(-90)}
+    with patched(sa, "fetch_json", catalog(alive, 1)):
+        verdict, why = sa.wantapply_check(
+            "https://wantapply.com/jobs/lead-backend-developer-golang-at-joom")
+    eq(verdict, "ЖИВА", f"published → ЖИВА ({why})")
+    ok("подозрительна" not in why, "живой срок годности не пугает")
+
+    stale = {**alive, "expirationDate": _ago(3)}
+    with patched(sa, "fetch_json", catalog(stale, 1)):
+        verdict, why = sa.wantapply_check("https://wantapply.com/jobs/x")
+    eq(verdict, "ЖИВА", "истёкший expirationDate — ещё не смерть")
+    ok("подозрительна" in why, f"но пометка обязана быть: {why!r}")
+
+    dead = {**_WANTAPPLY_ROW, "url": "senior-golang-backend-at-steelmount",
+            "status": "deleted", "statusChangedAt": "2025-09-09T16:33:09.864Z"}
+    with patched(sa, "fetch_json", catalog(dead, 1)):
+        verdict, why = sa.wantapply_check(
+            "https://wantapply.com/jobs/senior-golang-backend-at-steelmount")
+    eq(verdict, "МЕРТВА", "deleted → МЕРТВА")
+    ok("2025-09-09" in why, f"дата смерти в пояснении: {why!r}")
+
+
+def test_wantapply_check_does_not_trust_an_ignored_filter():
+    """total=9200 по фильтру-слагу — ловушка №1 (весь каталог), а не «нашлось
+    9200». Уверенный вердикт из такого ответа — ложь."""
+    with patched(sa, "fetch_json",
+                 lambda url, **kw: {"total": 9200, "hasNextPage": True,
+                                    "data": [_WANTAPPLY_ROW, _WANTAPPLY_ROW]}):
+        verdict, why = sa.wantapply_check("https://wantapply.com/jobs/whatever")
+    eq(verdict, "НЕИЗВЕСТНО", "проигнорированный фильтр не даёт вердикта")
+    ok("проигнорирован" in why, f"причина названа: {why!r}")
+
+
+def test_wantapply_check_rechecks_by_id_before_declaring_death():
+    """Слага нет в каталоге — ещё не смерть: при переименовании вакансии слаг
+    меняется, а id остаётся. Без UUID честный ответ — НЕИЗВЕСТНО; с UUID —
+    перепроверка по id, и только 404 там означает МЕРТВА."""
+    empty = {"total": 0, "hasNextPage": False, "data": []}
+    uuid = "3f36d31e-e5f7-4e5c-a2be-03f9aeef7f04"
+
+    with patched(sa, "fetch_json", lambda url, **kw: empty):
+        verdict, _ = sa.wantapply_check("https://wantapply.com/jobs/gone")
+    eq(verdict, "НЕИЗВЕСТНО", "без id смерть не выдумывается")
+
+    def gone(url, **kw):
+        if "filters=" in url:
+            return empty
+        raise sa.FetchError(url, "HTTP 404", 404)
+
+    with patched(sa, "fetch_json", gone):
+        verdict, why = sa.wantapply_check("https://wantapply.com/jobs/gone", uuid)
+    eq(verdict, "МЕРТВА", f"404 по id → МЕРТВА ({why})")
+
+    def renamed(url, **kw):
+        if "filters=" in url:
+            return empty
+        return {**_WANTAPPLY_ROW, "status": "published"}
+
+    with patched(sa, "fetch_json", renamed):
+        verdict, _ = sa.wantapply_check("https://wantapply.com/jobs/gone", uuid)
+    eq(verdict, "ЖИВА", "по id запись жива → слаг просто сменился")
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # shadowhint
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1207,6 +1317,11 @@ def main() -> int:
                test_wantapply_says_that_days_is_not_applied,
                test_wantapply_missing_session_does_not_lose_the_catalog,
                test_wantapply_apply_url_reads_the_real_link,
+               # ── wantapply: живость — это status, а не наличие записи ───
+               test_wantapply_dead_statuses_are_filtered_and_named,
+               test_wantapply_check_reads_status_not_presence,
+               test_wantapply_check_does_not_trust_an_ignored_filter,
+               test_wantapply_check_rechecks_by_id_before_declaring_death,
                # ── shadowhint: без входа нет ничего ───────────────────────
                test_shadowhint_without_session_says_so,
                test_shadowhint_401_is_login_not_breakage,
