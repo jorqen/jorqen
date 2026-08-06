@@ -4,6 +4,7 @@
     python3 -m scripts.scout new --since 3d     # что появилось с прошлого раза
     python3 -m scripts.scout coverage           # кто отработал, кто упал — за последний прогон
     python3 -m scripts.scout resolve <url>      # куда на самом деле ведёт «Откликнуться»
+    python3 -m scripts.scout reveal <url>       # прямой контакт hirehi (СПИСЫВАЕТ лимит)
     python3 -m scripts.scout detail <url>       # выжимка страницы вакансии чистым текстом
     python3 -m scripts.scout enrich --since 3d  # выжимки по всей дельте, с хранением
     python3 -m scripts.scout ats check <token>  # живость токена на всех ATS сразу
@@ -56,6 +57,7 @@ from datetime import datetime, timezone
 from . import store
 from .model import Vacancy
 from .net import BlockedError, FetchError, parallel
+from . import cookiesrc
 from .sources import (ATS_ROLE_RE, LOGIN_VALUE, NEEDS_BROWSER_SET, NEEDS_LOGIN,
                       RAW_SOURCES, SOURCE_NOTES, SOURCES, Ctx, EmptyDumpError,
                       raw_dump)
@@ -207,19 +209,38 @@ def _limit_hit(vacancies: list, found: int, limit: int) -> str:
 
 def run_collect(ctx: Ctx, names: list[str], *, workers: int = 8,
                 db: str = store.DEFAULT_DB, no_store: bool = False,
-                no_browser: bool = False, args_dict: dict | None = None) -> dict:
+                no_browser: bool = False, args_dict: dict | None = None,
+                raw_cache: str | None = None) -> dict:
     """Ядро collect, отделённое от печати: им пользуется и `collect`, и `scan`.
-    Возвращает {report, vacancies, new, updated, elapsed}."""
+    Возвращает {report, vacancies, new, updated, elapsed}.
+
+    `raw_cache`: None — не кэшировать; 'write' — ходить в сеть и складывать
+    ответы; 'read' — брать из кэша всё, что там есть за сегодня. Режим 'read'
+    существует для отладки парсеров: прогон по уже скачанному не стоит ни
+    одного запроса к площадке.
+    """
     started = time.time()
     timings: dict[str, int] = {}
+    cache = None
+    if raw_cache:
+        from . import net as _net, rawcache  # noqa: PLC0415
+
+        cache = rawcache.Cache(db, read=(raw_cache == "read"), write=True)
+        _net.set_cache(cache)
 
     def wrap(name):
         def run():
             t0 = time.time()
+            # Имя источника для кэша сырых ответов — по потоку: обход идёт
+            # в пуле, и общий на процесс «текущий источник» перепутал бы
+            # страницы площадок между собой.
+            from . import rawcache  # noqa: PLC0415
+            rawcache.set_source(name)
             try:
                 return SOURCES[name](ctx)
             finally:
                 timings[name] = int((time.time() - t0) * 1000)
+                rawcache.set_source(None)
         return run
 
     # Прогон открывается ДО обхода, а не после: раньше start_run стоял внутри
@@ -281,20 +302,35 @@ def run_collect(ctx: Ctx, names: list[str], *, workers: int = 8,
                            "limit_hit": "", "note": source_note(name)})
 
     new = updated = 0
+    degraded: list[dict] = []
+    checked = 0
     if not no_store and run_id is not None:
+        from . import health  # noqa: PLC0415
+
         with store.connect(db) as conn:
             new, updated = store.upsert(conn, all_vacancies)
+            # Сверка с историей — ДО записи свежих счётчиков: иначе текущий
+            # прогон попадёт в собственную базу сравнения и разбавит медиану
+            # ровно тем числом, которое мы проверяем.
+            degraded = health.assess(conn, run_id, report)
+            checked = len(health.history(conn, run_id))
             for r in report:
                 store.record_source(conn, run_id, r["source"], r["status"],
                                     found=r["found"], error=r["error"],
                                     elapsed_ms=r["elapsed_ms"])
             store.finish_run(conn, run_id)
 
+    if cache is not None:
+        from . import net as _net  # noqa: PLC0415
+
+        _net.set_cache(None)      # шов процессный — снимаем за собой
+
     # Служебная сводка ATS — не вакансия: в «найдено» она попадать не должна.
     total = sum(1 for v in all_vacancies if v.external_id != "_summary")
     return {"report": report, "vacancies": all_vacancies, "new": new,
             "updated": updated, "elapsed": time.time() - started, "total": total,
-            "limit": ctx.limit}
+            "limit": ctx.limit, "health": degraded, "health_checked": checked,
+            "cache": cache.line() if cache is not None else None}
 
 
 def cmd_collect(args) -> int:
@@ -311,7 +347,8 @@ def cmd_collect(args) -> int:
     res = run_collect(ctx, names, workers=args.workers, db=args.db,
                       no_store=args.no_store,
                       no_browser=getattr(args, "no_browser", False),
-                      args_dict=vars(args))
+                      args_dict=vars(args),
+                      raw_cache=getattr(args, "raw_cache", None))
     report, all_vacancies = res["report"], res["vacancies"]
     total = res["total"]
 
@@ -334,7 +371,10 @@ def cmd_collect(args) -> int:
         }, ensure_ascii=False, indent=2))
     else:
         _print_coverage(report, total, res["new"], res["updated"], res["elapsed"],
-                        subset=bool(args.sources), limit=ctx.limit)
+                        subset=bool(args.sources), limit=ctx.limit,
+                        health_rows=res.get("health"),
+                        health_checked=res.get("health_checked", 0),
+                        cache_line=res.get("cache"))
 
     # Ненулевой код — чтобы упавшая площадка была видна вызывающему, а не утонула в выводе.
     return 1 if failed else 0
@@ -363,7 +403,8 @@ def _limit_lines(report, limit: int | None) -> list[str]:
 
 
 def _print_coverage(report, total, new, updated, elapsed, *, subset: bool = False,
-                    limit: int | None = None) -> None:
+                    limit: int | None = None, health_rows: list[dict] | None = None,
+                    health_checked: int = 0, cache_line: str | None = None) -> None:
     print(f"\n## Покрытие прогона ({elapsed:.1f}s)\n")
     print(f"{'источник':<14} {'статус':<9} {'найдено':>8} {'время':>7}  примечание")
     print("-" * 88)
@@ -378,6 +419,16 @@ def _print_coverage(report, total, new, updated, elapsed, *, subset: bool = Fals
     print(f"{'ИТОГО':<14} {'':<9} {total:>8}  новых: {new}, обновлено: {updated}")
     for line in _limit_lines(report, limit):
         print(line)
+
+    # Сверка с прошлыми прогонами. Статус `ok` говорит только «площадка ответила»;
+    # упавшая втрое выдача при живом парсере выглядит точно так же, и заметить её
+    # можно ровно здесь.
+    if health_rows is not None:
+        from . import health  # noqa: PLC0415
+
+        print(health.render(health_rows, checked=health_checked))
+    if cache_line:
+        print(f"\n💾 {cache_line}")
 
     # `raw` больше не способ собирать площадку — у всех семи есть парсер, и все семь
     # стоят в таблице выше. Строка осталась потому, что отладочный дамп («что там
@@ -440,17 +491,32 @@ def cmd_new(args) -> int:
         # в окне, то есть 1305 потерянных вакансий без единого предупреждения.
         total = store.count(conn, **kw)
         rows = store.query(conn, limit=args.limit, **kw)
+        # Окно по датам не видит строк, у которых дат нет вовсе, — их надо
+        # объявить, иначе источник целиком выпадает из выборки молча.
+        undated = store.count_undated(conn, sources=kw["sources"],
+                                      exclude_decided=kw["exclude_decided"]) \
+            if args.by == "published" and since else {}
     truncated = max(0, total - len(rows))
+    undated_note = ""
+    if undated:
+        per_src = ", ".join(f"{s}: {n}" for s, n in sorted(undated.items()))
+        undated_note = (f"⚠️  ВНЕ ОКНА, ПОТОМУ ЧТО ДАТ НЕТ ВООБЩЕ: "
+                        f"{sum(undated.values())} строк ({per_src}) — у площадки нет "
+                        f"ни даты публикации, ни обновления, окно --since к ним "
+                        f"неприменимо. Смотреть их: `new --by seen --sources <источник>`.")
 
     if args.format == "json":
         # JSON — объект с метаданными, а не голый массив: в массиве усечение
         # выразить нечем, и потребитель его не заметит.
         print(json.dumps({"since": since, "total": total, "shown": len(rows),
                           "truncated": truncated, "limit": args.limit,
+                          "undated": undated,
                           "items": rows}, ensure_ascii=False, indent=2, default=str))
         return 0
     if not rows:
         print("Ничего нового в окне.")
+        if undated_note:
+            print("\n" + undated_note)
         return 0
 
     head = f"# Новое с {since} — всего {total}"
@@ -485,6 +551,8 @@ def cmd_new(args) -> int:
     if truncated:
         print(f"\n⚠️  ПОКАЗАНА НЕ ВСЯ ДЕЛЬТА: {len(rows)} из {total}. "
               f"Остальное — `--limit {total}` или `--limit 0` (без ограничения).")
+    if undated_note:
+        print("\n" + undated_note)
     return 1 if truncated and args.strict else 0
 
 
@@ -552,6 +620,16 @@ def cmd_resolve(args) -> int:
     return 0
 
 
+def cmd_reveal(args) -> int:
+    """Раскрытие прямого контакта hirehi. СПИСЫВАЕТ лимит раскрытий пользователя —
+    разрешение на это дано им 30.07.2026 (релевантные вакансии, идемпотентно,
+    лишний раз не нажимать). Механика и все предохранители — в reveal.py."""
+    from .reveal import reveal
+    return reveal(args.urls, limit=args.limit, db=args.db,
+                  from_browser=(getattr(args, "cookies_from", None) or "auto")
+                  if args.from_browser else None)
+
+
 def cmd_raw(args) -> int:
     ctx = Ctx(query=args.query, days=args.days, area=args.area)
     if args.source not in RAW_SOURCES:
@@ -599,15 +677,172 @@ def cmd_auth(args) -> int:
             print(f"укажи площадку: {', '.join(auth.PLATFORMS)}  "
                   f"(или `--all` — вход разом на все)", file=sys.stderr)
             return 2
-        return auth.login(args.platform)
+        return auth.login(args.platform, wait=args.wait)
     if args.action == "check":
         return auth.check([args.platform] if args.platform else None)
+    if args.action == "push-browser":
+        from . import cookiepush
+        if not args.platform:
+            print("укажи площадку: scout auth push-browser hirehi [--from yandex]",
+                  file=sys.stderr)
+            return 2
+        src = args.from_ if args.from_ in ("yandex", "chrome", "claude") else "yandex"
+        return cookiepush.push(args.platform, src)
     if args.action == "secure":
         fixed = auth.secure_auth_dir()
         print("\n".join(f"  починено: {f}" for f in fixed)
               if fixed else "  права уже 0600 у всего содержимого .auth/")
         return 0
     return auth.status()
+
+
+def cmd_tg_rollback(args) -> int:
+    """Откат прочитанности Telegram: переиграть прогон с той же точки."""
+    from . import tgclient
+    return tgclient.cmd_rollback(args.file, apply=args.apply, db=args.db,
+                                 force=args.force)
+
+
+def cmd_wave(args) -> int:
+    """Весь конвейер + картина волны + блок «следующий шаг»."""
+    from . import wave
+    return wave.cli(args)
+
+
+def cmd_tg_reparse(args) -> int:
+    """Пересчитать телеграм-вакансии по сохранённому тексту поста, без сети."""
+    from . import store as _store, tgvacancy
+
+    with _store.connect(args.db) as conn:
+        seen, changed, examples = tgvacancy.reparse_stored(conn, apply=args.apply)
+    print(f"# tg-reparse: просмотрено {seen}, изменилось бы {changed}"
+          if not args.apply else
+          f"# tg-reparse: просмотрено {seen}, обновлено {changed}")
+    for e in examples:
+        print(f"  {e}")
+    if not args.apply and changed:
+        print("\nЭто предпросмотр. Применить: `scout tg-reparse --apply`")
+    return 0
+
+
+def cmd_tg_mirror(args) -> int:
+    """Пересылка постов вакансий в свой приватный канал (только forward)."""
+    from . import tgmirror
+    return tgmirror.cli(args)
+
+
+def cmd_card(args) -> int:
+    """Скелет карточки: всё, кроме фита и письма — их пишет модель."""
+    from . import card
+    return card.cli(args)
+
+
+def cmd_research(args) -> int:
+    """Кэш вердиктов ресёрча: записать выясненное, чтобы не выяснять снова."""
+    from . import store as _store
+
+    with _store.connect(args.db) as conn:
+        row = conn.execute("SELECT source, external_id FROM vacancy WHERE url=?",
+                           (args.url,)).fetchone()
+        if row is None:
+            print(f"нет в базе: {args.url}", file=sys.stderr)
+            return 1
+        if args.action == "get":
+            got = _store.research(conn, row["source"], row["external_id"])
+            if not got:
+                print("ресёрча по этой вакансии ещё не было")
+                return 1
+            for k, v in got.items():
+                if v:
+                    print(f"  {k}: {v}")
+            return 0
+        _store.save_research(conn, row["source"], row["external_id"],
+                             employer_revealed=args.employer, liveness=args.liveness,
+                             rtw=args.rtw, verdict=args.verdict,
+                             evidence=args.evidence)
+    print(f"записано: {row['source']}:{row['external_id']}")
+    return 0
+
+
+def cmd_budget(args) -> int:
+    """Смета волны до её начала — механизм, которым держится потолок 500K."""
+    from . import budget
+    return budget.cli(args)
+
+
+def cmd_channel(args) -> int:
+    """Прямой канал найма зондированием доменов — вместо подагентов-искателей."""
+    from . import channel
+    return channel.cli(args)
+
+
+def cmd_brief(args) -> int:
+    """Всё про вакансию одним вызовом: выжимка + история компании + канал найма."""
+    from . import brief
+    return brief.cli(args)
+
+
+def cmd_shortlist(args) -> int:
+    """Дельта, свёрнутая до строки на вакансию. Заменяет вычитку отчёта агентами:
+    дедуп, сверка с историей и разбор требуемого стажа делаются кодом."""
+    from . import shortlist
+    return shortlist.cli(args)
+
+
+def cmd_profile(args) -> int:
+    """Спрос рынка против того, что подтверждает резюме. Считается по своей же
+    базе: чинит и точность отбора (что спросить у пользователя), и конверсию
+    (что в резюме не подтверждено ничем)."""
+    from . import profile, store
+    with store.connect(args.db) as conn:
+        days = None if args.all else args.days
+        print(profile.build(conn, days=days, top=args.top,
+                            min_companies=args.min_companies))
+    return 0
+
+
+def cmd_employer(args) -> int:
+    """Кэш прямых каналов найма: найденное однажды не ищется каждым прогоном."""
+    from . import shortlist, store
+    from datetime import datetime, timezone
+    with store.connect(args.db) as conn:
+        if args.action == "list":
+            cur = conn.execute("SELECT company, channel, kind, checked_at "
+                               "FROM employer_channel ORDER BY company")
+            rows = cur.fetchall()
+            if not rows:
+                print("кэш пуст — заполняется командой `employer set`")
+                return 1
+            for company, channel, kind, checked in rows:
+                print(f"{company}\t{kind or '—'}\t{channel}\t{checked[:10]}")
+            return 0
+        if args.action == "get":
+            key = shortlist.norm(args.company)
+            cur = conn.execute("SELECT company, channel, kind, evidence, checked_at "
+                               "FROM employer_channel WHERE company_key = ?", (key,))
+            row = cur.fetchone()
+            if not row:
+                print(f"нет в кэше: {args.company}", file=sys.stderr)
+                return 1
+            print(f"{row[0]}\n  канал: {row[2] or '—'} {row[1]}\n  "
+                  f"подтверждение: {row[3] or '—'}\n  проверено: {row[4][:10]}")
+            return 0
+        if not args.company or not args.channel:
+            print("нужны компания и канал: employer set <компания> <url|почта|@ник> "
+                  "[--kind careers|ats|email|telegram|none] [--evidence …]",
+                  file=sys.stderr)
+            return 2
+        conn.execute(
+            "INSERT INTO employer_channel (company_key, company, channel, kind, "
+            "evidence, checked_at) VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(company_key) DO UPDATE SET channel=excluded.channel, "
+            "kind=excluded.kind, evidence=excluded.evidence, "
+            "checked_at=excluded.checked_at",
+            (shortlist.norm(args.company), args.company, args.channel, args.kind,
+             args.evidence, datetime.now(timezone.utc).isoformat(timespec="seconds")))
+        conn.commit()
+        print(f"запомнено: {args.company} → {args.channel}")
+    return 0
 
 
 def cmd_mark(args) -> int:
@@ -737,9 +972,12 @@ def cmd_ats_jobs(args) -> int:
         print(e, file=sys.stderr)
         return 2
     try:
-        # workable отдаёт большие доски только по запросу — прокидываем grep как текст.
+        # Движки с НАСТОЯЩИМ серверным поиском — им grep прокидывается текстом,
+        # и он сужает саму выдачу, а не только печать. У workable иначе большую
+        # доску не получить вовсе; у workday это единственный способ добраться до
+        # своих вакансий, когда их 2000, а обход упирается в потолок в 500.
         query = re.sub(r"[^\w\s-]", " ", args.grep).strip() if (
-            ats == "workable" and args.grep) else None
+            ats in ("workable", "workday") and args.grep) else None
         b = board(ats, token, query=query)
     except BlockedError as e:
         print(f"АНТИБОТ: {e}. Это не поломка — зайди на площадку браузером сам.")
@@ -931,9 +1169,10 @@ def run_enrich(db: str, since_iso: str | None, *, sources: list[str] | None = No
                max_n: int | None = None, workers: int = 8, refresh: bool = False,
                include_decided: bool = False, pace: float = ENRICH_PACE) -> dict:
     """Ядро enrich без печати — им пользуется и `enrich`, и `scan`.
-    Возвращает {digests, ok, blocked, failed, fails, delta, done, todo, skipped_by_max}."""
+    Возвращает {digests, ok, blocked, gone, failed, fails, delta, done, todo,
+    skipped_by_max, skipped_gone}."""
     from .detail import digest, get_detail
-    from .net import parallel
+    from .net import PAGE_GONE, PAGE_OK, error_state, parallel
 
     with store.connect(db) as conn:
         rows = store.query(conn, first_seen_since=since_iso, sources=sources,
@@ -943,6 +1182,9 @@ def run_enrich(db: str, since_iso: str | None, *, sources: list[str] | None = No
 
     with store.connect(db) as conn:
         done = store.have_details(conn, keys) if not refresh else set()
+        # Подмножество `done`: пропущенные не потому, что выжимка есть, а потому,
+        # что вакансии больше нет. Считаем здесь же — отдельной строкой отчёта.
+        skipped_gone = len(store.gone_details(conn, keys)) if not refresh else 0
     todo = [r for r in rows if (r["source"], r["external_id"]) not in done]
     # Схлопываем агрегаторские дубли: одна вакансия, размноженная по площадкам,
     # не должна съедать лимит несколько раз.
@@ -983,7 +1225,7 @@ def run_enrich(db: str, since_iso: str | None, *, sources: list[str] | None = No
          for r in todo},
         workers=workers)
 
-    ok = blocked = failed = 0
+    ok = blocked = gone = failed = 0
     digests: list[str] = []
     fails: list[str] = []
     with store.connect(db) as conn:
@@ -992,23 +1234,39 @@ def run_enrich(db: str, since_iso: str | None, *, sources: list[str] | None = No
             success, payload = results[key]
             if success:
                 ok += 1
+                # Разобралось — но страница всё ещё могла сказать «снята»
+                # (hh с флагом archived, Хабр с archived, заглушка ATS). Это
+                # состояние знает разборщик, и записать его надо здесь: выжимка
+                # у нас есть, а вакансии уже нет.
                 store.save_detail(conn, r["source"], r["external_id"], r["url"],
-                                  payload.status, payload=payload.to_dict())
+                                  payload.status, payload=payload.to_dict(),
+                                  page_state=payload.extra.get("page_state") or PAGE_OK)
                 digests.append(digest(payload))
             elif isinstance(payload, BlockedError):
                 blocked += 1
+                state, _why = error_state(payload)
                 store.save_detail(conn, r["source"], r["external_id"], r["url"],
-                                  "blocked", error=str(payload))
+                                  "blocked", error=str(payload), page_state=state)
                 fails.append(f"{key} АНТИБОТ: {payload}")
             else:
-                failed += 1
+                state, _why = error_state(payload)
                 store.save_detail(conn, r["source"], r["external_id"], r["url"],
-                                  "error", error=str(payload))
-                fails.append(f"{key} УПАЛ: {payload}")
+                                  "error", error=str(payload), page_state=state)
+                if state == PAGE_GONE:
+                    # Не поломка и не работа для человека: вакансию сняли.
+                    # В `fails` такие строки не идут — иначе раздел «Стены
+                    # и ошибки» заполняется тем, что чинить нечем, и настоящие
+                    # ошибки в нём тонут. Видно их по счётчику.
+                    gone += 1
+                else:
+                    failed += 1
+                    fails.append(f"{key} УПАЛ: {payload}")
 
-    return {"digests": digests, "ok": ok, "blocked": blocked, "failed": failed,
+    return {"digests": digests, "ok": ok, "blocked": blocked, "gone": gone,
+            "failed": failed,
             "fails": fails, "delta": len(rows), "done": len(done), "todo": len(todo),
             "skipped_by_max": skipped_by_max, "skipped_profile": skipped_profile,
+            "skipped_gone": skipped_gone,
             "profile_total": profile_total, "dropped_dups": dropped_dups,
             "max_n": max_n, "rows": rows}
 
@@ -1022,11 +1280,20 @@ def enrich_summary(res: dict) -> str:
     ключей — падение сборки стоит всего файла, а не одной строки.
     """
     line = (f"обогащено {res.get('ok', 0)} "
-            f"(антибот {res.get('blocked', 0)}, упало {res.get('failed', 0)}), "
+            f"(антибот {res.get('blocked', 0)}, снято {res.get('gone', 0)}, "
+            f"упало {res.get('failed', 0)}), "
             f"уже было в базе {res.get('done', '?')}, "
             f"в дельте {res.get('delta', '?')}")
     if res.get("dropped_dups"):
         line += f", схлопнуто агрегаторских дублей {res['dropped_dups']}"
+    if res.get("skipped_gone"):
+        # Пропуск обязан быть назван вслух: без этой строки снятые вакансии
+        # молча растворяются в «уже было в базе», и отличить отложенный повтор
+        # от потерянной вакансии нечем.
+        line += (f"\n· пропущено как снятые {res['skipped_gone']} — страница "
+                 f"сказала «такой вакансии нет», повтор отложен на "
+                 f"{store.RETRY_GONE_DAYS} дн. (не навсегда: «снята» — вывод по "
+                 f"признакам, а не факт от площадки)")
     if res.get("skipped_by_max"):
         line += (f"\n⚠️  ОТРЕЗАНО ПО ЛИМИТУ {res['skipped_by_max']}"
                  f" (--max/--max-enrich {res.get('max_n')}), из них профильных "
@@ -1058,7 +1325,7 @@ def cmd_enrich(args) -> int:
         print(d)
 
     print(f"\n## Итог: ok {res['ok']} / антибот {res['blocked']} / "
-          f"упало {res['failed']} из {res['todo']}")
+          f"снято {res['gone']} / упало {res['failed']} из {res['todo']}")
     print(enrich_summary(res))
     for f in res["fails"]:
         print(f"  - {f}")
@@ -1085,6 +1352,8 @@ def cmd_tg(args) -> int:
         print(e, file=sys.stderr)
         return 2
     print(report)
+    if getattr(args, "save", False):
+        print(_tg_save_dump(args.file, text, args.db))
     # Сверка полноты: заголовков в файле должно быть ровно столько, сколько сообщений
     # (плюс, возможно, одно синтетическое «до первого заголовка» — оно с id «?»).
     headers = len(re.findall(r"^\[#\d+\] \[\d{4}-\d{2}-\d{2}T", text, re.M))
@@ -1094,6 +1363,44 @@ def cmd_tg(args) -> int:
               f"{counters['total']} — парсер потерял сообщения, это баг, чини tg.py")
         return 1
     return 0
+
+
+def _tg_save_dump(path: str, text: str, db: str) -> str:
+    """Разобрать УЖЕ ЛЕЖАЩИЙ дамп в вакансии. Возвращает строку отчёта.
+
+    Нужно для переразбора старых дампов после правки парсера — без похода
+    в Telegram и без сдвига водяного знака (знак ведёт только `tg-fetch`:
+    сдвинуть его отсюда значило бы объявить разобранным то, чего мы в этом
+    прогоне не выкачивали).
+
+    Идентичность чата берётся из ИМЕНИ файла (`<название>-<dialog.id>.txt`) —
+    другого источника у отдельного дампа нет. Публичного ника в имени нет,
+    поэтому ссылки выйдут в форме `t.me/c/<id>/<N>`: они открываются только
+    у участника канала. Это честное ограничение офлайн-разбора, а `tg-fetch`
+    ник знает и ставит нормальные ссылки.
+    """
+    from . import store, tgvacancy
+    from .tg import classify as tg_classify, parse_dump
+
+    name = os.path.basename(path)
+    m = re.match(r"(.+?)-{1,2}(\d+)\.txt$", name)
+    title, chat_id = (m.group(1), m.group(2)) if m else (name, "")
+    if not chat_id:
+        return ("\n⚠️  --save пропущен: из имени файла не вычленяется id чата "
+                "(ожидаю «<название>-<id>.txt»), а без него ссылка на пост "
+                "не собирается — записать вакансию было бы враньём про её адрес.")
+    msgs = parse_dump(text)
+    for msg in msgs:
+        tg_classify(msg)
+    vacancies, st = tgvacancy.from_dump(
+        msgs, tgvacancy.ChatRef(chat_id=chat_id, title=title))
+    with store.connect(db) as conn:
+        new, upd = store.upsert(conn, vacancies)
+    out = [f"\n--save: {st.line()}; в базу новых {new}, обновлено {upd} "
+           f"(источник tg:{chat_id}; водяной знак НЕ сдвинут)"]
+    for ex in st.examples[:5]:
+        out.append(f"    отсев: {ex[:110]}")
+    return "\n".join(out)
 
 
 def cmd_check_links(args) -> int:
@@ -1121,6 +1428,26 @@ def cmd_check_links(args) -> int:
     exit_code = 0
     with store.connect(args.db) as conn:
         for url, p in parsed:
+            host = urllib.parse.urlsplit(url).netloc.lower()
+            if host == "wantapply.com" or host.endswith(".wantapply.com"):
+                # У wantapply даты — время их краулера; живость отвечает только
+                # их API (status/statusChangedAt). Карточка SteelMount была
+                # написана по вакансии, снятой десятью месяцами раньше.
+                from .sources_auth import wantapply_check
+                row = conn.execute(
+                    "SELECT external_id FROM vacancy "
+                    "WHERE source='wantapply' AND url=? LIMIT 1", (url,)).fetchone()
+                verdict, why = wantapply_check(
+                    url, external_id=row["external_id"] if row else None)
+                if verdict == "ЖИВА":
+                    print(f"✓  ЖИВА  {url}\n   {why}")
+                elif verdict == "МЕРТВА":
+                    print(f"✗  МЕРТВА  {url}\n   {why}")
+                    exit_code = 1
+                else:
+                    print(f"?  {url}\n   {why}")
+                    exit_code = 1
+                continue
             if not p:
                 print(f"?  {url}\n   не ATS-ссылка — живость по API не проверить, "
                       f"открой глазами или `scout resolve`")
@@ -1167,46 +1494,86 @@ def cmd_tg_auth(args) -> int:
     return tgclient.cmd_status()
 
 
-def tg_fetch_flow(out_dir: str, *, archive_only: bool = True, mark: bool = True) -> tuple[int, list[dict]]:
-    """Обход архива + автоматический прогон парсера `tg` по каждому дампу.
+def tg_fetch_flow(out_dir: str, *, archive_only: bool = True, mark: bool = True,
+                  db: str | None = None) -> tuple[int, list[dict]]:
+    """Обход архива → дампы → ВАКАНСИИ В БАЗЕ → водяной знак.
 
-    Печатает в stdout (scan перехватывает это в отчёт), возвращает
-    (код, кандидаты) — кандидаты нужны сверке с таблицей статусов."""
-    from . import tgclient
-    from .tg import classify as tg_classify, parse_dump, render as tg_render
+    Ключевое отличие от прежней версии: посты не остаются дампами, а становятся
+    строками `vacancy` (`tg:<канал>`). Пока их там не было, `shortlist` телеграм
+    не видел, и единственным способом отобрать из него что-либо было чтение
+    дампов моделью — 3,3 МБ текста и главная статья расходов прогона 04.08.2026.
 
-    summary = tgclient.fetch(out_dir, archive_only=archive_only, mark=mark)
-    print(f"# tg-fetch: чатов с непрочитанным {summary.visited}, дампов {summary.dumped}, "
-          f"отмечено прочитанным {summary.marked}, упало {summary.failed}")
+    Разбор и запись идут ПО ЧАТУ, в колбэке `on_chat`, а не общим проходом
+    в конце: прогон, упавший на пятнадцатом чате, обязан сохранить четырнадцать
+    разобранных вместе с их водяными знаками. Возвращает (код, кандидаты).
+    """
+    from . import store, tgclient, tgvacancy
+    from .tg import classify as tg_classify, parse_dump
+
+    db = db or store.DEFAULT_DB
+    candidates: list[dict] = []
+    totals = tgvacancy.ParseStats()
+    saved = {"new": 0, "updated": 0}
+    per_chat: list[str] = []
+
+    with store.connect(db) as conn:
+        marks = store.tg_watermarks(conn)
+
+    def on_chat(cr) -> None:
+        """Разобрать дамп чата, сложить вакансии и сдвинуть знак — атомарно."""
+        msgs = []
+        if cr.dump_path:
+            with open(cr.dump_path, encoding="utf-8") as f:
+                text = f.read()
+            msgs = parse_dump(text)
+            for m in msgs:
+                tg_classify(m)
+        chat = tgvacancy.ChatRef(chat_id=cr.chat_id, title=cr.title,
+                                 username=cr.username)
+        vacancies, st = tgvacancy.from_dump(msgs, chat)
+        with store.connect(db) as conn:
+            new, upd = store.upsert(conn, vacancies)
+            # Знак двигаем в ТОЙ ЖЕ транзакции, что и вакансии: иначе падение
+            # между двумя коммитами оставило бы сдвинутый знак без вакансий —
+            # то есть тихую потерю ровно того сорта, от которого этот код и есть.
+            if cr.last_id > cr.watermark:
+                store.set_tg_watermark(conn, cr.chat_id, cr.last_id,
+                                       chat_title=cr.title, username=cr.username)
+        saved["new"] += new
+        saved["updated"] += upd
+        totals.merge(st)
+        per_chat.append(
+            f"  {cr.title[:34]:<34} {st.messages:>4} сообщ. → {st.vacancies:>4} вакансий, "
+            f"новых {new}, знак {cr.watermark}→{cr.last_id}"
+            + ("  [ЗАГРУЗКА С НУЛЯ: знака не было]" if cr.bootstrapped else "")
+            + ("  [ОБРЕЗАН — знак не сдвинут]" if cr.truncated else ""))
+        for m in msgs:
+            if m.category == "candidate":
+                candidates.append({"chat": cr.title, "id": m.id, "date": m.date,
+                                   "body": m.body})
+
+    summary = tgclient.fetch(out_dir, archive_only=archive_only, mark=mark,
+                             watermarks=marks, on_chat=on_chat)
+
+    print(f"# tg-fetch: чатов с новым {summary.visited}, уже на знаке "
+          f"{summary.up_to_date}, дампов {summary.dumped}, отмечено прочитанным "
+          f"{summary.marked}, упало {summary.failed}"
+          + (f", первая загрузка {summary.bootstrapped}" if summary.bootstrapped else ""))
+    print(f"# в базу: вакансий новых {saved['new']}, обновлено {saved['updated']}; "
+          f"{totals.line()}")
+    for line in per_chat:
+        print(line)
     for cr in summary.chats:
         if cr.error:
             print(f"  УПАЛ  {cr.title[:40]:<40} {cr.error[:70]}")
-        else:
-            t = f" ({cr.topics} топиков)" if cr.topics else ""
-            m = "✓" if cr.marked else "·"
-            print(f"  {m}     {cr.title[:40]:<40} {cr.messages:>4} сообщ.{t}"
-                  + (f"  → {cr.dump_path}" if cr.dump_path else ""))
     if not summary.visited:
-        print("  непрочитанного в архиве нет")
-
-    candidates: list[dict] = []
-    for cr in summary.chats:
-        if not cr.dump_path:
-            continue
-        with open(cr.dump_path, encoding="utf-8") as f:
-            text = f.read()
-        print(f"\n### {cr.title}")
-        try:
-            report, _counters = tg_render(text)
-            print(report)
-        except ValueError as e:
-            print(f"дамп не разобрался: {e}")
-            continue
-        for msg in parse_dump(text):
-            tg_classify(msg)
-            if msg.category == "candidate":
-                candidates.append({"chat": cr.title, "id": msg.id, "date": msg.date,
-                                   "body": msg.body})
+        print("  нового после водяного знака нет")
+    # Отсев печатается ВСЕГДА и с примерами: «не вакансий 641» без единого
+    # примера — это цифра, которую нечем проверить.
+    if totals.examples:
+        print("  примеры отсеянного (в базу не пошли, в дампе остались):")
+        for ex in totals.examples[:8]:
+            print(f"    {ex[:110]}")
     return (1 if summary.failed else 0), candidates
 
 
@@ -1231,8 +1598,10 @@ def cmd_tg_fetch(args) -> int:
         os.path.dirname(os.path.abspath(args.db)), "tg",
         datetime.now(timezone.utc).date().isoformat())
     code, candidates = tg_fetch_flow(out_dir, archive_only=args.archive_only,
-                                     mark=not args.no_mark)
+                                     mark=not args.no_mark, db=args.db)
     print(f"\nИтого кандидатов из Telegram: {len(candidates)}")
+    print("Вакансии уже в базе — смотреть их `scout shortlist`, "
+          "дампы для отбора читать не нужно.")
     return code
 
 
@@ -1293,6 +1662,33 @@ def cmd_render(args) -> int:
 # hh-sync / mail-sync
 # ──────────────────────────────────────────────────────────────────────────────
 
+def cmd_hh_auth(args) -> int:
+    """Один поход за пользовательским токеном API hh. Токен обновляется сам,
+    сюда возвращаются только когда пара окончательно умерла."""
+    from . import hhapi
+
+    if args.action == "status":
+        t = hhapi.read_token()
+        if not hhapi.configured():
+            print(f"ключей приложения нет: {hhapi.ENV_PATH}")
+            return 1
+        if not t:
+            print(f"токена нет ({hhapi.TOKEN_PATH}). `scout hh-auth login`")
+            return 1
+        left = float(t.get("expires_at") or 0) - time.time()
+        print(f"токен есть: живёт ещё {left / 86400:.1f} сут"
+              if left > 0 else "токен истёк, обновится сам при первом запросе")
+        print(f"refresh_token: {'есть' if t.get('refresh_token') else 'НЕТ'}")
+        return 0
+
+    data = hhapi.login(visible=args.visible, confirm=not args.no_confirm,
+                       cookies_from=getattr(args, "cookies_from", None),
+                       use_cache=getattr(args, "cache", False))
+    left = float(data.get("expires_at") or 0) - time.time()
+    print(f"токен получен, {hhapi.TOKEN_PATH}, живёт {left / 86400:.1f} сут")
+    return 0
+
+
 def cmd_hh_sync(args) -> int:
     from . import hhsync
     return hhsync.sync(args.db, max_pages=args.max_pages,
@@ -1300,9 +1696,21 @@ def cmd_hh_sync(args) -> int:
                        use_cache=getattr(args, "cache", False))
 
 
+def cmd_habr_sync(args) -> int:
+    from . import habrsync
+    return habrsync.sync(args.db, max_pages=args.max_pages,
+                         cookies_from=getattr(args, "cookies_from", None),
+                         use_cache=getattr(args, "cache", False))
+
+
 def cmd_mail_sync(args) -> int:
     from . import mailsync
     return mailsync.sync(args.db, days=args.days)
+
+
+def cmd_mail_read(args) -> int:
+    from . import mailsync
+    return mailsync.read_mail(args.query, days=args.days, limit=args.limit)
 
 
 def cmd_mail_ingest(args) -> int:
@@ -1421,6 +1829,26 @@ def _money(r: dict) -> str:
                    ).salary_str() or "—"
 
 
+def _tg_summary(text: str, head_lines: int = 60) -> str:
+    """Шапка телеграм-этапа + путь к дампам вместо их полного содержимого.
+
+    Дампы уже сохранены файлами (`.scout/tg/<дата>/<чат>.txt`) — дублировать их
+    в отчёте значит удваивать хранение и заставлять читателя платить за разбор
+    того же текста второй раз. Полный разбор чата: `scout tg <файл> --full`."""
+    lines = text.splitlines()
+    head = [ln for ln in lines[:head_lines]]
+    paths = [ln.split("→", 1)[1].strip() for ln in lines if "→" in ln and ".txt" in ln]
+    tail = [
+        "",
+        f"_Полные дампы не встроены в отчёт: {len(paths)} файлов в `.scout/tg/`._",
+        "_Разбор конкретного чата: `scout tg <путь к дампу> --full`;_",
+        "_кандидаты в машинном виде: `scout shortlist --since <окно>`._",
+    ]
+    if len(lines) > head_lines:
+        tail.insert(1, f"_(показана шапка: {head_lines} строк из {len(lines)})_")
+    return "\n".join(head + tail)
+
+
 def _delta_table(rows: list[dict], limit: int = 0, days: int = 3) -> list[str]:
     """Компактная таблица всей дельты — то, ради чего отчёт вообще существует.
 
@@ -1477,7 +1905,15 @@ def build_scan_report(stages: dict, *, generated_at: str, days: int,
     тестируется без сети. Отчёт обязан собраться при любом подмножестве этапов
     и любых ошибках: упавший этап — строка в покрытии и в блоке ошибок, не отмена
     всего файла."""
-    out = [f"# scout scan — {generated_at[:10]}", "",
+    # Шапка-предупреждение — ПЕРВОЙ строкой файла, до заголовка. Отчёт нужен для
+    # покрытия и стен, а не для отбора: кандидаты лежат в базе, и `shortlist`
+    # отдаёт их строкой на вакансию. Прогон 04.08.2026 стоил 5,6 млн токенов
+    # ровно потому, что этот файл (2,8 МБ) читали целиком и подагентами.
+    out = ["> 🔴 НЕ ЧИТАЙ ЭТОТ ФАЙЛ ЦЕЛИКОМ — он для покрытия и стен.",
+           "> Кандидаты: `scout shortlist`. Досье по вакансии: `scout brief <url>`.",
+           "> Скелет карточки: `scout card <url>`. Смета волны: `scout budget`.",
+           "",
+           f"# scout scan — {generated_at[:10]}", "",
            f"Сгенерирован: {generated_at} · окно: {days} дн.", ""]
 
     # ── Покрытие всех источников ─────────────────────────────────────────
@@ -1492,9 +1928,20 @@ def build_scan_report(stages: dict, *, generated_at: str, days: int,
                    f"| {r['found']} | {note[:140].replace('|', '/')} |")
     if collect.get("status") == "error":
         out.append(f"| collect (весь этап) | УПАЛ | — | {(collect.get('error') or '')[:70]} |")
+    # Здоровье источников — прямо в покрытии, а не только в stdout: `wave`
+    # прячет вывод скана в буфер, и строка про деградацию до человека не доезжала.
+    # Статус у деградировавшей площадки остаётся `ok`, поэтому в таблице выше
+    # её ничем не отличить.
+    bad = collect.get("health") or []
+    if bad:
+        out += ["", "🔴 **ЗДОРОВЬЕ ИСТОЧНИКОВ** — сверка с медианой прошлых прогонов:"]
+        out += [f"- **{b['label']}** `{b['source']}` — {b['why']}" for b in bad]
+        out.append("Статус у них «ok»: площадка ответила, но отдала не то, что обычно. "
+                   "Пока это не починено, выдача волны неполная.")
     stage_rows = (("telegram", "telegram-архив", "candidates"),
                   ("enrich", "enrich дельты", "ok"),
                   ("hh", "hh-sync (кабинет hh)", "found"),
+                  ("habr_sync", "habr-sync (Хабр Карьера)", "found"),
                   ("mail", "mail-sync (почта)", "found"))
     for key, label, found_key in stage_rows:
         st = stages.get(key)
@@ -1514,7 +1961,12 @@ def build_scan_report(stages: dict, *, generated_at: str, days: int,
     out += ["", "## Кандидаты из Telegram", ""]
     tg = stages.get("telegram") or {}
     if tg.get("text"):
-        out.append(tg["text"].rstrip())
+        # ВЕСЬ текст дампов сюда больше не кладём. Живой прогон 04.08.2026: эта
+        # секция занимала 1,47 МБ из 2,8 МБ отчёта, то есть отчёт превращался
+        # в копию того, что уже лежит файлами в .scout/tg/<дата>/. Модель потом
+        # платила за вычитку этой копии подагентами. Здесь остаётся шапка со
+        # счётчиками и путями, а полный текст берётся из файла по надобности.
+        out.append(_tg_summary(tg["text"]))
     else:
         out.append(f"Этап не дал текста: {_STAGE_MARK.get(tg.get('status'), '—')}"
                    + (f" — {tg.get('note') or tg.get('error')}" if (tg.get('note') or tg.get('error')) else ""))
@@ -1525,21 +1977,22 @@ def build_scan_report(stages: dict, *, generated_at: str, days: int,
     out += _delta_table(delta_rows if delta_rows is not None else (en.get("rows") or []),
                         limit=report_rows, days=days)
 
-    out += ["", "## Выжимки (enrich): верхние по релевантности", ""]
+    # Дайджесты enrich из отчёта УБРАНЫ намеренно. Они занимали большую часть
+    # файла (2,8 МБ на прогоне 04.08.2026), дублировали то, что и так лежит
+    # в таблице `detail`, и провоцировали читать отчёт целиком — а это и была
+    # главная статья расходов. Тот же текст по требованию отдаёт `scout brief
+    # <url>`, по одной вакансии и ровно тогда, когда он нужен.
+    out += ["", "## Выжимки (enrich)", ""]
     if en.get("status") == "ok":
         out.append(enrich_summary(en))
-        out.append("Порядок отбора: профильные роли → с вилкой → свежие; "
-                   "остальное — в таблице выше.")
-    if en.get("digests"):
-        for d in en["digests"]:
-            out += ["", d]
-    else:
-        out.append("Дайджестов нет: "
-                   + (en.get("note") or en.get("error") or "дельта пуста или этап не отработал"))
+    out.append("Тексты выжимок в отчёт не пишутся: они есть в базе, и `scout brief "
+               "<url>` отдаёт их по одной вакансии. Раньше они занимали бо́льшую "
+               "часть этого файла и провоцировали читать его целиком.")
 
     # ── Статусы откликов ─────────────────────────────────────────────────
-    out += ["", "## Статусы откликов (hh + почта)", ""]
-    for key, label in (("hh", "hh-sync"), ("mail", "mail-sync")):
+    out += ["", "## Статусы откликов (hh + Хабр + почта)", ""]
+    for key, label in (("hh", "hh-sync"), ("habr_sync", "habr-sync"),
+                       ("mail", "mail-sync")):
         st = stages.get(key) or {}
         out.append(f"### {label}")
         out.append(st.get("text", "").rstrip()
@@ -1582,7 +2035,8 @@ def build_scan_report(stages: dict, *, generated_at: str, days: int,
         elif r["status"] == "error":
             problems.append(f"УПАЛ {r['source']}: {(r.get('error') or '')[:80]}")
     for key, label in (("collect", "collect"), ("telegram", "telegram"),
-                       ("enrich", "enrich"), ("hh", "hh-sync"), ("mail", "mail-sync")):
+                       ("enrich", "enrich"), ("hh", "hh-sync"),
+                       ("habr_sync", "habr-sync"), ("mail", "mail-sync")):
         st = stages.get(key) or {}
         if st.get("status") in ("error", "no_creds", "no_dep"):
             problems.append(f"{label}: {_STAGE_MARK[st['status']]} — "
@@ -1604,6 +2058,16 @@ def build_scan_report(stages: dict, *, generated_at: str, days: int,
 
 def cmd_scan(args) -> int:
     """Оркестратор: каждый этап падает независимо, отчёт собирается всегда."""
+    res = run_scan(args)
+    return 0 if res.get("ok") else 1
+
+
+def run_scan(args) -> dict:
+    """Тот же конвейер, но возвращает структуру, а не код возврата.
+
+    Разделение нужно команде `wave`: ей нужны статусы этапов и путь к отчёту,
+    чтобы собрать «картину волны», а не разбирать собственный печатный вывод —
+    разбор своего же вывода и был главной статьёй расходов прошлого конвейера."""
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     since_iso = store.since_arg(f"{args.days}d")
     stages: dict[str, dict] = {}
@@ -1623,15 +2087,20 @@ def cmd_scan(args) -> int:
         res = run_collect(ctx, list(SOURCES), db=args.db,
                           no_browser=getattr(args, "no_browser", False),
                           args_dict={"cmd": "scan", "days": args.days,
-                                     "limit": ctx.limit})
+                                     "limit": ctx.limit},
+                          raw_cache=getattr(args, "raw_cache", None))
         _print_coverage(res["report"], res["total"], res["new"],
-                        res["updated"], res["elapsed"], limit=ctx.limit)
+                        res["updated"], res["elapsed"], limit=ctx.limit,
+                        health_rows=res.get("health"),
+                        health_checked=res.get("health_checked", 0),
+                        cache_line=res.get("cache"))
         # `total` — вакансии без служебных строк-сводок. `len(vacancies)` завышал
         # цифру ровно на число источников: сводка каждого источника считалась
         # вакансией, и «найдено» в отчёте не сходилось с числом строк в таблице.
         stages["collect"] = {"status": "ok", "report": res["report"],
                              "found": res["total"], "new": res["new"],
-                             "updated": res["updated"], "limit": ctx.limit}
+                             "updated": res["updated"], "limit": ctx.limit,
+                             "health": res.get("health") or []}
     except Exception as e:  # noqa: BLE001
         stages["collect"] = {"status": "error", "error": f"{type(e).__name__}: {e}"}
         print(f"collect УПАЛ: {e}", file=sys.stderr)
@@ -1646,7 +2115,7 @@ def cmd_scan(args) -> int:
             out_dir = os.path.join(os.path.dirname(os.path.abspath(args.db)), "tg",
                                    generated_at[:10])
             with redirect_stdout(buf), redirect_stderr(buf):
-                code, tg_candidates = tg_fetch_flow(out_dir)
+                code, tg_candidates = tg_fetch_flow(out_dir, db=args.db)
             stages["telegram"] = {
                 "status": "ok" if code == 0 else "error", "text": buf.getvalue(),
                 "candidates": len(tg_candidates),
@@ -1694,6 +2163,27 @@ def cmd_scan(args) -> int:
                             "error": f"{type(e).__name__}: {e}"}
         print(stages["hh"].get("text", ""))
 
+    # 4b. habr-sync — четвёртый канал статусов; без него «уже отработано» слепо
+    # к откликам на Хабр Карьере (так в отчёт попала вакансия с живым откликом).
+    if getattr(args, "no_habr", False):
+        stages["habr_sync"] = {"status": "skipped", "note": "выключен флагом --no-habr"}
+    else:
+        banner("habr-sync: кабинет Хабр Карьеры")
+        from . import habrsync
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf), redirect_stderr(buf):
+                code = habrsync.sync(args.db, cookies_from=args.cookies_from,
+                                     use_cache=args.cache)
+            stages["habr_sync"] = {
+                "status": {0: "ok", 2: "no_creds"}.get(code, "error"),
+                "text": buf.getvalue(),
+                "found": _count_in(buf.getvalue(), r"откликов (\d+)")}
+        except Exception as e:  # noqa: BLE001
+            stages["habr_sync"] = {"status": "error", "text": buf.getvalue(),
+                                   "error": f"{type(e).__name__}: {e}"}
+        print(stages["habr_sync"].get("text", ""))
+
     # 5. mail-sync
     if args.no_mail:
         stages["mail"] = {"status": "skipped", "note": "выключен флагом --no-mail"}
@@ -1739,14 +2229,16 @@ def cmd_scan(args) -> int:
         f.write(report_text)
 
     banner("итог")
-    for key in ("collect", "telegram", "enrich", "hh", "mail"):
+    for key in ("collect", "telegram", "enrich", "hh", "habr_sync", "mail"):
         st = stages.get(key) or {}
         print(f"  {key:<10} {_STAGE_MARK.get(st.get('status'), '—')}"
               + (f"  {st.get('note') or st.get('error') or ''}"[:80]
                  if st.get("note") or st.get("error") else ""))
     print(f"\nОтчёт: {path}")
-    return 1 if any((stages.get(k) or {}).get("status") == "error"
-                    for k in ("collect", "telegram", "enrich", "hh", "mail")) else 0
+    failed = [k for k in ("collect", "telegram", "enrich", "hh", "habr_sync", "mail")
+              if (stages.get(k) or {}).get("status") == "error"]
+    return {"stages": stages, "report_path": path, "ok": not failed,
+            "failed": failed, "generated_at": generated_at}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1797,6 +2289,10 @@ def build_parser() -> argparse.ArgumentParser:
                         "(glassdoor, levels); в покрытии они будут «ПРОПУЩЕН», "
                         "а не пропадут")
     c.add_argument("--no-store", action="store_true", help="не писать в базу (для облака)")
+    c.add_argument("--raw-cache", choices=["write", "read"], default=None,
+                   help="кэш сырых ответов площадок за сутки: write — ходить в сеть "
+                        "и складывать; read — брать из кэша (переразбор после правки "
+                        "парсера без единого запроса к площадке)")
     c.add_argument("--with-items", action="store_true", help="выгрузить вакансии в JSON")
     c.add_argument("--format", choices=["text", "json"], default="text")
     c.set_defaults(func=cmd_collect)
@@ -1824,6 +2320,162 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--format", choices=["text", "json"], default="text")
     r.set_defaults(func=cmd_resolve)
 
+    tr = sub.add_parser("tg-rollback", help="вернуть чатам «непрочитано» и точки "
+                                            "возобновления после неудачного прогона",
+                        parents=[common])
+    tr.add_argument("--file", default=".scout/tg/rollback-2026-08-04.json")
+    tr.add_argument("--apply", action="store_true",
+                    help="без него — только предпросмотр")
+    tr.add_argument("--force", action="store_true",
+                    help="отмотать и те чаты, у которых водяной знак уже есть "
+                         "(по умолчанию они не трогаются, чтобы не потерять "
+                         "прогресс, набранный после отката)")
+    tr.set_defaults(func=cmd_tg_rollback)
+
+    tp = sub.add_parser("tg-reparse", help="пересчитать телеграм-вакансии по "
+                                           "сохранённому тексту поста (после правки "
+                                           "парсера; сеть не трогается)",
+                        parents=[common])
+    tp.add_argument("--apply", action="store_true", help="без него — предпросмотр")
+    tp.set_defaults(func=cmd_tg_reparse)
+
+    tm = sub.add_parser("tg-mirror", help="переслать посты вакансий в СВОЙ приватный "
+                                          "канал (ссылка переживёт удаление оригинала)",
+                        parents=[common])
+    tm.add_argument("--apply", action="store_true",
+                    help="без него — предпросмотр, не пересылается НИЧЕГО")
+    tm.add_argument("--limit", type=int, default=200, help="потолок за один заход")
+    tm.add_argument("--since", help="окно по first_seen (3d, 2026-08-01)")
+    tm.add_argument("--list-chats", action="store_true",
+                    help="показать каналы, куда можно писать, и их id")
+    tm.set_defaults(func=cmd_tg_mirror)
+
+    cd = sub.add_parser("card", help="скелет карточки: деньги, флаги, таблица "
+                                     "«требование → что у тебя» (фит и письмо "
+                                     "пишет модель)", parents=[common])
+    cd.add_argument("urls", nargs="+")
+    # Блок «сколько просить» по умолчанию считается ТОЛЬКО по базе: карточки
+    # собираются пачкой, и поход в сеть на каждую — это и минуты, и свежая
+    # антибот-стена. С флагом справочники рынка спрашиваются живьём и ложатся
+    # в суточный кэш, дальше пачка берёт их оттуда.
+    cd.add_argument("--fetch-market", action="store_true",
+                    help="спросить справочники зарплат (levels.fyi, dreamoffer) "
+                         "живьём, а не брать из базы")
+    cd.set_defaults(func=cmd_card)
+
+    rs = sub.add_parser("research", help="кэш вердиктов ресёрча: раскрытый "
+                                         "работодатель, живость, право на работу",
+                        parents=[common])
+    rs.add_argument("action", choices=["get", "set"])
+    rs.add_argument("url")
+    rs.add_argument("--employer", help="настоящий работодатель за заглушкой")
+    rs.add_argument("--liveness", choices=["alive", "dead", "unknown"])
+    rs.add_argument("--rtw", help="что сказано про право на работу")
+    rs.add_argument("--verdict", help="итог: годится / нет и почему")
+    rs.add_argument("--evidence", help="чем подтверждено")
+    rs.set_defaults(func=cmd_research)
+
+    bg = sub.add_parser("budget", help="СМЕТА волны до её начала: сколько строк, "
+                                       "сколько токенов, влезает ли в потолок",
+                        parents=[common])
+    bg.add_argument("--days", type=int, default=3, help="окно дельты")
+    bg.add_argument("--top", type=int, default=30, help="сколько строк в топе")
+    bg.add_argument("--brief", type=int, default=None,
+                    help="на скольких вакансиях считать досье (по умолчанию = --top)")
+    bg.add_argument("--cards", type=int, default=None,
+                    help="сколько карточек заложить (по умолчанию = --top)")
+    bg.add_argument("--cap", type=int, default=500_000, help="потолок волны в токенах")
+    bg.set_defaults(func=cmd_budget)
+
+    wv = sub.add_parser("wave", help="ВЕСЬ конвейер одной командой: сбор → картина "
+                                     "волны → что делать дальше", parents=[common])
+    wv.add_argument("--days", type=int, default=3)
+    wv.add_argument("--top", type=int, default=40, help="строк шорт-листа в картине")
+    wv.add_argument("--verbose", action="store_true", help="показать вывод scan")
+    for flag, kw in (("--no-telegram", {}), ("--no-mail", {}), ("--no-hh", {}),
+                     ("--no-habr", {}), ("--no-browser", {})):
+        wv.add_argument(flag, action="store_true", **kw)
+    wv.add_argument("--limit", type=int, default=400)
+    wv.add_argument("--max-enrich", type=int, default=400)
+    wv.add_argument("--enrich-workers", type=int, default=4)
+    wv.add_argument("--report-rows", type=int, default=0)
+    wv.add_argument("--mail-days", type=int, default=30)
+    # Те же флаги кук, что у scan: run_scan читает args.cookies_from и args.cache,
+    # и без них команда падала бы AttributeError на первом же этапе.
+    cookiesrc.add_cookie_args(wv)
+    wv.set_defaults(func=cmd_wave)
+
+    ch = sub.add_parser("channel", help="найти careers-страницу/ATS/HR-почту "
+                                        "работодателя зондированием (без модели)",
+                        parents=[common])
+    ch.add_argument("company")
+    ch.add_argument("--site", help="домен компании, если он известен")
+    ch.add_argument("--timeout", type=int, default=12)
+    ch.add_argument("--render", action="store_true",
+                    help="добрать настоящим браузером, если stdlib увидел каркас SPA")
+    ch.add_argument("--save", action="store_true", help="записать лучший в кэш")
+    ch.set_defaults(func=cmd_channel)
+
+    bf = sub.add_parser("brief", help="сводка по вакансиям для карточки: выжимка, "
+                                      "стаж, история компании, канал найма — одним вызовом",
+                        parents=[common])
+    bf.add_argument("urls", nargs="+")
+    bf.add_argument("--chars", type=int, default=900, help="длина описания в выжимке")
+    bf.set_defaults(func=cmd_brief)
+
+    sl = sub.add_parser("shortlist", help="дельта → строка на вакансию: дедуп, "
+                                          "сверка с историей, разбор стажа (для карточек)",
+                        parents=[common])
+    sl.add_argument("--since", default="3d", help="окно (3d, 2026-08-01); пусто — вся база")
+    sl.add_argument("--by", choices=["seen", "published"], default="seen")
+    sl.add_argument("--sources", help="через запятую")
+    sl.add_argument("--limit", type=int, default=0, help="0 — без ограничения")
+    sl.add_argument("--format", choices=["table", "json"], default="table")
+    sl.add_argument("--simhash-bits", type=int, default=3,
+                    help="порог третьего слоя дедупа: макс. расстояние Хэмминга "
+                         "между описаниями (3 из 64 ≈ 95%% совпадения). "
+                         "Отрицательное — выключить слой")
+    sl.set_defaults(func=cmd_shortlist)
+
+    pr = sub.add_parser("profile", help="спрос рынка против резюме: пробелы, "
+                                        "неподтверждённые заявки, балласт, воронка "
+                                        "откликов — всё по своей базе, без сети",
+                        parents=[common])
+    pr.add_argument("--days", type=int, default=90,
+                    help="окно по дате публикации/первой встречи (по умолчанию 90)")
+    pr.add_argument("--all", action="store_true", help="вся база, без окна")
+    pr.add_argument("--top", type=int, default=25, help="длина каждой таблицы")
+    pr.add_argument("--min-companies", type=int, default=3,
+                    help="сколько РАЗНЫХ компаний должны просить термин, чтобы он "
+                         "считался спросом, а не разовым требованием")
+    pr.set_defaults(func=cmd_profile)
+
+    em = sub.add_parser("employer", help="кэш прямых каналов найма работодателей",
+                        parents=[common])
+    em.add_argument("action", choices=["list", "get", "set"], nargs="?", default="list")
+    em.add_argument("company", nargs="?")
+    em.add_argument("channel", nargs="?")
+    em.add_argument("--kind", choices=["careers", "ats", "email", "telegram", "none"],
+                    default=None)
+    em.add_argument("--evidence", default=None,
+                    help="чем подтверждено, что канал принадлежит этой компании")
+    em.set_defaults(func=cmd_employer)
+
+    rv = sub.add_parser("reveal", help="раскрыть прямой контакт hirehi (СПИСЫВАЕТ "
+                                       "лимит раскрытий; разрешение пользователя "
+                                       "30.07.2026)", parents=[common])
+    rv.add_argument("urls", nargs="+", metavar="url",
+                    help="страницы вакансий hirehi.ru (только они и принимаются)")
+    rv.add_argument("--limit", type=int, default=5,
+                    help="потолок раскрытий за прогон (по умолчанию 5): каждое "
+                         "списывает лимит площадки; уже раскрытое берётся из базы "
+                         "без клика")
+    rv.add_argument("--from-browser", action="store_true",
+                    help="взять сессию из браузера пользователя вместо .auth/hirehi.json "
+                         "(какой браузер — задаётся общим --cookies-from). ВНИМАНИЕ: "
+                         "ротация refresh-токена разлогинит живую вкладку hirehi")
+    rv.set_defaults(func=cmd_reveal)
+
     w = sub.add_parser("raw", help="страница источника без парсера", parents=[common])
     w.add_argument("source", choices=list(RAW_SOURCES))
     w.add_argument("--query", default="Golang")
@@ -1837,7 +2489,8 @@ def build_parser() -> argparse.ArgumentParser:
     a = sub.add_parser("auth", help="сессии площадок в .auth/ (вход делает пользователь); "
                                     "import — забрать куки из браузеров в единый профиль",
                        parents=[common])
-    a.add_argument("action", choices=["status", "login", "check", "import", "secure"],
+    a.add_argument("action", choices=["status", "login", "check", "import", "secure",
+                                      "push-browser"],
                    nargs="?", default="status")
     a.add_argument("platform", nargs="?")
     a.add_argument("--all", action="store_true",
@@ -1849,6 +2502,9 @@ def build_parser() -> argparse.ArgumentParser:
                         "allowlist; `*` не поддерживается)")
     a.add_argument("--list", action="store_true",
                    help="import: показать домены и число кук, не записывая")
+    a.add_argument("--wait", type=int, default=0, metavar="СЕК",
+                   help="login: ждать входа СЕК секунд, опрашивая страницу, вместо "
+                        "Enter (нужно, когда команду запускают не из терминала)")
     a.set_defaults(func=cmd_auth)
 
     m = sub.add_parser("mark", help="зафиксировать решение по вакансии", parents=[common])
@@ -1919,6 +2575,9 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("file")
     t.add_argument("--since", help="ISO-дата: сообщения старше — только в счётчик")
     t.add_argument("--full", action="store_true", help="тела целиком, а не первые ~15 строк")
+    t.add_argument("--save", action="store_true",
+                   help="разобрать дамп в вакансии и положить в базу "
+                        "(переразбор старых дампов; водяной знак не двигает)")
     t.set_defaults(func=cmd_tg)
 
     cl = sub.add_parser("check-links", help="предфлайт живости ATS-ссылок "
@@ -1977,6 +2636,20 @@ def build_parser() -> argparse.ArgumentParser:
     cookiesrc.add_cookie_args(br)
     br.set_defaults(func=cmd_browse)
 
+    ha = sub.add_parser("hh-auth", help="пользовательский токен API hh "
+                                        "(один раз; дальше обновляется сам)",
+                        parents=[common])
+    ha.add_argument("action", choices=["login", "status"], nargs="?",
+                    default="status")
+    ha.add_argument("--visible", action="store_true",
+                    help="видимое окно: нужно, если сессии hh нет и требуется "
+                         "вход — логин и капчу проходит человек, не скрипт")
+    ha.add_argument("--no-confirm", action="store_true",
+                    help="не жать «Proceed» на экране согласия самому "
+                         "(с --visible: нажмёшь руками)")
+    cookiesrc.add_cookie_args(ha)
+    ha.set_defaults(func=cmd_hh_auth)
+
     hs = sub.add_parser("hh-sync", help="статусы откликов из кабинета hh "
                                         "(отказы/приглашения) → таблица negotiation",
                         parents=[common])
@@ -1984,10 +2657,25 @@ def build_parser() -> argparse.ArgumentParser:
     cookiesrc.add_cookie_args(hs)
     hs.set_defaults(func=cmd_hh_sync)
 
+    hb = sub.add_parser("habr-sync", help="статусы откликов из кабинета Хабр Карьеры "
+                                          "(отказы/просмотры) → таблица negotiation",
+                        parents=[common])
+    hb.add_argument("--max-pages", type=int, default=40)
+    cookiesrc.add_cookie_args(hb)
+    hb.set_defaults(func=cmd_habr_sync)
+
     ms = sub.add_parser("mail-sync", help="статусы откликов из почты "
                                           "(IMAP, только чтение)", parents=[common])
     ms.add_argument("--days", type=int, default=30, help="окно поиска писем")
     ms.set_defaults(func=cmd_mail_sync)
+
+    mr = sub.add_parser("mail-read", help="полный текст писем по подстроке: "
+                                          "тема/отправитель/тело (IMAP, только чтение)",
+                        parents=[common])
+    mr.add_argument("query", help="подстрока, регистр не важен")
+    mr.add_argument("--days", type=int, default=30, help="окно поиска писем")
+    mr.add_argument("--limit", type=int, default=10, help="сколько писем показать")
+    mr.set_defaults(func=cmd_mail_read)
 
     mi = sub.add_parser("mail-ingest", help="принять JSON-выгрузку писем (Gmail MCP) → "
                                             "классификатор → таблица статусов",
@@ -1996,12 +2684,13 @@ def build_parser() -> argparse.ArgumentParser:
     mi.set_defaults(func=cmd_mail_ingest)
 
     sc = sub.add_parser("scan", help="весь конвейер одной командой: collect → tg → "
-                                     "enrich → hh-sync → mail-sync → сводный отчёт",
-                        parents=[common])
+                                     "enrich → hh-sync → habr-sync → mail-sync → "
+                                     "сводный отчёт", parents=[common])
     sc.add_argument("--days", type=int, default=3, help="окно свежести площадок и дельты")
     sc.add_argument("--no-telegram", action="store_true")
     sc.add_argument("--no-mail", action="store_true")
     sc.add_argument("--no-hh", action="store_true")
+    sc.add_argument("--no-habr", action="store_true")
     sc.add_argument("--no-browser", action="store_true",
                     help="без площадок, которым нужен браузер; в покрытии они "
                          "останутся строкой «ПРОПУЩЕН»")

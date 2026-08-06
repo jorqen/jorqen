@@ -276,6 +276,64 @@ def parse_negotiations(html: str) -> list[dict]:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Путь через API: то же самое, но контрактом, а не вёрсткой
+# ──────────────────────────────────────────────────────────────────────────────
+
+def item_from_api(raw: dict) -> dict:
+    """Элемент /negotiations → та же форма, что отдаёт разбор HTML.
+
+    Статус берётся из `state.name`, а НЕ из `state.id`: id — это три значения
+    (response/invitation/discard), а name несёт то же, что видит человек, и уже
+    разбирается общим canon_status. Если hh добавит состояние, name даст шанс
+    его узнать, id — молча схлопнет в «other».
+
+    Отдельный случай — «отклик без ответа»: у hh это state=response, а вот
+    просмотрели резюме или нет, лежит в viewed_by_opponent. HTML-парсер это
+    различает, значит и здесь должно различаться, иначе после перехода на API
+    все «не просмотрен» разом станут «ожидание»."""
+    vac = raw.get("vacancy") or {}
+    emp = vac.get("employer") or {}
+    state = raw.get("state") or {}
+    status = canon_status(state.get("name") or state.get("id"))
+    if status == "pending":
+        status = "viewed" if raw.get("viewed_by_opponent") else "not_viewed"
+    stamp = raw.get("updated_at") or raw.get("created_at") or ""
+    return {"title": (vac.get("name") or "").strip() or "(без названия)",
+            "company": (emp.get("name") or "").strip() or None,
+            "status": status,
+            "url": vac.get("alternate_url") or (
+                f"https://hh.ru/vacancy/{vac['id']}" if vac.get("id") else None),
+            "date": stamp[:10] or None,
+            "date_raw": None if stamp[:10] else (stamp or None)}
+
+
+def collect_items_api(max_pages: int = MAX_PAGES) -> tuple[list[dict], int]:
+    """Все отклики через API. Возвращает (отклики, страниц) — как и браузерный
+    сбор, чтобы sync не знал, каким путём они пришли.
+
+    Конец пагинации — по полю `pages` из ответа, а не по «страница пустая»:
+    у API есть честный счётчик, и городить эвристику поверх него незачем."""
+    from . import hhapi  # noqa: PLC0415
+
+    out: list[dict] = []
+    seen: set[str] = set()
+    pages_done = 0
+    for n in range(max_pages):
+        data = hhapi.negotiations_page(n)
+        items = data.get("items") or []
+        pages_done += 1
+        for raw in items:
+            it = item_from_api(raw)
+            key = str(raw.get("id") or it["url"] or f"{it['title']}|{it['company']}")
+            if key not in seen:
+                seen.add(key)
+                out.append(it)
+        if n + 1 >= int(data.get("pages") or 0):
+            break
+    return out, pages_done
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Сам sync: браузер → страницы → база
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -379,6 +437,17 @@ def collect_items(max_pages: int = MAX_PAGES, *, cookies_from: str | None = None
 
 def sync(db_path: str, max_pages: int = MAX_PAGES, *, cookies_from: str | None = None,
          use_cache: bool = False) -> int:
+    # API, если есть пользовательский токен: контракт вместо вёрстки, без
+    # браузера и без антибота. Падение API — НЕ повод молча отдать ноль: это
+    # ровно тот случай, ради которого браузерный разбор остаётся в живых.
+    if hhapi_usable():
+        try:
+            all_items, pages_scanned = collect_items_api(max_pages)
+            return _write(db_path, all_items, pages_scanned, how="API")
+        except Exception as e:  # noqa: BLE001 — любой отказ API откатывает на HTML
+            print(f"# hh-sync: API не сработал ({e}); иду через кабинет",
+                  file=sys.stderr)
+
     try:
         all_items, pages_scanned = collect_items(max_pages, cookies_from=cookies_from,
                                                  use_cache=use_cache)
@@ -393,6 +462,21 @@ def sync(db_path: str, max_pages: int = MAX_PAGES, *, cookies_from: str | None =
         print(f"страница не разобралась: {e}", file=sys.stderr)
         return 1
 
+    return _write(db_path, all_items, pages_scanned, how="кабинет")
+
+
+def hhapi_usable() -> bool:
+    """Отдельной функцией, чтобы тест мог её подменить, а импорт оставался
+    ленивым: .auth читается только когда до него дошло дело."""
+    from . import hhapi  # noqa: PLC0415
+
+    return hhapi.usable()
+
+
+def _write(db_path: str, all_items: list[dict], pages_scanned: int, *,
+           how: str) -> int:
+    """Запись в базу и отчёт. Общая для обоих путей — иначе они разъедутся:
+    в отчёте не должно быть разницы, кроме строчки о том, ЧЕМ прочитано."""
     new, changed, same = [], [], 0
     unparsed_dates = 0
     with store.connect(db_path) as conn:
@@ -410,7 +494,7 @@ def sync(db_path: str, max_pages: int = MAX_PAGES, *, cookies_from: str | None =
             else:
                 same += 1
 
-    print(f"# hh-sync: страниц {pages_scanned}, откликов {len(all_items)} "
+    print(f"# hh-sync ({how}): страниц {pages_scanned}, откликов {len(all_items)} "
           f"(новых {len(new)}, сменили статус {len(changed)}, без изменений {same})")
     if unparsed_dates:
         print(f"  дат не разобралось: {unparsed_dates} — сырьё ушло в note, "
