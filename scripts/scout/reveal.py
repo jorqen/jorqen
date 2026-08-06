@@ -1,0 +1,346 @@
+"""Раскрытие прямого контакта hirehi — единственная команда, которая ТРАТИТ лимит.
+
+Механика площадки (реверс 30.07.2026): настоящий контакт работодателя отдаёт только
+POST /api/limits/consume {type: 'direct_contact', job_id, contact_ticket} под Bearer,
+и каждый вызов списывает лимит раскрытий (он восстанавливается). Клик по кнопке
+<a data-apply-link="true"> на странице вакансии делает всё это сам: клиент достаёт
+токен, при истечении сам зовёт POST /api/auth/refresh, делает consume и открывает
+open_url из ответа. Мы ровно это и используем: один клик по кнопке залогиненной
+страницы, ответ consume подслушивается, сами приватных ручек не дёргаем.
+
+Списание разрешено пользователем 30.07.2026: «списывай раскрытие контакта, если
+вакансия релевантна; идемпотентно, лимиты восстанавливаются; лишний раз не нажимай».
+Решение о релевантности принимает вызывающий (модель/человек) ДО запуска команды.
+
+Почему куки браузера пользователя здесь НЕ читаются никогда: refresh-токен hirehi
+ОДИН на все заходы и РОТИРУЕТСЯ каждым POST /api/auth/refresh — у того, кто обновил
+его не последним, сессия протухает мгновенно и выглядит не как «войдите», а как
+403/аноним. Заход с куками живого браузера сжёг бы сессию пользователя в его же
+вкладке. Работает только СОБСТВЕННАЯ сессия scout из .auth/hirehi.json (одноразовый
+`scout auth login hirehi`), и обновлённый storage_state после прогона перезаписывается
+туда же — ротация оседает у нас.
+
+Предохранители (все обязательны, ни один не выключается флагом):
+1. нет .auth/hirehi.json → код 2 и инструкция; фолбэка на куки браузера НЕТ;
+2. кликается ТОЛЬКО кнопка data-apply-link — раскрытие контакта, то самое, что
+   разрешено; формы не заполняются и не отправляются, других кликов нет;
+3. уже раскрытое повторно не кликается: контакт берётся из базы (идемпотентность);
+4. --limit N (по умолчанию 5) раскрытий за прогон — упёрся: честная строка и стоп;
+5. consume ответил rate_limited/allowed=false → печать message и остановка;
+6. страница анонимна (VACANCY_DATA.is_authenticated=false / contact_ticket пуст) →
+   код 2 «сессия протухла», БЕЗ клика: у анонима кнопка ведёт не туда.
+
+Коды возврата: 0 — все контакты раскрыты; 1 — часть не раскрылась (сеть/лимит);
+2 — нет или протухла сессия; 3 — нет playwright.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import sys
+import urllib.parse
+from dataclasses import dataclass
+
+from . import auth, store
+from .net import UA
+
+CONSUME_PATH = "/api/limits/consume"
+
+NO_SESSION = """нет .auth/hirehi.json — собственной сессии scout для hirehi не существует.
+  scout auth login hirehi — одноразовый вход, дальше сессия живёт у scout.
+  Куки твоего браузера эта команда НЕ читает намеренно: refresh-токен hirehi
+  ротируется на каждом обновлении, и заход с ними сжёг бы сессию в твоей живой вкладке."""
+
+PLAYWRIGHT_HOWTO = """Нужен Playwright — раскрытие делает клик на настоящей странице.
+  pip install playwright && playwright install chromium"""
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Чистые функции — их и тестируем (сеть/браузер сюда не заходят)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def job_id_from_url(url: str) -> str | None:
+    """id вакансии из URL hirehi. Чужой хост и страницы поиска → None:
+    команда со списанием обязана отказаться от всего, что не вакансия hirehi."""
+    host = (urllib.parse.urlparse(url).hostname or "").lower().removeprefix("www.")
+    if host != "hirehi.ru":
+        return None
+    from .detail import _hirehi_job_id  # noqa: PLC0415 — тот же разбор, что у деталки
+    return _hirehi_job_id(url)
+
+
+def contact_kind(open_url: str | None) -> str | None:
+    """Тип контакта по open_url: t.me/tg → telegram, mailto → email, http(s) → ссылка."""
+    if not open_url:
+        return None
+    u = open_url.strip().lower()
+    if u.startswith("mailto:"):
+        return "email"
+    if u.startswith(("tg:", "tg://")) or re.search(r"(?:^|//)(?:www\.)?t\.me/", u):
+        return "telegram"
+    if u.startswith(("http://", "https://")):
+        return "ссылка"
+    return "контакт"
+
+
+@dataclass
+class Consume:
+    """Плоский разбор ответа /api/limits/consume."""
+    allowed: bool
+    open_url: str | None
+    kind: str | None          # telegram | email | ссылка | контакт | None
+    remaining: int | None     # None = площадка остатка не назвала, а не ноль
+    rate_limited: bool
+    message: str | None
+
+
+def parse_consume(data) -> Consume:
+    """Ответ consume → Consume. Терпим к форме: поля allowed может не быть вовсе,
+    тогда живой open_url и есть согласие; rate_limited гасит allowed всегда."""
+    if not isinstance(data, dict):
+        return Consume(allowed=False, open_url=None, kind=None, remaining=None,
+                       rate_limited=False,
+                       message="ответ consume не разобрался (не объект)")
+    open_url = (data.get("open_url") or "").strip() or None
+    remaining = data.get("remaining")
+    if remaining is None:
+        for k, v in data.items():
+            if isinstance(v, int) and not isinstance(v, bool) \
+                    and ("remaining" in k or "left" in k):
+                remaining = v
+                break
+    rate_limited = bool(data.get("rate_limited"))
+    if rate_limited:
+        allowed = False
+    elif "allowed" in data:
+        allowed = bool(data["allowed"])
+    else:
+        allowed = open_url is not None
+    return Consume(allowed=allowed, open_url=open_url, kind=contact_kind(open_url),
+                   remaining=remaining, rate_limited=rate_limited,
+                   message=data.get("message") or data.get("error") or None)
+
+
+def page_state(vacancy_data) -> tuple[str, str]:
+    """('ok' | 'anonymous' | 'unknown', пояснение) по window.VACANCY_DATA страницы.
+
+    'anonymous' — кликать НЕЛЬЗЯ: у залогиненного кнопка делает consume, у анонима
+    ведёт на форму логина; оба исхода без сессии — не то, за чем пришли."""
+    if not isinstance(vacancy_data, dict):
+        return "unknown", ("на странице нет VACANCY_DATA — это не вакансия hirehi "
+                           "или вёрстка сменилась")
+    if not vacancy_data.get("is_authenticated"):
+        return "anonymous", "is_authenticated=false"
+    if not vacancy_data.get("contact_ticket"):
+        return "anonymous", "contact_ticket пуст — сервер не выдал билет раскрытия"
+    return "ok", "сессия жива, contact_ticket есть"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# База: идемпотентность и запись контакта
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _already_revealed(db: str, jid: str) -> str | None:
+    """Контакт из прошлого раскрытия, если он уже в базе. Повторный клик списал бы
+    лимит второй раз за то, что уже куплено, — ровно это пользователь и запретил."""
+    try:
+        with store.connect(db) as conn:
+            payload = store.get_detail_payload(conn, "hirehi", jid) or {}
+    except Exception:  # noqa: BLE001 — нечитаемая база не повод падать до браузера
+        return None
+    return payload.get("contact") or None
+
+
+def _save_contact(db: str, jid: str, url: str, c: Consume) -> None:
+    """Дописывает контакт в payload таблицы detail, не затирая выжимку enrich."""
+    try:
+        with store.connect(db) as conn:
+            payload = store.get_detail_payload(conn, "hirehi", jid) or {
+                "source": "hirehi", "url": url}
+            payload["contact"] = c.open_url
+            payload["contact_kind"] = c.kind
+            payload["contact_revealed_at"] = store.now()
+            row = conn.execute(
+                "SELECT status FROM detail WHERE source='hirehi' AND external_id=?",
+                (jid,)).fetchone()
+            store.save_detail(conn, "hirehi", jid, url,
+                              row["status"] if row else "ok", payload=payload)
+    except Exception as e:  # noqa: BLE001 — контакт уже напечатан, база его не отменит
+        print(f"  ⚠️  контакт в базу не записался: {type(e).__name__}: {e}",
+              file=sys.stderr)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Сам прогон
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _capture_consume(resp, got: dict) -> None:
+    if CONSUME_PATH not in resp.url or "payload" in got:
+        return
+    try:
+        got["payload"] = resp.json()
+    except Exception:  # noqa: BLE001 — не-JSON от consume называется, а не глотается
+        got["error"] = f"consume ответил не-JSON (HTTP {resp.status})"
+
+
+def _close_popups(popups: list) -> None:
+    """Клик открывает open_url новой вкладкой (window.open) — нам нужен только
+    ответ consume; чужую страницу (t.me, почта, сайт) не грузим, закрываем сразу."""
+    for p in popups:
+        try:
+            p.close()
+        except Exception:  # noqa: BLE001
+            pass
+    popups.clear()
+
+
+def reveal(urls: list[str], *, limit: int = 5, db: str = store.DEFAULT_DB) -> int:
+    """Раскрывает прямой контакт по каждому URL. Коды — в шапке модуля."""
+    try:
+        from playwright.sync_api import sync_playwright  # noqa: PLC0415
+    except ImportError:
+        print(PLAYWRIGHT_HOWTO, file=sys.stderr)
+        return 3
+
+    state_file = auth.state_path("hirehi")
+    if not os.path.exists(state_file):
+        print(NO_SESSION, file=sys.stderr)
+        return 2
+
+    revealed = failed = clicks = 0
+    stale = False
+    stopped: str | None = None
+
+    with sync_playwright() as pw:
+        # headless, но UA без слова HeadlessChrome: hirehi отдаёт на него 403
+        # в 48 байт (ложная стена) — тот же подставной UA, что у stdlib-слоя
+        # и bundled-рендера (render._render_bundled).
+        br = pw.chromium.launch(headless=True)
+        try:
+            ctx = br.new_context(storage_state=state_file, locale="ru-RU",
+                                 user_agent=UA)
+            for url in urls:
+                jid = job_id_from_url(url)
+                if not jid:
+                    failed += 1
+                    print(f"{url}\n  не похоже на вакансию hirehi — пропуск",
+                          file=sys.stderr)
+                    continue
+
+                cached = _already_revealed(db, jid)
+                if cached:
+                    print(f"{url}\n  контакт уже раскрыт ранее: {cached} — "
+                          f"повторно не списываю")
+                    revealed += 1
+                    continue
+
+                if clicks >= limit:
+                    stopped = (f"упёрся в --limit {limit}: раскрытий за прогон "
+                               f"больше не делаю. Лимит площадки восстанавливается — "
+                               f"добери следующим прогоном")
+                    break
+
+                page = ctx.new_page()
+                got: dict = {}
+                popups: list = []
+                page.on("response", lambda r, g=got: _capture_consume(r, g))
+                page.on("popup", popups.append)
+                try:
+                    resp = page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                except Exception as e:  # noqa: BLE001 — одна вакансия не рвёт прогон
+                    failed += 1
+                    print(f"{url}\n  страница не открылась: {type(e).__name__}: {e}",
+                          file=sys.stderr)
+                    page.close()
+                    continue
+                if resp and resp.status >= 400:
+                    failed += 1
+                    print(f"{url}\n  HTTP {resp.status} — страница не отдалась",
+                          file=sys.stderr)
+                    page.close()
+                    continue
+                page.wait_for_timeout(1500)
+
+                try:
+                    vd = page.evaluate("() => window.VACANCY_DATA || null")
+                except Exception:  # noqa: BLE001
+                    vd = None
+                st, why = page_state(vd)
+                if st == "anonymous":
+                    print(f"сессия протухла: scout auth login hirehi ({why}) — "
+                          f"НЕ кликаю", file=sys.stderr)
+                    stale = True
+                    page.close()
+                    break
+                if st == "unknown":
+                    failed += 1
+                    print(f"{url}\n  {why} — не кликаю", file=sys.stderr)
+                    page.close()
+                    continue
+
+                btn = page.query_selector('a[data-apply-link="true"]')
+                if btn is None:
+                    failed += 1
+                    print(f"{url}\n  кнопки data-apply-link на странице нет — "
+                          f"не кликаю", file=sys.stderr)
+                    page.close()
+                    continue
+
+                clicks += 1
+                btn.click()  # РОВНО ОДИН клик — раскрытие контакта, оно и разрешено
+                for _ in range(80):  # до ~20 с на consume (клиент может сперва рефрешить)
+                    _close_popups(popups)
+                    if got:
+                        break
+                    page.wait_for_timeout(250)
+                _close_popups(popups)
+                page.close()
+
+                if "payload" not in got:
+                    failed += 1
+                    print(f"{url}\n  ответ {CONSUME_PATH} не пойман "
+                          f"({got.get('error') or 'кнопка не дошла до сети'}) — "
+                          f"контакт не подтверждён", file=sys.stderr)
+                    continue
+                c = parse_consume(got["payload"])
+                if c.rate_limited or not c.allowed:
+                    failed += 1
+                    reason = c.message or ("rate_limited" if c.rate_limited
+                                           else "allowed=false")
+                    print(f"{url}\n  площадка отказала: {reason} — стоп")
+                    stopped = "consume отказал — дальше жать бессмысленно"
+                    break
+
+                revealed += 1
+                line = f"{url}\n  контакт ({c.kind or '?'}): {c.open_url}"
+                if c.remaining is not None:
+                    line += f"\n  остаток лимита раскрытий: {c.remaining}"
+                print(line)
+                _save_contact(db, jid, url, c)
+
+            # Ротация refresh-токена обязана осесть у нас: не сохранить обновлённый
+            # storage_state — значит сжечь собственную сессию к следующему прогону.
+            try:
+                auth.save_filtered(ctx.storage_state(), state_file,
+                                   domains=("hirehi.ru",))
+                print(f"сессия scout обновлена: {state_file} "
+                      f"(ротация refresh осела у нас)", file=sys.stderr)
+            except Exception as e:  # noqa: BLE001 — сохранение не отменяет раскрытое
+                print(f"⚠️  не смог перезаписать {state_file}: "
+                      f"{type(e).__name__}: {e}", file=sys.stderr)
+        finally:
+            br.close()
+
+    untouched = len(urls) - revealed - failed
+    tail = f"раскрыто {revealed} из {len(urls)}"
+    if failed:
+        tail += f", не раскрылось {failed}"
+    if untouched:
+        tail += f", не тронуто {untouched}"
+    print(f"\n{tail}")
+    if stopped:
+        print(stopped, file=sys.stderr)
+    if stale:
+        return 2
+    return 0 if revealed == len(urls) else 1
