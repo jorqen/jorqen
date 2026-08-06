@@ -121,20 +121,34 @@ def norm_currency(raw: str | None) -> str | None:
     return _CUR.get(s, _CUR.get(s.upper(), s.upper() if len(s) <= 4 else None))
 
 
-# Период вилки. Три значения, потому что ровно для трёх есть честная подпись;
-# всё остальное (смена, неделя, день) — None, и вилка показывается без суффикса.
-PERIOD_SUFFIX = {"hour": "/час", "month": "/мес", "year": "/год"}
+# Период вилки. Пять значений — ровно те, для которых есть честная подпись.
+#
+# День и неделя появились 06.08.2026: до этого «1000 EUR per day» и «$150/week»
+# сохранялись БЕЗ периода, то есть в таблице стояли неотличимо от месячных, и
+# дневная ставка в 1000 EUR читалась как нищая месячная вилка. Живых дневных
+# строк в базе на момент правки 30 штук (EURES/dreamoffer, Румыния и Польша),
+# недельных — четыре; молчать про них дороже, чем завести два суффикса.
+#
+# Всё, чего здесь нет (смена, спринт, проект), по-прежнему None — и вилка
+# показывается без суффикса.
+PERIOD_SUFFIX = {"hour": "/час", "day": "/день", "week": "/нед",
+                 "month": "/мес", "year": "/год"}
 
 
 def norm_period(raw: str | None) -> str | None:
-    """`annual` / `monthly` / `per-year-salary` / `в час` → hour | month | year | None.
+    """`annual` / `per-day` / `per-year-salary` / `в час` → hour|day|week|month|year|None.
 
     Период приезжает от каждой площадки по-своему: himalayas — `annual`,
-    jobicy — `yearly`, careered — `year`, lever — `per-year-salary`, hh — `MONTH`.
-    Сводим к трём значениям и НЕ придумываем недостающее: неизвестный период —
-    это None, а не «месяц по умолчанию». Ровно из-за такой подстановки почасовые
-    19–23 USD стояли в таблице рядом с годовыми 168 000–333 500 USD и читались
-    как одна и та же зарплата.
+    jobicy — `yearly`, careered — `year`, lever — `per-year-salary`, hh — `MONTH`,
+    EURES — `day` и `week`. Сводим к пяти значениям и НЕ придумываем недостающее:
+    неизвестный период — это None, а не «месяц по умолчанию». Ровно из-за такой
+    подстановки почасовые 19–23 USD стояли в таблице рядом с годовыми
+    168 000–333 500 USD и читались как одна и та же зарплата.
+
+    Порядок проверок не алфавитный, а от самого короткого периода к самому
+    длинному: пересечений между подстроками нет, но читать правило сверху вниз
+    как «час, день, неделя, месяц, год» проще, чем вспоминать, почему `annual`
+    стоит выше `day`.
     """
     if raw is None:
         return None
@@ -143,6 +157,13 @@ def norm_period(raw: str | None) -> str | None:
         return None
     if "hour" in s or "hr" in s or "час" in s:
         return "hour"
+    # «daily» перечислен отдельно: подстроки «day» в нём нет (d-a-i-l-y), и на
+    # этом правило уже один раз молча промахнулось. «сутки» здесь же — телеграм-
+    # каналы пишут «в сутки» вместо «в день».
+    if "day" in s or "daily" in s or "дн" in s or "ден" in s or "сутк" in s:
+        return "day"
+    if "week" in s or "нед" in s:
+        return "week"
     if "month" in s or "мес" in s:
         return "month"
     if "year" in s or "annual" in s or "год" in s:
@@ -244,12 +265,16 @@ def _iso(value) -> str | None:
 
 
 def _amount(v) -> int | None:
+    """Ноль — это «вилка не указана», а не «платят ноль» (rabota maxValue=0,
+    shadowhint salary_from=0). Прежде 0 доживал до печати и валил salary_str:
+    (0, None) уходил в ветку «до …» с None внутри f-строки — TypeError ронял
+    ВЕСЬ вывод `new` на середине таблицы (04.08.2026: потерялось 1 458 строк)."""
     if v is None or isinstance(v, bool):
         return None
     if isinstance(v, (int, float)):
-        return int(v)
+        return int(v) or None
     digits = re.sub(r"[^\d]", "", str(v))
-    return int(digits) if digits else None
+    return (int(digits) or None) if digits else None
 
 
 def salary_str(salary_from: int | None, salary_to: int | None,
@@ -257,7 +282,7 @@ def salary_str(salary_from: int | None, salary_to: int | None,
                period: str | None = None) -> str:
     """Форматирует вилку. Вынесена из Vacancy, чтобы `detail` не собирал фиктивный объект.
 
-    `period` печатается суффиксом (`/час`, `/мес`, `/год`). Неизвестный период —
+    `period` печатается суффиксом (`/час`, `/день`, `/нед`, `/мес`, `/год`). Неизвестный период —
     без суффикса: «60 000–90 000 RUB» честно означает «период площадка не назвала»,
     а дописать «/мес» значило бы выдать догадку за факт площадки.
     """
@@ -290,8 +315,9 @@ class Vacancy:
     salary_to: int | None = None
     currency: str | None = None
     salary_gross: bool | None = None
-    # hour | month | year | None. None — площадка период не назвала; подставлять
-    # месяц по умолчанию нельзя, разница между почасовой и годовой вилкой — 12–2000 раз.
+    # hour | day | week | month | year | None. None — площадка период не назвала;
+    # подставлять месяц по умолчанию нельзя, разница между почасовой и годовой
+    # вилкой — 12–2000 раз.
     salary_period: str | None = None
     location: str | None = None
     remote: bool | None = None

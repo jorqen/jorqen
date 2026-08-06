@@ -34,7 +34,7 @@
    закрыла нам TLS после серии запросов, и это была наша вина, а не её.
 
 Ядро — stdlib. Playwright подтягивается ленивым импортом и только там, где без
-браузера страницы нет вовсе (levels.fyi, попытка Glassdoor).
+браузера страницы нет вовсе (попытка Glassdoor).
 """
 
 from __future__ import annotations
@@ -46,7 +46,8 @@ import time
 import urllib.parse
 from datetime import datetime, timedelta, timezone
 
-from .model import Vacancy, norm_period
+from .detail import html_to_text
+from .model import SUMMARY_ID, Vacancy, norm_period
 from .net import BlockedError, FetchError, fetch, fetch_json, looks_blocked, qs
 # Tally общий для всех адаптеров и живёт в `sources`: счёт «отдано → записано»
 # нужен каждому источнику одинаково, а два расходящихся счётчика в одном сборщике
@@ -748,7 +749,164 @@ def _rabota_postings(url: str, tally: Tally) -> list[dict]:
     return _job_postings(text)
 
 
+RABOTA_API = "https://api.rabota.ru/v4/vacancies/search.json"
+RABOTA_API_LIMIT = 100
+
+
 def src_rabota(ctx: Ctx) -> list[Vacancy]:
+    """rabota.ru: сначала официальный JSON API, при отказе — разбор JSON-LD.
+
+    Почему API стоило искать снова. В докстринге ниже написано «JSON-эндпоинты
+    сидят за антибот-стеной» — это было верно про `/v5/vacancy/search` на
+    www-хосте. Отдельный хост `api.rabota.ru` (v4) отдаёт выдачу БЕЗ ключа, кук
+    и Origin, и приносит то, чего в JSON-LD нет вовсе:
+
+      * `contact_person.email` — почта живого рекрутёра. Проверено 05.08.2026:
+        5 из 5 записей по «Golang», у Сбера в выдаче стоит адрес конкретного
+        человека. Это ровно тот «прямой контакт работодателя», ради которого
+        существует `reveal.py`, — здесь он приезжает бесплатно;
+      * `salary.pay_type` (net/gross) — в JSON-LD этого нет, и вилка ехала без
+        пометки «на руки»;
+      * сортировка по дате на стороне площадки, а не угадывание окна.
+
+    ЛОВУШКА, которая стоила бы тихого нуля: тело обязано быть в обёртке
+    `{"request": {...}}`. Без неё API не ругается, а молча отдаёт выдачу по
+    ПУСТОМУ запросу в Москве — то есть «нашлось 5 вакансий», просто не тех.
+
+    Троттлинг никуда не делся: api-хост так же рвёт TLS, если частить (поймано
+    при первой же проверке). Паузы и потолок запросов сохранены.
+
+    Про robots.txt честно: `api.rabota.ru/robots.txt` — `Disallow: /`. HTML-путь
+    у той же площадки закрыт тем же robots (`Disallow: /*?`), так что смена
+    транспорта ничего не меняет в отношениях с площадкой: читаем в один поток,
+    с паузами, для одного человека.
+    """
+    try:
+        return _src_rabota_api(ctx)
+    except (FetchError, ThrottledError) as e:
+        rows = _src_rabota_html(ctx)
+        for v in rows:
+            if v.external_id == SUMMARY_ID:
+                v.raw.setdefault("notes", []).insert(
+                    0, f"API не сработал ({str(e)[:120]}) — выдача снята из JSON-LD")
+        return rows
+
+
+def _rabota_api_page(query: str, offset: int) -> dict:
+    """Один POST. Обёртка `request` обязательна — см. ловушку в src_rabota."""
+    payload = json.dumps({"request": {
+        "query": query, "limit": RABOTA_API_LIMIT, "offset": offset,
+        "sort": {"field": "date", "direction": "desc"}}}).encode("utf-8")
+    data = fetch_json(RABOTA_API, method="POST", data=payload,
+                      headers={"Content-Type": "application/json"})
+    resp = data.get("response")
+    if not isinstance(resp, dict):
+        raise FetchError(RABOTA_API, "в ответе нет объекта response — API сменился")
+    return resp
+
+
+def _src_rabota_api(ctx: Ctx) -> list[Vacancy]:
+    """Официальный v4. Окно --days режется обрывом: выдача отсортирована по дате."""
+    tally = Tally("rabota")
+    edge = cutoff(ctx.days)
+    out: list[Vacancy] = []
+    seen: set[str] = set()
+    queries = _long_queries(ctx, RABOTA_MIN_QUERY, tally,
+                            "двухбуквенный запрос отдаёт ноль, это не «вакансий нет»")
+    for q in queries:
+        relevant = None
+        for page in range(RABOTA_MAX_PAGES):
+            if tally.requests >= RABOTA_MAX_REQUESTS:
+                _cut_note(tally, "запросов к площадке", tally.requests,
+                          RABOTA_MAX_REQUESTS,
+                          fix="потолок держит нас от бана — остальное доберётся "
+                              "следующим прогоном")
+                break
+            if tally.requests:
+                nap(RABOTA_PAUSE)
+            resp = _rabota_api_page(q, page * RABOTA_API_LIMIT)
+            tally.requests += 1
+            rows = resp.get("vacancies") or []
+            if relevant is None:
+                relevant = resp.get("relevant")
+            if not rows:
+                break
+            tally.pages += 1
+            if not _rabota_api_rows(rows, q, edge, out, seen, tally):
+                tally.note(f"«{q}»: остановились на выходе за окно --days")
+                break
+            if len(rows) < RABOTA_API_LIMIT:
+                break
+        tally.note(f"«{q}»: в выдаче {relevant if relevant is not None else '?'} [API]")
+    tally.note("официальный api.rabota.ru/v4 (POST, обёртка request обязательна); "
+               "почта контактного лица кладётся в raw.contact")
+    out.append(tally.row())
+    return out
+
+
+def _rabota_api_rows(rows: list, q: str, edge, out: list[Vacancy], seen: set[str],
+                     tally: Tally) -> int:
+    """Строки страницы → Vacancy. Возвращает, сколько попало в окно."""
+    # «Сколько строк В ОКНЕ» считается по СЫРЫМ строкам, ДО отсева дублей, и это
+    # не мелочь. Раньше счёт шёл после `if vid in seen: continue`, а `seen` общий
+    # на все формулировки — первая же страница второй формулировки, целиком
+    # лежащая внутри первой, давала fresh == 0. Обход обрывался, а в сводке
+    # печаталось «остановились на выходе за окно --days» — то есть неправда:
+    # ноль свежих при нуле просроченных. Замер 06.08.2026: 100 строк, затем 0
+    # при 100 дублях и 0 старых. Так же считают Хабр и LinkedIn.
+    fresh = sum(1 for r in rows
+                if not older_than((r or {}).get("modified_date")
+                                  or (r or {}).get("created_at"), edge))
+    for r in rows:
+        tally.offered += 1
+        vid = str(r.get("id") or "")
+        title = (r.get("title") or "").strip()
+        if not vid or not title:
+            tally.dropped += 1
+            continue
+        if vid in seen:
+            tally.dupes += 1
+            continue
+        seen.add(vid)
+        tally.parsed += 1
+        when = r.get("modified_date")
+        if older_than(when, edge):
+            tally.skipped_old += 1
+            continue
+        tally.kept += 1
+        sal = r.get("salary") or {}
+        # `to: 0` у площадки означает «сверху не указано» — ровно та же ловушка,
+        # что и в JSON-LD с maxValue: 0. Ноль в вилке это НЕ зарплата.
+        sf = sal.get("from") or None
+        st = sal.get("to") or None
+        place = (r.get("places") or [{}])[0]
+        comp = r.get("company") or {}
+        contact = r.get("contact_person") or {}
+        out.append(Vacancy(
+            source="rabota",
+            external_id=vid,
+            url=f"https://www.rabota.ru/vacancy/{vid}/",
+            title=title,
+            company=(comp.get("name") or "").strip() or None,
+            salary_from=sf, salary_to=st,
+            currency="RUB" if (sf or st) else None,
+            salary_period="month" if (sf or st) else None,
+            salary_gross=(sal.get("pay_type") == "gross") if sal.get("pay_type") else None,
+            location=(place.get("location") or {}).get("name") or place.get("address"),
+            updated_at=when,
+            description=html_to_text(r.get("description") or "") or None,
+            raw={"query": q, "path": "api",
+                 # Почта рекрутёра — то, ради чего источник и переведён на API.
+                 "contact": {k: contact.get(k) for k in ("name", "email", "phones")
+                             if contact.get(k)},
+                 "company_slug": comp.get("slug"),
+                 "pay_type": sal.get("pay_type"),
+                 "is_promoted": r.get("is_promoted")},
+        ))
+    return fresh
+
+
+def _src_rabota_html(ctx: Ctx) -> list[Vacancy]:
     """rabota.ru — маленькая, но с уникальными вакансиями (тот же Сбер от 350K).
 
     Берётся не разметка карточек, а JSON-LD: один блок на страницу, внутри массив
@@ -1008,7 +1166,7 @@ EURES_SEARCH_CODE = "TITLE"   # EVERYWHERE даёт 46 153 против 666 по
 # на страницах 1–6 подряд — 5, 5, 10, 7, 2, 1). Останавливаться на первой
 # странице без попаданий нельзя: по «Golang» пустая ровно вторая, а на 3–7
 # снова есть. Отсюда «терпение» в страницах, а не немедленный выход.
-EURES_MAX_PAGES = 10
+EURES_MAX_PAGES = 10   # потолок страниц ПО УМОЛЧАНИЮ: --limit его поднимает
 EURES_PATIENCE = 3
 EURES_PAUSE = 1.5
 # Карточки добираются по одной (вилка, работодатель, ссылка на отклик). Это
@@ -1040,8 +1198,12 @@ def src_eures(ctx: Ctx) -> list[Vacancy]:
     relevant = query_re(ctx)
     out: list[Vacancy] = []
     seen: set[str] = set()
-    max_pages = min(EURES_MAX_PAGES, max(1, row_budget(ctx, EURES_PAGE * EURES_MAX_PAGES)
-                                         // EURES_PAGE))
+    # --limit умеет ПОДНЯТЬ потолок страниц (контракт row_budget); floor держит
+    # умолчание в EURES_MAX_PAGES страниц. Жёсткий min(EURES_MAX_PAGES, …) здесь
+    # молча съедал --limit (прогон 04.08.2026: 500 строк из 4987 при --limit 20000,
+    # и сводка врала «подними --limit»). От бесконечности страхует PATIENCE ниже:
+    # три страницы подряд без свежих попаданий останавливают обход сами.
+    max_pages = max(1, row_budget(ctx, EURES_PAGE * EURES_MAX_PAGES) // EURES_PAGE)
 
     for q in _long_queries(ctx, 3, tally, "поиск по двум буквам осмысленной выдачи не даёт"):
         off_target = 0
@@ -1550,7 +1712,178 @@ def _glassdoor_cards(html: str) -> list[dict]:
     return out
 
 
+GLASSDOOR_GRAPH = "/graph"
+GLASSDOOR_PAGE = 30      # серверный размер страницы
+GLASSDOOR_MAX_PAGES = 5  # 150 записей на прогон — площадка дорогая, жадничать незачем
+
+# Токен CSRF ищется в теле страницы регуляркой, а не разбором JSON: он раскидан
+# по нескольким инлайновым скриптам.
+#
+# ЗАМЕР 05.08.2026, чтобы это не исследовали в третий раз: на НАШЕЙ странице
+# (`glassdoor.com.au`, поиск) токен присутствует, но ПУСТОЙ — `"token":""`.
+# Непустым его отдаёт домен `.com` (`/Job/computer-science-jobs.htm`), но токен
+# привязан к домену, и подставлять его в запрос к `.com.au` бессмысленно.
+# Поэтому ветка GraphQL здесь пока НЕ срабатывает и честно уступает разбору
+# вёрстки — это видно в сводке источника строкой «GraphQL не сработал».
+#
+# Ветка оставлена намеренно: она заработает сама, если площадка вернёт токен на
+# эту страницу, и стоит один поиск по уже загруженному HTML. Следующий шаг, если
+# понадобится, — не подделка токена, а поиск выдачи прямо в состоянии страницы:
+# в тех же 900 КБ лежит JSON с вакансиями (`userProfileJobTitle`, `locationType`),
+# и разобрать его надёжнее, чем карточки по data-атрибутам.
+_GD_TOKEN = re.compile(r'"token":\s*"([^"]{8,})"')
+
+# Запрос выполняется ВНУТРИ открытой страницы: из stdlib тот же POST получает
+# 403 — Cloudflare у Glassdoor режет по TLS-отпечатку клиента, а не по
+# заголовкам, поэтому подделать его нечем (проверено 05.08.2026).
+_GD_QUERY = """
+query JobSearchResultsQuery($keyword: String, $numJobsToShow: Int!,
+                            $filterParams: [FilterParams]) {
+  jobListings(contextHolder: {searchParams: {keyword: $keyword,
+                                             numJobsToShow: $numJobsToShow,
+                                             filterParams: $filterParams}}) {
+    totalJobsCount
+    jobListings {
+      jobview {
+        header { jobTitleText employerNameFromSearch ageInDays locationName
+                 payPeriod payPeriodAdjustedPay { p10 p50 p90 } payCurrencyCode }
+        job { listingId jobTitleText }
+      }
+    }
+  }
+}
+"""
+
+
+def _gd_script(keyword: str, days: int, token: str, count: int) -> str:
+    """JS, который уедет в страницу. Тело собирается здесь, чтобы в JS не было
+    ни одной интерполяции руками — только JSON.stringify от готовых значений."""
+    payload = json.dumps([{
+        "operationName": "JobSearchResultsQuery",
+        "variables": {"keyword": keyword, "numJobsToShow": count,
+                      "filterParams": [{"filterKey": "fromAge", "values": str(days)}]},
+        "query": _GD_QUERY,
+    }], ensure_ascii=False)
+    return (
+        "async () => {"
+        f"  const r = await fetch({json.dumps(GLASSDOOR_GRAPH)}, {{"
+        "     method: 'POST',"
+        "     headers: {'content-type': 'application/json',"
+        f"               'gd-csrf-token': {json.dumps(token)},"
+        "               'apollographql-client-name': 'job-search-next'},"
+        f"     body: {json.dumps(payload)} }});"
+        "  return {status: r.status, text: (await r.text()).slice(0, 400000)};"
+        "}"
+    )
+
+
 def src_glassdoor(ctx: Ctx) -> list[Vacancy]:
+    """Glassdoor: сначала его собственный GraphQL, при отказе — разбор вёрстки.
+
+    Почему GraphQL и почему именно ИЗ СТРАНИЦЫ. Тот же POST на `/graph` из
+    stdlib получает 403: Cloudflare у них смотрит на TLS-отпечаток клиента, а
+    не на заголовки, — подделать нечем, и правильно. Зато со страницы, которую
+    настоящий браузер пользователя уже открыл и проверку прошёл сам, запрос
+    уходит нормально: он same-origin.
+
+    Что это даёт против разбора карточек: настоящее окно по дате на СТОРОНЕ
+    площадки (`fromAge`) вместо нашего постфильтра по метке «15d», серверный
+    поиск по тексту и стабильные поля вместо `data-jobid`-атрибутов, которые
+    держатся только на их же тестах.
+
+    Капчу и Cloudflare это не обходит: увидели челлендж — BlockedError и статус
+    АНТИБОТ, как было.
+    """
+    try:
+        return _src_glassdoor_api(ctx)
+    except (FetchError, BlockedError, ValueError, KeyError) as e:
+        if isinstance(e, BlockedError):
+            raise  # стена — это стена, разбором вёрстки её не обойти
+        rows = _src_glassdoor_html(ctx)
+        for v in rows:
+            if v.external_id == SUMMARY_ID:
+                v.raw.setdefault("notes", []).insert(
+                    0, f"GraphQL не сработал ({str(e)[:110]}) — разбор вёрстки")
+        return rows
+
+
+def _src_glassdoor_api(ctx: Ctx) -> list[Vacancy]:
+    """GraphQL Glassdoor изнутри открытой страницы."""
+    from .render import evaluate_on, render_page  # noqa: PLC0415
+
+    tally = Tally("glassdoor")
+    url = getattr(ctx, "glassdoor_url", GLASSDOOR_URL)
+    html, _final = render_page(url, wait=5.0)
+    tally.requests += 1
+    m = _GD_TOKEN.search(html)
+    if not m:
+        raise FetchError(url, "на странице нет csrf-токена — разметка сменилась")
+    count = min(GLASSDOOR_PAGE * GLASSDOOR_MAX_PAGES, 150)
+    query = (ctx.queries() or ["golang"])[0]
+    got = evaluate_on(url, _gd_script(query, ctx.days, m.group(1), count), wait=3.0)
+    tally.requests += 1
+    if not isinstance(got, dict) or got.get("status") != 200:
+        raise FetchError(url, f"GraphQL ответил {(got or {}).get('status')}")
+    data = json.loads(got.get("text") or "[]")
+    block = (data[0] if isinstance(data, list) and data else data) or {}
+    listings = (((block.get("data") or {}).get("jobListings") or {})
+                .get("jobListings"))
+    if listings is None:
+        raise FetchError(url, "в ответе GraphQL нет jobListings — схема сменилась")
+    tally.pages += 1
+    _gd_api_rows(listings, out := [], set(), tally)
+    total = ((block.get("data") or {}).get("jobListings") or {}).get("totalJobsCount")
+    tally.note(f"GraphQL: в выдаче {total if total is not None else '?'}, "
+               f"взято {tally.kept}; окно --days применяет площадка (fromAge)")
+    if not out and listings:
+        # Строки приехали, а не разобралась ни одна — это поломка разбора,
+        # и молчать про неё нельзя: снаружи она неотличима от «вакансий нет».
+        raise FetchError(url, f"GraphQL отдал {len(listings)} строк, "
+                              f"разобрать не удалось ни одной")
+    out.append(tally.row())
+    return out
+
+
+def _gd_api_rows(listings: list, out: list[Vacancy], seen: set[str],
+                 tally: Tally) -> None:
+    for item in listings:
+        tally.offered += 1
+        view = (item or {}).get("jobview") or {}
+        head = view.get("header") or {}
+        job = view.get("job") or {}
+        vid = str(job.get("listingId") or "")
+        title = (head.get("jobTitleText") or job.get("jobTitleText") or "").strip()
+        if not vid or not title:
+            tally.dropped += 1
+            continue
+        if vid in seen:
+            tally.dupes += 1
+            continue
+        seen.add(vid)
+        tally.parsed += 1
+        tally.kept += 1
+        pay = head.get("payPeriodAdjustedPay") or {}
+        out.append(Vacancy(
+            source="glassdoor",
+            external_id=vid,
+            url=f"https://www.glassdoor.com/job-listing/j?jl={vid}",
+            title=title,
+            company=(head.get("employerNameFromSearch") or "").strip() or None,
+            # p50 — медиана оценки площадки, а не вилка работодателя. В поля
+            # денег идут p10/p90 как границы, а сам факт «это оценка Glassdoor»
+            # едет в raw: выдать её за предложение нанимателя значит соврать.
+            salary_from=pay.get("p10"), salary_to=pay.get("p90"),
+            currency=head.get("payCurrencyCode"),
+            salary_period=norm_period(head.get("payPeriod")),
+            location=head.get("locationName"),
+            raw={"shape": "graphql", "path": "api",
+                 "age_days": head.get("ageInDays"),
+                 "pay_is_estimate": bool(pay),
+                 "pay_median": pay.get("p50")},
+        ))
+
+
+def _src_glassdoor_html(ctx: Ctx) -> list[Vacancy]:
     """glassdoor.com.au — только через браузер пользователя, и только если стена снята.
 
     История площадки в двух замерах. 30.07.2026 утром: stdlib-GET → HTTP 403
@@ -1876,67 +2209,212 @@ LEVELS_TITLES = {
     "sre": "software-engineer/title/site-reliability-engineer",
     "devops": "software-engineer/title/devops-engineer",
     "engineering-manager": "engineering-manager",
+    # Локационные срезы живут на тех же маршрутах и отдают ЕВРО, а не доллары —
+    # отсюда нормализация валюты в разборе.
+    "germany": "software-engineer/locations/germany",
 }
 
+# Лицензия площадки требует атрибуции в любой производной работе. Строка уходит
+# в raw КАЖДОЙ записи, а не печатается один раз в лог прогона: сводка потом живёт
+# в базе и в карточке отдельно от лога, и там цифра без источника читается как наша.
+LEVELS_ATTRIBUTION = "Data source: Levels.fyi (https://www.levels.fyi)"
 
-def levels_benchmark(role: str = "backend", *, wait: float = 5.0) -> dict:
-    """Бенчмарк зарплат по роли: p10…p99 полной компенсации, база, бонус, акции.
+# Что мы ПОТЕРЯЛИ, уйдя с `__NEXT_DATA__` на `.md`. Держим строкой и тащим
+# в raw и в пометку источника: молчаливая потеря поля — ровно та болезнь,
+# от которой этот источник и слёг (см. levels_benchmark).
+LEVELS_LOST = ("в .md нет p10/p99, разбивки base/bonus/stock и размера выборки — "
+               "есть только медиана, p25/p75, p90 и дата обновления")
+
+# Символ валюты → код. Площадка ставит и символ («$194,000»), и код в шапке
+# («**Currency:** EUR (€)»); код надёжнее, символ — запасной путь.
+_LEVELS_CUR = {"$": "USD", "€": "EUR", "£": "GBP", "₹": "INR", "¥": "JPY",
+               "₽": "RUB", "₺": "TRY", "₩": "KRW", "₪": "ILS", "R$": "BRL"}
+
+_LEVELS_MONEY_RE = re.compile(
+    r"(?P<sym>R\$|[$€£₹¥₽₺₩₪])?\s*(?P<num>\d[\d\s ,.]*\d|\d)\s*(?P<mult>[KkMm])?")
+
+
+def _levels_money(text: str | None) -> tuple[int | None, str | None]:
+    """«$194,000» → (194000, "USD"), «€82 546» → (82546, "EUR").
+
+    Разделитель тысяч зависит от локали, которую площадка подставляет сама:
+    точка в «68.194» — это разделитель тысяч, а не копейки, и прочитать её
+    дробной значит ошибиться в тысячу раз. Отсюда правило: точка ровно
+    с тремя цифрами после неё — разделитель, всё прочее — дробная часть.
+    Суффикс K/M разворачивается: «$194K» в шапках FAQ встречается.
+    """
+    if not text:
+        return None, None
+    m = _LEVELS_MONEY_RE.search(text)
+    if not m:
+        return None, None
+    num = re.sub(r"[\s ,]", "", m.group("num"))
+    if re.fullmatch(r"\d+(?:\.\d{3})+", num):
+        num = num.replace(".", "")
+    try:
+        value = float(num)
+    except ValueError:
+        return None, None
+    value *= {"k": 1_000, "m": 1_000_000}.get((m.group("mult") or "").lower(), 1)
+    return int(round(value)), _LEVELS_CUR.get(m.group("sym") or "")
+
+
+def _levels_section(text: str, title: str) -> str:
+    """Тело раздела по его заголовку (## или ###) до следующего заголовка.
+
+    Разбор идёт по заголовкам, а не по номерам строк: между «Aggregate Highlights»
+    и таблицами площадка уже вставляет разное (у роли нет «Key Breakdowns», у страны
+    есть ещё «Top Paying Titles»), и жёсткие индексы сломались бы на первом же срезе.
+    Разделы ищутся по всему тексту, а не внутри родительского: вложенность в
+    markdown задаётся только числом решёток, и «раздел до следующей решётки»
+    у `## Key Breakdowns` дал бы пустоту — сразу за ним идёт `### Top Paying …`.
+    """
+    m = re.search(rf"^(#{{2,3}})\s*{re.escape(title)}\s*$", text, re.M | re.I)
+    if not m:
+        return ""
+    rest = text[m.end():]
+    # Конец раздела — заголовок ТОГО ЖЕ или более высокого уровня.
+    nxt = re.search(rf"^#{{1,{len(m.group(1))}}}\s+\S", rest, re.M)
+    return rest[:nxt.start()] if nxt else rest
+
+
+def _levels_bullets(body: str) -> dict[str, str]:
+    """«- Median Total Compensation: $194,000» → {"median total compensation": "$194,000"}."""
+    out = {}
+    for line in body.splitlines():
+        m = re.match(r"\s*[-*]\s*(.+?)\s*:\s*(.+?)\s*$", line)
+        if m:
+            out[m.group(1).strip().lower()] = m.group(2).strip()
+    return out
+
+
+def _levels_pick(bullets: dict[str, str], *keys: str) -> str | None:
+    """Значение по ПОДСТРОКЕ метки. Точное совпадение здесь хрупко: «25th / 75th
+    Percentile» площадка уже переименовывала, а «25th» в метке остаётся."""
+    for key in keys:
+        for label, value in bullets.items():
+            if key in label:
+                return value
+    return None
+
+
+def _levels_table(body: str) -> list[dict]:
+    """Строки markdown-таблицы «| 1 | Anthropic | $870,000 |» в список словарей.
+
+    Шапка и разделитель отсеиваются по первой ячейке: у настоящей строки там ранг.
+    """
+    rows = []
+    for line in body.splitlines():
+        line = line.strip()
+        if not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if len(cells) < 3 or not cells[0].isdigit():
+            continue
+        median, cur = _levels_money(cells[2])
+        rows.append({"rank": int(cells[0]), "name": cells[1],
+                     "median_total": median, "currency": cur})
+    return rows
+
+
+def parse_levels_md(text: str, url: str) -> dict:
+    """Разбор `.md`-версии страницы зарплат. Чистая функция — сеть не трогает.
+
+    Отдельно от `levels_benchmark`, чтобы проверяться на сохранённой выдаче:
+    источник уже один раз сломался молча, и тест обязан ловить смену разметки
+    без похода в сеть.
+    """
+    head = dict(re.findall(r"^\*\*(.+?):\*\*\s*(.+?)\s*$", text, re.M))
+    highlights = _levels_bullets(_levels_section(text, "Aggregate Highlights"))
+    median, sym_cur = _levels_money(_levels_pick(highlights, "median total"))
+    if median is None:
+        raise FetchError(url, "в .md нет медианы — разметка сменилась или роли нет")
+
+    p25, p75 = (None, None)
+    quartiles = _levels_pick(highlights, "25th") or ""
+    if "/" in quartiles:
+        left, right = quartiles.split("/", 1)
+        p25, _ = _levels_money(left)
+        p75, _ = _levels_money(right)
+
+    # Код валюты из шапки («EUR (€)») надёжнее символа: у страновых срезов
+    # символ у чисел тот же €, а у $-стран площадка пишет и A$, и C$.
+    cur_code = re.match(r"([A-Z]{3})", (head.get("Currency") or "").strip())
+    # «# Levels.fyi – Backend Software Engineer Salary in Germany» → роль отдельно,
+    # страна отдельно (она уже лежит в **Location:**). Хвост «Salary…» английский
+    # даже под ru-локалью, где переведено само название роли.
+    title = re.search(r"^#\s*Levels\.fyi\s*[–—-]\s*(.+?)\s*$", text, re.M)
+    job_title = (re.sub(r"\s+salary(?:\s+in\s+.+)?$", "", title.group(1), flags=re.I)
+                 if title else None)
+    return {
+        "source": "levels.fyi",
+        "url": head.get("URL") or url,
+        "fetched_url": url,
+        "job_title": job_title,
+        "location": head.get("Location"),
+        "scope": head.get("Scope"),
+        "currency": (cur_code.group(1) if cur_code else sym_cur) or "USD",
+        "median_total": median,
+        "p25": p25,
+        "p75": p75,
+        "p90": _levels_money(_levels_pick(highlights, "90th"))[0],
+        "updated": _levels_pick(highlights, "last updated"),
+        "generated": head.get("Generated"),
+        "top_companies": _levels_table(_levels_section(text, "Top Paying Companies")),
+        "top_locations": _levels_table(_levels_section(text, "Top Paying Locations")),
+        "top_titles": _levels_table(_levels_section(text, "Top Paying Titles")),
+        # Период везде годовой: levels.fyi считает total comp за год.
+        "period": "year",
+        # Размер выборки площадка больше не отдаёт. Ключ оставлен явным None,
+        # а не выброшен: «поля нет» должно быть видно в raw, иначе медиана без
+        # выборки читается как медиана с выборкой, которую забыли показать.
+        "sample_size": None,
+        "attribution": LEVELS_ATTRIBUTION,
+        "lost": LEVELS_LOST,
+        "note": "справочник рынка, не вакансия; суммы годовые. Страну площадка "
+                "подставляет сама — сверяй location, прежде чем переносить цифру "
+                "в карточку. " + LEVELS_LOST,
+    }
+
+
+def levels_benchmark(role: str = "backend") -> dict:
+    """Бенчмарк зарплат по роли: медиана полной компенсации за год, p25/p75, p90.
 
     Это НЕ источник вакансий и в `WEB_SOURCES` не входит — функция отдаёт словарь,
     а не список Vacancy. Нужна ровно для одного: когда в вакансии вилки нет,
     подпереть колонку «деньги» цифрой рынка вместо догадки.
 
-    Нужен браузер: страницы `/t/…` закрыты AWS WAF (`challenge.js`), обычному GET
-    отвечают 202 с челленджем. Рендер идёт настоящим Chromium с UA и сессией
-    пользователя; если после ожидания страница осталась челленджем — это АНТИБОТ
-    и остановка, капчу мы не решаем.
+    ПОЧЕМУ РАЗБОР ДРУГОЙ. Раньше читался `__NEXT_DATA__`, поле
+    `pageProps.serverJobTitlePercentiles`. Площадка это поле убрала (в стейте
+    остались `jobFamily`, `jobFamilies`, `defaultCountryMedian`, `companiesWithLevels`),
+    и источник лежал НЕ из-за стены: он падал бы и с браузером, на разборе. Урок
+    ровно в этом — проверять надо не стену, а поле: «упал» и «сменилась разметка»
+    выглядят одинаково ровно до того момента, когда посмотришь в ответ.
 
-    Данные лежат в `__NEXT_DATA__`, а не в вёрстке таблицы: числа на странице
-    отформатированы («$194K»), а в стейте — точные.
+    Теперь берётся `.md`-версия страницы: к маршруту дописывается `.md`, и площадка
+    отдаёт готовый markdown обычному stdlib-GET, 200 и text/markdown. Браузер
+    не нужен вовсе — Playwright из этого источника ушёл.
+
+    Платой за переход стали p10/p99, разбивка base/bonus/stock и размер выборки:
+    в `.md` их нет (см. `LEVELS_LOST`), и потеря названа в пометке источника,
+    а не спрятана. Лицензия требует атрибуции — `LEVELS_ATTRIBUTION` едет в raw.
     """
     path = LEVELS_TITLES.get(role, role)
-    url = f"https://www.levels.fyi/t/{path}"
-    from .render import render_page  # noqa: PLC0415 — Playwright опционален
-
-    html, final = render_page(url, wait=wait)
-    check_wall(html, final)
-    m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.S)
-    if not m:
-        raise FetchError(final, "нет __NEXT_DATA__ — страница отдана не целиком")
-    props = ((json.loads(m.group(1)).get("props") or {}).get("pageProps") or {})
-    pct = props.get("serverJobTitlePercentiles") or {}
-    if not pct.get("totalCompensation"):
-        raise FetchError(final, "в стейте нет перцентилей — разметка сменилась "
-                                "или роль не существует")
-    title = props.get("jobTitle") or {}
-    # Площадка подставляет страну и локаль сама (редирект на /ru-ru/…?country=NN)
-    # и молча меняет ими выборку. Финальный URL и размер выборки возвращаются
-    # наружу, чтобы «медиана 194 480» не читалась как цифра неизвестно чего.
-    country = urllib.parse.parse_qs(urllib.parse.urlsplit(final).query).get("country", [None])[0]
-    return {
-        "source": "levels.fyi",
-        "url": final,
-        "role": role,
-        "job_title": pct.get("jobTitle") or title.get("name"),
-        "job_family": pct.get("jobFamily"),
-        "sample_size": pct.get("count"),
-        "country_param": country,
-        "currency": props.get("locationCurrency") or "USD",
-        "median_total": (pct.get("totalCompensation") or {}).get("p50"),
-        "total_compensation": pct.get("totalCompensation"),
-        "base_salary": pct.get("baseSalary"),
-        "bonus": pct.get("bonus"),
-        "stock_grant": pct.get("stockGrant"),
-        # Период везде годовой: levels.fyi считает total comp за год.
-        "period": "year",
-        "note": "справочник рынка, не вакансия; суммы годовые. Страну и локаль "
-                "площадка подставляет сама — сверяй url и sample_size, прежде чем "
-                "переносить цифру в карточку",
-    }
+    url = f"https://www.levels.fyi/t/{path}.md"
+    # Явный английский: на нашем стандартном ru-заголовке площадка редиректит
+    # на /ru-ru/… и переводит НАЗВАНИЕ роли («Программный инженер»), оставляя
+    # метки английскими. Разбору это не мешает, а вот сводка меняла бы название
+    # роли от прогона к прогону — и «медиана по backend» перестала бы склеиваться.
+    text, final = fetch(url, headers={"Accept-Language": "en-US,en;q=0.9"})
+    check_wall(text, final)
+    data = parse_levels_md(text, final)
+    data["role"] = role
+    return data
 
 
-LEVELS_NOTE = ("не вакансии, а медиана рынка: p10…p99 полной компенсации за год. "
-               "Поэтому «найдено 0» — это норма, цифры лежат в сводке")
+LEVELS_NOTE = ("не вакансии, а медиана рынка за год: медиана, p25/p75, p90 и дата "
+               "обновления с .md-версии страницы (браузер не нужен). Поэтому "
+               "«найдено 0» — это норма, цифры лежат в сводке. " + LEVELS_LOST)
 
 
 def src_levels(ctx: Ctx) -> list[Vacancy]:
@@ -1948,20 +2426,19 @@ def src_levels(ctx: Ctx) -> list[Vacancy]:
     «найдено» справочник не попадает. Требование «в покрытии видны ВСЕ площадки»
     и требование «в базе только вакансии» здесь не конфликтуют.
 
-    Стена AWS WAF пролетает наружу BlockedError'ом — это статус «АНТИБОТ»
-    в покрытии, а не «упал» и не «ноль».
+    Размера выборки в строке больше нет — площадка его не отдаёт (`LEVELS_LOST`).
+    Писать вместо него «выборка None» значит показать пустоту цифрой.
     """
     data = levels_benchmark("backend")
-    tc = data.get("total_compensation") or {}
     money = data.get("median_total")
     cur = data.get("currency") or "USD"
     head = (f"[сводка levels] медиана {money:,} {cur}/год".replace(",", " ")
             if isinstance(money, int) else "[сводка levels] медианы нет")
     return [Vacancy(
         source="levels", external_id="_summary", url="",
-        title=(f"{head} по роли {data.get('job_title') or 'backend'}, "
-               f"выборка {data.get('sample_size')}; p10 {tc.get('p10')}, "
-               f"p90 {tc.get('p90')}. {LEVELS_NOTE}"),
+        title=(f"{head} по роли {data.get('job_title') or 'backend'}; "
+               f"p25 {data.get('p25')}, p75 {data.get('p75')}, p90 {data.get('p90')}, "
+               f"обновлено {data.get('updated') or '?'}. {LEVELS_NOTE}"),
         raw=data,
     )]
 
@@ -1995,9 +2472,10 @@ WEB_REFERENCE = {
 # Кому нужен настоящий браузер и ЗАЧЕМ. Словарь, а не множество: причина нужна
 # в покрытии, когда прогон идёт с --no-browser и площадка честно помечена
 # «пропущена», а не исчезает.
+# levels отсюда УБРАН: HTML-страницы /t/* по-прежнему за AWS WAF, но данные
+# берутся с `.md`-маршрута обычным GET, и браузер источнику больше не нужен.
 WEB_NEEDS_BROWSER_MAP = {
     "glassdoor": "Cloudflare: и GET, и рендер упираются в проверку",
-    "levels": "AWS WAF на /t/*: обычному GET отвечает 202 с челленджем",
 }
 
 # Источники вакансий, которым нужен Playwright. Остальные — чистый stdlib.
