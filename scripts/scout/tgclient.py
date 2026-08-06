@@ -25,6 +25,7 @@ from __future__ import annotations
 import os
 import re
 import sys
+import time
 from dataclasses import dataclass, field
 from datetime import timezone
 
@@ -41,6 +42,15 @@ SESSION_PATH = SESSION_BASE + ".session"
 OVERLAP = 3
 # Потолок на чат: разумный дамп вместо бесконечной прокрутки канала с историей.
 MAX_PER_CHAT = 500
+
+# Пауза между чатами. Telegram считает запросы, и 28 чатов подряд без задержки —
+# верный способ получить FloodWait на середине обхода. Секунда на чат стоит
+# полминуты на прогон и снимает почти все ожидания.
+CHAT_PAUSE = 1.0
+# FloodWait короче этого пережидаем на месте: Telegram сам называет, сколько ждать,
+# и минута ожидания дешевле потерянного чата. Дольше — не ждём, а честно говорим,
+# что обход неполный: прогон, висящий двадцать минут в тишине, выглядит зависшим.
+FLOOD_WAIT_MAX = 90
 
 ENV_HOWTO = f"""Нет файла {ENV_PATH} — Telethon нужен api_id/api_hash твоего аккаунта.
 
@@ -186,6 +196,14 @@ class ChatResult:
     error: str | None = None
     topics: int = 0            # 0 = обычный чат, >0 — форум, пройдено топиков
     truncated: bool = False    # упёрлись в MAX_PER_CHAT — хвост НЕ выкачан
+    # Адрес чата и докуда дошли — из этого вызывающий строит ссылки на посты
+    # и двигает водяной знак. Без chat_id/username ссылку на пост не собрать
+    # вовсе, а без last_id прогон не резюмируется.
+    chat_id: str = ""
+    username: str | None = None
+    last_id: int = 0           # максимальный разобранный id в этом чате
+    watermark: int = 0         # с какого знака начинали (для отчёта)
+    bootstrapped: bool = False  # знака не было, взяли границу из read-state
 
 
 @dataclass
@@ -195,6 +213,11 @@ class FetchSummary:
     marked: int = 0
     failed: int = 0
     truncated: int = 0
+    # Чаты, где после водяного знака ничего нового. Считаем отдельно: «обошли 28,
+    # новое в 3» и «обошли 3» — разные утверждения, и второе скрывает, работает ли
+    # обход вообще.
+    up_to_date: int = 0
+    bootstrapped: int = 0
     chats: list[ChatResult] = field(default_factory=list)
 
 
@@ -286,8 +309,19 @@ def _collect_messages(client, entity, read_max: int, *,
     return out, truncated
 
 
-def _fetch_forum(client, dialog, out_lines: list[str]) -> tuple[int, int, bool]:
-    """Форум-супергруппа: обход по топикам. Возвращает (сообщений, топиков, обрезка).
+def _fetch_forum(client, dialog, out_lines: list[str],
+                 mark_id: int) -> tuple[int, int, bool, int]:
+    """Форум-супергруппа: обход по топикам.
+
+    Возвращает (сообщений, топиков, обрезка, максимальный разобранный id).
+
+    Водяной знак у форума ОДИН на чат, а не на топик, и это правильно: id
+    сообщений в супергруппе сквозные, топик — только группировка. Поэтому
+    границей для каждого топика служит общий знак чата.
+
+    Топики обходятся ВСЕ, а не только те, где есть непрочитанное: `unread_count`
+    у топика — тот же read-state, от которого мы ушли. Пустой топик отдаст ноль
+    сообщений и не будет стоить ничего.
 
     В свежем TL-слое (Telethon 1.44) запрос топиков живёт в messages, а не в
     channels — на channels.GetForumTopicsRequest уже один раз упали живьём."""
@@ -297,12 +331,9 @@ def _fetch_forum(client, dialog, out_lines: list[str]) -> tuple[int, int, bool]:
     res = client(fn.messages.GetForumTopicsRequest(
         peer=entity, offset_date=None, offset_id=0, offset_topic=0, limit=100))
     total, topics_hit, truncated = 0, 0, False
+    last = mark_id
     for topic in res.topics:
-        unread = getattr(topic, "unread_count", 0) or 0
-        if unread <= 0:
-            continue
-        read_max = getattr(topic, "read_inbox_max_id", 0) or 0
-        msgs, cut = _collect_messages(client, entity, read_max, reply_to=topic.id)
+        msgs, cut = _collect_messages(client, entity, mark_id, reply_to=topic.id)
         truncated = truncated or cut
         if not msgs:
             continue
@@ -312,7 +343,107 @@ def _fetch_forum(client, dialog, out_lines: list[str]) -> tuple[int, int, bool]:
             out_lines.append(_format_message(m, dialog.name or ""))
             out_lines.append("")
         total += len(msgs)
-    return total, topics_hit, truncated
+        last = max(last, max(m.id for m in msgs))
+    return total, topics_hit, truncated, last
+
+
+def cmd_rollback(path: str = ".scout/tg/rollback-2026-08-04.json",
+                 apply: bool = False, db: str | None = None,
+                 force: bool = False) -> int:
+    """Откат прочитанности: вернуть чатам статус «непрочитано».
+
+    Нужен, когда прогон признан неудачным и его надо переиграть с той же точки.
+    Точки возобновления берутся не на глаз, а из дампов самого прогона: минимальный
+    id сообщения в дампе — это первое, что прогон прочитал, значит следующий обязан
+    начать именно с него.
+
+    Telegram не умеет двигать указатель прочтения назад по одному сообщению —
+    у него есть только флаг «диалог непрочитан» (messages.markDialogUnread).
+    Поэтому откат двухслойный: флаг в самом Telegram (чтобы это видел человек)
+    и точный id в нашем журнале (по нему работает сборщик). Второе важнее:
+    с собственным водяным знаком read-state Telegram на выборку больше не влияет.
+    """
+    import json as _json  # noqa: PLC0415
+
+    if not os.path.exists(path):
+        print(f"нет файла отката: {path}", file=sys.stderr)
+        return 2
+    data = _json.load(open(path, encoding="utf-8"))
+    chats = data.get("chats") or {}
+    print(f"# откат прочитанности: {len(chats)} чатов")
+    for name, r in sorted(chats.items()):
+        print(f"  {r['title'][:40]:<40} возобновить с #{r['resume_from_id'] + 1} "
+              f"({r['first_date'][:10]}, было прочитано {r['messages']})")
+    if not apply:
+        print("\nЭто предпросмотр. Проставить точки возобновления в базе и пометить "
+              "чаты непрочитанными: `scout tg-rollback --apply`")
+        return 0
+
+    # Сначала — журнал. Это и есть настоящий откат: именно из `tg_watermark`
+    # берётся граница окна, и прогон начнётся с этих точек даже если Telegram
+    # сейчас недоступен. Пометка «непрочитано» — вторична, она для человека.
+    from . import store  # noqa: PLC0415 — ленивый импорт, как во всём модуле
+
+    with store.connect(db or store.DEFAULT_DB) as conn:
+        seeded, skipped = store.seed_tg_watermarks(conn, chats, force=force)
+    print(f"\nводяные знаки: проставлено {seeded}, пропущено (уже есть) {skipped}"
+          + ("" if not skipped or force else
+             "\n  пропущенные не трогаем, чтобы не отмотать прогресс, набранный "
+             "после отката; отмотать принудительно — `--force`"))
+
+    env = read_env()
+    if env is None:
+        print(f"нет {ENV_PATH} — Telegram недоступен. Откат в журнале СДЕЛАН "
+              f"(выборка пойдёт с этих точек), пометка «непрочитано» — нет.",
+              file=sys.stderr)
+        return 3
+    client = _connect(env)
+    if not client.is_user_authorized():
+        print("сессия Telegram не жива: `scout tg-auth login`", file=sys.stderr)
+        return 3
+    from telethon.tl.functions.messages import (  # noqa: PLC0415
+        MarkDialogUnreadRequest)
+    from telethon.tl.types import InputDialogPeer  # noqa: PLC0415
+
+    ok = failed = 0
+    try:
+        # Архив — отдельная папка (folder_id=1), и обходить надо ОБЕ: рабочие
+        # job-чаты у пользователя лежат именно в архиве, а iter_dialogs() без
+        # folder их не видит — 25 чатов из 28 «не нашлись» ровно поэтому.
+        # Два вида одного id. В именах дампов лежит ПОЛНЫЙ peer-id канала
+        # (-100…), а `entity.id` — «голый», без префикса 100. Совпадало
+        # 3 чата из 28 ровно из-за этого расхождения, а выглядело как
+        # «чата нет в диалогах».
+        by_id: dict = {}
+        for folder in (1, 0):
+            for d in client.iter_dialogs(folder=folder):
+                e = getattr(d, "entity", None)
+                if e is None:
+                    continue
+                raw = str(abs(e.id))
+                by_id.setdefault(raw, d)
+                by_id.setdefault(f"100{raw}", d)
+        for name, r in chats.items():
+            dlg = by_id.get(str(r.get("chat_id") or ""))
+            if dlg is None:
+                print(f"  ⚠️  чат не найден среди диалогов: {r['title'][:40]}",
+                      file=sys.stderr)
+                failed += 1
+                continue
+            try:
+                client(MarkDialogUnreadRequest(
+                    peer=InputDialogPeer(dlg.input_entity), unread=True))
+                ok += 1
+            except Exception as e:  # noqa: BLE001 — один чат не рвёт откат
+                print(f"  ⚠️  {r['title'][:34]}: {type(e).__name__}: {e}",
+                      file=sys.stderr)
+                failed += 1
+    finally:
+        client.disconnect()
+    print(f"\nпомечено непрочитанными: {ok}, не вышло: {failed}")
+    print("Выборку ведёт таблица tg_watermark, а не эта пометка: даже если чат "
+          "прочитать с телефона, следующий прогон начнётся с проставленных точек.")
+    return 0 if not failed else 1
 
 
 def _mark_read(client, dialog, max_id: int) -> None:
@@ -439,10 +570,73 @@ def render_dm(res: DMResult, target: str, limit: int) -> str:
     return "\n".join(head + [""] + res.lines).rstrip() + "\n"
 
 
-def fetch(out_dir: str, *, archive_only: bool = True, mark: bool = True) -> FetchSummary:
-    """Обходит диалоги с непрочитанным, пишет дампы, отмечает прочитанным СРАЗУ
-    после успешного дампа каждого чата (по одному, как требует скилл: упавший
-    на середине прогон не оставляет «прочитанного, но не разобранного»)."""
+def flood_wait_seconds(exc: Exception) -> int | None:
+    """Сколько Telegram просит подождать, или None — если это не FloodWait.
+
+    Отдельной функцией, потому что тип исключения живёт в Telethon, а он
+    опционален: тест обязан проверять правило, не устанавливая пакет.
+    """
+    if type(exc).__name__ not in ("FloodWaitError", "FloodError"):
+        return None
+    return int(getattr(exc, "seconds", 0) or 0)
+
+
+def _wait_out_flood(exc: Exception, where: str) -> bool:
+    """Пережидает короткий FloodWait. True — подождали, можно повторить.
+
+    Длинный не пережидаем: прогон, молча висящий двадцать минут, неотличим
+    от зависшего, а обход всё равно окажется неполным — лучше сказать об этом
+    сразу и оставить водяной знак на месте, чтобы следующий прогон продолжил.
+    """
+    secs = flood_wait_seconds(exc)
+    if secs is None:
+        return False
+    if secs > FLOOD_WAIT_MAX:
+        print(f"  ⏳ Telegram просит ждать {secs} с на «{where}» — это дольше "
+              f"потолка {FLOOD_WAIT_MAX} с. Чат пропущен, водяной знак НЕ сдвинут: "
+              f"следующий прогон продолжит с той же точки.", file=sys.stderr)
+        return False
+    print(f"  ⏳ FloodWait {secs} с на «{where}» — ждём и повторяем",
+          file=sys.stderr)
+    time.sleep(secs + 1)
+    return True
+
+
+def _peer_username(entity) -> str | None:
+    """@ник канала, если он публичный. Приватный канал ника не имеет — и это
+    не ошибка: ссылка на пост тогда собирается в форме `t.me/c/<id>/<N>`."""
+    u = getattr(entity, "username", None)
+    if u:
+        return str(u)
+    # У части каналов ник лежит в списке дополнительных (usernames), а не в
+    # username: так Telegram отдаёт каналы с несколькими адресами.
+    for extra in (getattr(entity, "usernames", None) or []):
+        name = getattr(extra, "username", None)
+        if name:
+            return str(name)
+    return None
+
+
+def fetch(out_dir: str, *, archive_only: bool = True, mark: bool = True,
+          watermarks: dict[str, int] | None = None,
+          on_chat=None) -> FetchSummary:
+    """Обходит диалоги, пишет дампы, двигает водяной знак и отмечает прочитанным.
+
+    **Границу окна задаёт водяной знак, а не read-state Telegram.** Это главное
+    отличие от прежней версии: раньше чат брался в обход по `unread_count > 0`,
+    и стоило пользователю открыть канал с телефона, как прогон считал его
+    разобранным и молча пропускал всё, что тот пролистал. Теперь read-state
+    не участвует в ВЫБОРКЕ вовсе; он остаётся отметкой для человека.
+
+    `watermarks` — {chat_id: последний разобранный id}. Чата в словаре нет —
+    это первая встреча, и граница берётся из read-state ОДИН РАЗ (bootstrap):
+    иначе первый же прогон выкачал бы историю каждого канала до потолка.
+
+    `on_chat(ChatResult)` вызывается СРАЗУ после успешного дампа каждого чата —
+    до перехода к следующему. Через него вызывающий сохраняет вакансии и двигает
+    знак, и именно это делает прогон резюмируемым: упавший на пятнадцатом чате
+    прогон не теряет четырнадцать разобранных.
+    """
     env = read_env()
     if env is None:
         print(ENV_HOWTO, file=sys.stderr)
@@ -462,28 +656,64 @@ def fetch(out_dir: str, *, archive_only: bool = True, mark: bool = True) -> Fetc
                   file=sys.stderr)
             raise SystemExit(2)
 
+        marks = dict(watermarks or {})
         # folder=1 — архив (folder_id в терминах Telegram API). Основная папка = 0.
         folders = [1] if archive_only else [1, 0]
         for folder in folders:
             for dialog in client.iter_dialogs(folder=folder):
-                if (dialog.unread_count or 0) <= 0:
+                entity = getattr(dialog, "entity", None)
+                if entity is None:
+                    continue
+                chat_id = str(abs(getattr(entity, "id", 0) or 0))
+                top = getattr(dialog.dialog, "top_message", 0) or 0
+                known = chat_id in marks
+                # Первая встреча с чатом: границу берём из read-state ОДИН РАЗ.
+                # Дальше он на выборку не влияет — знак ведём сами.
+                mark_id = int(marks.get(chat_id, 0)) if known else int(
+                    getattr(dialog.dialog, "read_inbox_max_id", 0) or 0)
+                cr = ChatResult(title=dialog.name or str(dialog.id),
+                                chat_id=chat_id, username=_peer_username(entity),
+                                watermark=mark_id, bootstrapped=not known)
+                # Ничего нового: top_message уже разобран. Это НЕ то же самое,
+                # что «прочитано» — знак свой, и телефон пользователя его не двигает.
+                if top and top <= mark_id:
+                    summary.up_to_date += 1
+                    cr.last_id = mark_id
+                    summary.chats.append(cr)
                     continue
                 summary.visited += 1
-                cr = ChatResult(title=dialog.name or str(dialog.id))
+                if cr.bootstrapped:
+                    summary.bootstrapped += 1
+                if summary.visited > 1:
+                    # Пауза между чатами: 28 чатов подряд без задержки — верный
+                    # способ поймать FloodWait на середине обхода.
+                    time.sleep(CHAT_PAUSE)
                 try:
                     lines: list[str] = []
-                    is_forum = bool(getattr(dialog.entity, "forum", False))
-                    if is_forum:
-                        n, topics, cut = _fetch_forum(client, dialog, lines)
-                        cr.topics, cr.truncated = topics, cut
-                    else:
-                        read_max = getattr(dialog.dialog, "read_inbox_max_id", 0) or 0
-                        msgs, cr.truncated = _collect_messages(client, dialog.entity,
-                                                               read_max)
-                        for m in msgs:
-                            lines.append(_format_message(m, cr.title))
-                            lines.append("")
-                        n = len(msgs)
+                    is_forum = bool(getattr(entity, "forum", False))
+                    # Одна повторная попытка после короткого FloodWait: Telegram
+                    # сам называет, сколько ждать, и минута ожидания дешевле
+                    # потерянного чата.
+                    for attempt in (1, 2):
+                        try:
+                            lines = []
+                            if is_forum:
+                                n, topics, cut, last = _fetch_forum(
+                                    client, dialog, lines, mark_id)
+                                cr.topics, cr.truncated, cr.last_id = topics, cut, last
+                            else:
+                                msgs, cr.truncated = _collect_messages(
+                                    client, entity, mark_id)
+                                for m in msgs:
+                                    lines.append(_format_message(m, cr.title))
+                                    lines.append("")
+                                n = len(msgs)
+                                cr.last_id = max((m.id for m in msgs), default=mark_id)
+                            break
+                        except Exception as e:  # noqa: BLE001
+                            if attempt == 1 and _wait_out_flood(e, cr.title[:30]):
+                                continue
+                            raise
                     cr.messages = n
                     if n:
                         path = os.path.join(out_dir, f"{_slug(cr.title)}-{dialog.id}.txt")
@@ -493,17 +723,26 @@ def fetch(out_dir: str, *, archive_only: bool = True, mark: bool = True) -> Fetc
                         summary.dumped += 1
                     if cr.truncated:
                         summary.truncated += 1
+                        # Знак двигать НЕЛЬЗЯ: за потолком остался неразобранный
+                        # хвост, и знак «докуда дошли» соврал бы ровно на него.
+                        # Следующий прогон обязан продолжить с той же точки.
+                        cr.last_id = mark_id
                         if cr.dump_path:
                             with open(cr.dump_path, "a", encoding="utf-8") as f:
                                 f.write(f"\n[!] ДАМП ОБРЕЗАН по потолку {MAX_PER_CHAT} "
-                                        f"сообщений на чат/топик — хвост НЕ выкачан "
-                                        f"и чат НЕ отмечен прочитанным.\n")
-                    # Отмечаем сразу, по одному — даже если сообщений в дампе ноль
-                    # (непрочитанными могут числиться сервисные записи).
-                    # НО НЕ при обрезке: отметить прочитанным то, чего мы не забрали,
-                    # значит потерять хвост навсегда и молча.
+                                        f"сообщений на чат/топик — хвост НЕ выкачан, "
+                                        f"водяной знак НЕ сдвинут, чат НЕ отмечен "
+                                        f"прочитанным.\n")
+                    # Разбор и сохранение — ДО отметки прочитанным: отметка это
+                    # необратимое действие в чужой системе, и делать её раньше,
+                    # чем результат лёг в базу, значит рисковать потерей.
+                    if on_chat is not None:
+                        on_chat(cr)
+                    # Отметка «прочитано» — для человека, а не для выборки.
+                    # При обрезке её по-прежнему не ставим: она сказала бы
+                    # пользователю, что чат разобран целиком, а это неправда.
                     if mark and not cr.truncated:
-                        _mark_read(client, dialog, max_id=dialog.dialog.top_message)
+                        _mark_read(client, dialog, max_id=top)
                         cr.marked = True
                         summary.marked += 1
                 except Exception as e:  # noqa: BLE001 — один чат не роняет обход

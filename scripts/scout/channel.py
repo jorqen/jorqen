@@ -27,7 +27,9 @@
 
 from __future__ import annotations
 
+import random
 import re
+import time
 import sys
 import urllib.parse
 
@@ -110,21 +112,53 @@ _CONTACT_PAGES = ("/", "/contacts", "/contact", "/about", "/kontakty")
 
 
 def candidates(domain: str) -> list[str]:
-    """Адреса-кандидаты в порядке правдоподобия. Поддомены раньше путей: у
-    российских компаний `career.<домен>` встречается чаще, чем `/careers`.
-    Главная и контакты идут последними — как источник почты найма, не вакансий."""
+    """Адреса-кандидаты в порядке правдоподобия, ярусами.
+
+    Ярусы, а не сплошной список, — из-за потолка `MAX_PROBES`. Раньше порядок
+    был «все поддомены со всеми путями, потом пути основного домена», и первые
+    двадцать четыре адреса приходились на поддомены: любой потолок ниже 25
+    отрезал бы `example.com/careers` целиком — самый частый случай из всех.
+    Обрезка, съедающая наиболее вероятного кандидата, — это тихая потеря,
+    а не экономия.
+
+    Порядок ярусов:
+      1. корни карьерных поддоменов (`career.<домен>/`) — у российских компаний
+         встречаются чаще, чем `/careers`;
+      2. карьерные пути основного домена;
+      3. поддомен + путь: у «Фланта» сайт на job.flant.ru, а список вакансий —
+         на job.flant.ru/vacancies/, и зонд по одному корню возвращал «канала
+         нет» при живом канале;
+      4. www-варианты;
+      5. главная и контакты — источник почты найма, а не вакансий, поэтому последние.
+    """
     base = domain.removeprefix("www.")
-    urls: list[str] = []
-    # Поддомен + путь: у «Фланта» карьерный сайт живёт на job.flant.ru, но
-    # список вакансий — на job.flant.ru/vacancies/, и зонд по одному лишь корню
-    # поддомена возвращал «канала нет» при живом канале.
-    for sub in _SUBS:
-        urls += [f"https://{sub}.{base}/", f"https://{sub}.{base}/vacancies/",
-                 f"https://{sub}.{base}/jobs/"]
+    urls: list[str] = [f"https://{sub}.{base}/" for sub in _SUBS]
     urls += [f"https://{base}{p}" for p in _PATHS]
+    for sub in _SUBS:
+        urls += [f"https://{sub}.{base}/vacancies/", f"https://{sub}.{base}/jobs/"]
     urls += [f"https://www.{base}{p}" for p in _PATHS[:4]]
     urls += [f"https://{base}{p}" for p in _CONTACT_PAGES]
     return list(dict.fromkeys(urls))
+
+
+# Сколько адресов зондировать по одной компании и с какой паузой.
+#
+# Это вежливость к чужому домену, а не оптимизация: `candidates()` отдаёт 43
+# адреса, и все они летят на ОДИН сайт подряд — `net.fetch` пауз между запросами
+# не держит вовсе. Сорок три запроса в секунду по чужому домену это ровно то
+# поведение, из-за которого появляются антибот-стены, на которые мы потом жалуемся.
+#
+# Потолок в 26 покрывает первый и второй ярусы ЦЕЛИКОМ (все восемь карьерных
+# поддоменов + все десять путей основного домена) и начало третьего. Отрезается
+# хвост третьего яруса (пути у редких поддоменов вроде `hr.`/`work.`), www-дубли
+# и страницы контактов: первые повторяют уже проверенное, последние дают почту,
+# а не вакансии. Что именно отсечено — попадает в `note`, а не пропадает молча.
+MAX_PROBES = 26
+PROBE_PAUSE = (0.25, 0.6)
+
+
+def _pause() -> None:
+    time.sleep(random.uniform(*PROBE_PAUSE))
 
 
 def probe(url: str, *, timeout: int = 12) -> dict | None:
@@ -192,7 +226,15 @@ def find(company: str, *, domain: str = "", limit: int = 4,
         result["note"] = f"{dom} — агрегатор, а не работодатель: канал искать не здесь"
         return result
     seen_final: set[str] = set()
-    for url in candidates(dom):
+    all_candidates = candidates(dom)
+    probes = all_candidates[:MAX_PROBES]
+    if len(all_candidates) > len(probes):
+        # Обрезка обязана быть ВИДНОЙ: «канала нет» после неполного обхода и
+        # «канала нет» после полного — разные утверждения.
+        result["skipped"] = len(all_candidates) - len(probes)
+    for i, url in enumerate(probes):
+        if i:
+            _pause()
         result["checked"] += 1
         hit = probe(url, timeout=timeout)
         if hit:
@@ -215,9 +257,13 @@ def find(company: str, *, domain: str = "", limit: int = 4,
         # Ничего не нашлось stdlib-слоем — почти всегда это SPA. Добираем
         # настоящим браузером, но только по трём самым правдоподобным адресам:
         # рендер дорогой, а перебирать им все 22 кандидата незачем.
-        for url in (f"https://{dom}/vacancies", f"https://{dom}/careers",
-                    f"https://career.{dom}/"):
-            hit = probe_rendered(url)
+        #
+        # ОДНИМ контекстом на все три. Раньше здесь звался `probe_rendered`
+        # по одному адресу за раз, и каждый вызов открывал свой браузер:
+        # три запуска на компанию, шестьдесят на двадцать компаний.
+        urls = [f"https://{dom}/vacancies", f"https://{dom}/careers",
+                f"https://career.{dom}/"]
+        for hit in probe_rendered_many(urls):
             if hit:
                 result["hits"].append(hit)
                 result["checked"] += 1
@@ -230,16 +276,17 @@ def find(company: str, *, domain: str = "", limit: int = 4,
             "карьерных страниц по шаблонам нет — у компании либо их нет вовсе, "
             "либо найм идёт через площадку; это тоже ответ"
             + ("" if render else ". Страница может быть SPA — повтори с --render"))
+        if result.get("skipped"):
+            result["note"] += (f". Проверено {len(probes)} адресов из "
+                               f"{len(all_candidates)} — остальные отсечены "
+                               f"потолком MAX_PROBES (хвост редких поддоменов, "
+                               f"www-дубли, страницы контактов)")
     return result
 
 
-def probe_rendered(url: str, *, wait: float = 3.0) -> dict | None:
-    """Тот же зонд, но через настоящий браузер: для SPA и страниц за стеной."""
-    try:
-        from .wall import fetch_through  # noqa: PLC0415
-        html, final, state = fetch_through(url, wait=wait, ask_human=False)
-    except Exception:  # noqa: BLE001 — нет браузера/профиль занят: не наша беда
-        return None
+def _rendered_hit(html: str, final: str, url: str, state: str) -> dict | None:
+    """Разбор отрендеренной страницы в находку. Вынесен, чтобы одиночный и
+    пакетный зонды судили по ОДНИМ правилам: две копии этой логики разошлись бы."""
     if state != "clear" or not html:
         return None
     ats = next((name for name, rx in _ATS_MARKERS if rx.search(html)), None)
@@ -250,6 +297,32 @@ def probe_rendered(url: str, *, wait: float = 3.0) -> dict | None:
             "has_jobs": bool(_HAS_JOBS.search(html)),
             "why": "подтверждено рендером (SPA)"
                    + (f", ATS: {ats}" if ats else "")}
+
+
+def probe_rendered(url: str, *, wait: float = 3.0) -> dict | None:
+    """Тот же зонд, но через настоящий браузер: для SPA и страниц за стеной."""
+    try:
+        from .wall import fetch_through  # noqa: PLC0415
+        html, final, state = fetch_through(url, wait=wait, ask_human=False)
+    except Exception:  # noqa: BLE001 — нет браузера/профиль занят: не наша беда
+        return None
+    return _rendered_hit(html, final, url, state)
+
+
+def probe_rendered_many(urls: list[str], *, wait: float = 3.0) -> list[dict | None]:
+    """Пакетный зонд ОДНИМ браузерным контекстом. Порядок сохраняется.
+
+    Один запуск браузера на компанию вместо трёх. Разница не косметическая:
+    профиль браузера один и он под локом, поэтому каждый лишний запуск — это
+    и секунды ожидания, и риск ProfileBusy у соседнего этапа.
+    """
+    try:
+        from .wall import fetch_many_through  # noqa: PLC0415
+        results = fetch_many_through(urls, wait=wait)
+    except Exception:  # noqa: BLE001 — нет браузера/профиль занят: не наша беда
+        return [None] * len(urls)
+    return [_rendered_hit(html, final, url, state)
+            for url, (html, final, state) in zip(urls, results)]
 
 
 def best(hits: list[dict]) -> dict | None:

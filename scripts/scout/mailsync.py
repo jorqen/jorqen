@@ -639,3 +639,136 @@ def ingest(db_path: str, source_file: str) -> int:
     _print_mail_summary(f"mail-ingest: из выгрузки {len(raw)} писем", items, counts,
                         new, changed, scanned=len(raw))
     return 0
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# mail-read: полный текст писем по запросу
+# ──────────────────────────────────────────────────────────────────────────────
+
+READ_BODY_LIMIT = 8000   # длиннее в терминал не льём: остальное — в почте
+_RULE = "─" * 72
+
+
+@dataclass
+class MailLetter:
+    """Письмо целиком — для mail-read. MailItem хранит только зачин (700 симв.),
+    здесь нужен весь текст: ради него команда и существует."""
+    sender: str
+    subject: str
+    date: str | None
+    body: str
+
+
+def _letter_item(msg, *, own_address: str = "") -> MailLetter | None:
+    """imap_tools.MailMessage → MailLetter; свои отправленные — None, как в sync."""
+    sender = sender_of(msg)
+    if own_address and own_address.lower() in sender.lower():
+        return None
+    return MailLetter(sender=sender, subject=_flat(msg.subject),
+                      date=date_of(msg), body=body_text(msg))
+
+
+def select_letters(letters: list[MailLetter], query: str,
+                   limit: int) -> tuple[list[MailLetter], int]:
+    """Совпавшие с query письма, новые сверху, не больше limit.
+
+    Второй элемент — сколько совпадений осталось за кадром. Подстрока ищется
+    без регистра в теме, отправителе И теле: рекрутёры одинаково часто называют
+    компанию только в подписи и только в адресе."""
+    q = (query or "").lower()
+    hits = [let for let in letters if q in let.subject.lower()
+            or q in let.sender.lower() or q in let.body.lower()]
+    hits.sort(key=lambda let: let.date or "", reverse=True)
+    return hits[:limit], max(0, len(hits) - limit)
+
+
+def format_letter(letter: MailLetter) -> str:
+    body = (letter.body or "").strip()
+    if len(body) > READ_BODY_LIMIT:
+        body = (body[:READ_BODY_LIMIT] + f"\n[…обрезано на {READ_BODY_LIMIT} "
+                f"символах — полное письмо смотри в почте]")
+    head = f"{letter.sender} | {letter.date or '—'} | {letter.subject or '(без темы)'}"
+    return f"{_RULE}\n{head}\n\n{body}"
+
+
+def render_mail_read(letters: list[MailLetter], query: str, *,
+                     days: int, limit: int) -> tuple[str, int]:
+    """Текст ответа mail-read и код выхода (0 — есть письма, 1 — пусто)."""
+    shown, behind = select_letters(letters, query, limit)
+    if not shown:
+        return (f"mail-read: писем с «{query}» за {days} дн. не нашлось "
+                f"(просмотрено {len(letters)})"), 1
+    parts = [f"# mail-read: «{query}» — {len(shown)} из {len(shown) + behind} "
+             f"совпадений за {days} дн."]
+    parts += [format_letter(let) for let in shown]
+    if behind:
+        parts.append(f"…ещё {behind} совпадений за кадром — подними --limit "
+                     f"или сузь запрос")
+    return "\n".join(parts), 0
+
+
+def fetch_letters(days: int = 30, *, cap: int = 2000) -> list[MailLetter]:
+    """Все письма за N дней целиком, кроме своих отправленных.
+
+    В отличие от fetch_mail отбора по заголовкам нет: mail-read ищет подстроку
+    и в ТЕЛЕ, а IMAP SEARCH по декодированному тексту не ищет — тянем тела всех
+    писем окна одним проходом. cap — тот же потолок против ящика-миллионника,
+    свежие важнее."""
+    MailBox, AND = _require_imap_tools()
+    env = read_env()
+    if env is None:
+        raise SystemExit(2)  # инструкцию печатает вызывающий
+    user, pwd = env.get("GMAIL_USER"), env.get("GMAIL_APP_PASSWORD")
+    if not user or not pwd:
+        raise RuntimeError(f"в {ENV_PATH} нужны GMAIL_USER и GMAIL_APP_PASSWORD")
+
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).date()
+    out: list[MailLetter] = []
+    with MailBox("imap.gmail.com").login(user, pwd, initial_folder=None) as mailbox:
+        _select_readonly(mailbox)
+        uids = mailbox.uids(AND(date_gte=since))
+        uids = uids[-cap:]
+        if not uids:
+            return out
+        for msg in mailbox.fetch(uid_list=uids, mark_seen=False, bulk=40):
+            letter = _letter_item(msg, own_address=user)
+            if letter is not None:
+                out.append(letter)
+    return out
+
+
+def read_mail(query: str, days: int = 30, limit: int = 10) -> int:
+    """`mail-read <подстрока>`: ПОЛНЫЙ текст писем по запросу, новые сверху.
+
+    Смысл команды: агент читает переписку САМ — точную формулировку отказа,
+    вопрос рекрутёра в середине треда — вместо пересказа по темам из mail-sync.
+    Классификатор здесь не участвует: показывается всё, что совпало.
+
+    Ящик открывается readonly, тела — через BODY.PEEK (mark_seen=False), как
+    в sync: ничего не отправляется, не удаляется и не помечается прочитанным.
+
+    Коды: 0 — нашлось и напечатано, 1 — совпадений нет, 2 — нет .auth/gmail.env.
+    """
+    env = read_env()
+    if env is None:
+        print(ENV_HOWTO, file=sys.stderr)
+        return 2
+    try:
+        letters = fetch_letters(days)
+    except SystemExit as e:
+        # 2 — нет .auth/gmail.env, 3 — нет imap-tools (инструкцию печатает
+        # сам _require_imap_tools).
+        if e.code == 2:
+            print(ENV_HOWTO, file=sys.stderr)
+        return e.code if isinstance(e.code, int) else 1
+    except Exception as e:  # noqa: BLE001
+        if _is_login_error(e):
+            print(f"IMAP не пустил: {e}\nПроверь GMAIL_APP_PASSWORD в {ENV_PATH} "
+                  f"(это App Password, не основной пароль).", file=sys.stderr)
+            return 1
+        print(f"почта не прочиталась: {type(e).__name__}: {e}", file=sys.stderr)
+        return 1
+
+    text, code = render_mail_read(letters, query, days=days, limit=limit)
+    print(text)
+    return code

@@ -241,7 +241,8 @@ class Tally:
 
     Баланс, который обязан сходиться:
 
-        claimed = got + dropped_dup + skipped_old + unparsed + beyond_window + lost
+        claimed = got + dropped_dup + skipped_old + skipped_dead + unparsed
+                  + beyond_window + lost
 
     Каждое слагаемое кроме `lost` — осознанное решение, которое можно объяснить.
     `lost` — это то, чего мы объяснить НЕ можем, и только он печатается капсом.
@@ -255,6 +256,11 @@ class Tally:
     dropped_dup: int = 0      # тот же id второй раз (между запросами и внутри запроса)
     skipped_old: int = 0      # разобрано, но старше окна --days
     unparsed: int = 0         # строка приехала, но это не вакансия: нет id или названия
+    # Площадка сама пометила запись снятой: у wantapply каталог отдаёт
+    # status archived/deleted обычными строками, поиск находит их наравне
+    # с живыми. В выдачу им нельзя — карточка с заведомо мёртвой ссылкой, —
+    # но и потерей это не является.
+    skipped_dead: int = 0
     # Сервер их посчитал, а мы за ними не пошли ОСОЗНАННО: выдача отсортирована
     # по дате, целая страница оказалась старше окна — значит дальше только старше.
     # Считается отдельно от `lost`: это экономия запросов, а не потеря вакансий.
@@ -267,7 +273,7 @@ class Tally:
     @property
     def lost(self) -> int:
         return max(0, self.claimed - self.got - self.dropped_dup - self.skipped_old
-                   - self.unparsed - self.beyond_window)
+                   - self.skipped_dead - self.unparsed - self.beyond_window)
 
     def note(self, text: str) -> None:
         if text and text not in self.notes:
@@ -281,6 +287,8 @@ class Tally:
                 f"дублей между запросами {self.dropped_dup}"]
         if self.skipped_old:
             head.append(f"старше окна {self.skipped_old}")
+        if self.skipped_dead:
+            head.append(f"снятых с публикации {self.skipped_dead}")
         if self.beyond_window:
             head.append(f"за окном не забирали {self.beyond_window}")
         if self.unparsed:
@@ -294,6 +302,7 @@ class Tally:
             title=title + ("; " + "; ".join(self.notes) if self.notes else ""),
             raw={"claimed": self.claimed, "got": self.got,
                  "dropped_dup": self.dropped_dup, "skipped_old": self.skipped_old,
+                 "skipped_dead": self.skipped_dead,
                  "unparsed": self.unparsed, "beyond_window": self.beyond_window,
                  "lost": self.lost, "pages": self.pages, "requests": self.requests,
                  "notes": self.notes, "per_query": self.per_query},
@@ -1184,10 +1193,17 @@ WANTAPPLY_NOTE = (
 WANTAPPLY_DAYS_NOTE = ("--days не применяется: у ручки нет ни фильтра по дате, "
                        "ни сортировки по ней — дата публикации есть у каждой "
                        "записи, смотри published_at")
+# Подсказка намеренно НЕ зовёт запускать команду, и вот почему. Кука
+# `auth-token-data` читается из живого браузера при каждом обращении и без кэша
+# (auth.session_token) — то есть сборщику нечего «обновлять»: он видит ровно то,
+# что видит браузер. Когда владелец жалуется, что «авторизация опять слетела»,
+# истёк токен В САМОМ БРАУЗЕРЕ, и единственное, что его продлевает, — заход на
+# сайт. Совет «запусти auth login» в этой ситуации вводит в заблуждение: команда
+# откроет тот же браузер и потребует того же входа, только длиннее.
 WANTAPPLY_LOGIN_HOWTO = (
-    "python3 -m scripts.scout auth login wantapply — откроется твой браузер, "
-    "проверку Cloudflare и вход проходишь ты. После этого кука auth-token-data "
-    "читается живьём, и прямые ссылки в ATS начинают приезжать."
+    "Открой wantapply.com в своём браузере и войди — этого достаточно, "
+    "команда не нужна: куку auth-token-data сборщик читает живьём. "
+    "(Если браузер недоступен: python3 -m scripts.scout auth login wantapply.)"
 )
 
 
@@ -1239,6 +1255,10 @@ def _wantapply_vacancy(job: dict) -> Vacancy | None:
              "employmentTypes": job.get("employmentTypes"),
              "relocationSupport": job.get("relocationSupport"),
              "validThrough": job.get("validThrough"),
+             # Жизненный цикл записи: по этим трём полям потом проверяется
+             # живость без повторного обхода каталога.
+             "status": job.get("status"),
+             "statusChangedAt": job.get("statusChangedAt"),
              "expirationDate": job.get("expirationDate"),
              "isCreatedByRecruiter": job.get("isCreatedByRecruiter"),
              "jobDomains": job.get("jobDomains"),
@@ -1270,6 +1290,7 @@ def src_wantapply(ctx: Ctx, *, cookies_from: str | None = None,
     tally = Tally("wantapply")
     out: list[Vacancy] = []
     seen: set[str] = set()
+    dead: dict[str, int] = {}   # status → сколько снятых записей отсеяли
     baseline = int(_wantapply_page({}, 1, limit=1).get("total") or 0)
     tally.requests += 1
     # Латинские слова из запроса пользователя + проверенный набор площадки:
@@ -1301,6 +1322,20 @@ def src_wantapply(ctx: Ctx, *, cookies_from: str | None = None,
             tally.pages += 1
             rows_seen += len(rows)
             for job in rows:
+                status = job.get("status")
+                if status and status != "published":
+                    # Каталог отдаёт снятые вакансии обычными строками: deleted
+                    # находится поиском наравне с живыми (сверено живьём,
+                    # senior-golang-backend-at-steelmount). В выдачу им нельзя,
+                    # но и исчезнуть молча — тоже: баланс сводки обязан сойтись.
+                    ext = str(job.get("id") or job.get("url") or "")
+                    if ext in seen:
+                        tally.dropped_dup += 1
+                    else:
+                        seen.add(ext)
+                        tally.skipped_dead += 1
+                        dead[status] = dead.get(status, 0) + 1
+                    continue
                 v = _wantapply_vacancy(job)
                 if v is None:
                     tally.unparsed += 1
@@ -1324,11 +1359,84 @@ def src_wantapply(ctx: Ctx, *, cookies_from: str | None = None,
     if with_apply_urls:
         tally.note(enrich_apply_urls(out, limit=with_apply_urls,
                                      cookies_from=cookies_from))
+    if dead:
+        tally.note("снятых с публикации не берём: "
+                   + ", ".join(f"{s} {n}" for s, n in sorted(dead.items())))
     tally.note(f"формулировки: {', '.join(queries)}")
     tally.note(WANTAPPLY_DAYS_NOTE)
     tally.note(WANTAPPLY_NOTE)
     out.append(tally.summary())
     return out
+
+
+_WANTAPPLY_UUID = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+
+
+def _wantapply_status_verdict(job: dict) -> tuple[str, str]:
+    """status записи каталога → ('ЖИВА'|'МЕРТВА'|'НЕИЗВЕСТНО', почему)."""
+    status = job.get("status")
+    if status == "published":
+        exp = job.get("expirationDate")
+        if isinstance(exp, str) and exp and older_than(exp, cutoff(0)):
+            return "ЖИВА", (f"подозрительна: expirationDate истёк {exp[:10]}, "
+                            f"но status=published")
+        return "ЖИВА", "status=published"
+    if status in ("archived", "deleted"):
+        when = job.get("statusChangedAt")
+        return "МЕРТВА", (f"status={status}"
+                          + (f", снята {when[:10]}" if isinstance(when, str) and when
+                             else ""))
+    return "НЕИЗВЕСТНО", f"незнакомый status={status!r} — открой страницу глазами"
+
+
+def wantapply_check(url: str, external_id: str | None = None) -> tuple[str, str]:
+    """Жива ли одна вакансия wantapply: ('ЖИВА'|'МЕРТВА'|'НЕИЗВЕСТНО', почему).
+
+    Каталог отдаёт снятые вакансии обычными строками, поэтому сам факт «нашлось
+    по слагу» — ещё не жизнь: senior-golang-backend-at-steelmount находится как
+    ни в чём не бывало, но со status=deleted и датой снятия (сверено живьём).
+    Вердикт читается из status, а не из наличия записи.
+
+    Ловушка та же, что у поиска (см. _guard_filter): неизвестный ключ или
+    значение в `filters` сервер молча игнорирует и отдаёт весь каталог. total
+    больше единицы по фильтру-слагу — это НЕ «нашлось много», а «фильтр не
+    сработал», и уверенного вердикта из такого ответа не сделать.
+    """
+    slug = urllib.parse.urlsplit(url).path.rstrip("/").rsplit("/", 1)[-1]
+    if not slug:
+        return "НЕИЗВЕСТНО", f"в URL не нашлось слага: {url}"
+    _pause()
+    try:
+        payload = _wantapply_page({"url": slug}, 1, limit=2)
+    except FetchError as e:
+        return "НЕИЗВЕСТНО", f"списочная ручка не ответила: {e.reason}"
+    total = int(payload.get("total") or 0)
+    if total > 1:
+        return "НЕИЗВЕСТНО", (f"по слагу «{slug}» сервер назвал {total} записей — "
+                              f"фильтр молча проигнорирован, это весь каталог, "
+                              f"а не ответ про нашу вакансию")
+    if total == 1:
+        return _wantapply_status_verdict((payload.get("data") or [{}])[0])
+    # total == 0: слага в каталоге нет. Это ещё не смерть — при переименовании
+    # вакансии слаг меняется, а id остаётся, — поэтому перепроверяем по id.
+    if not external_id:
+        return "НЕИЗВЕСТНО", (f"слага «{slug}» в каталоге нет, а без external_id "
+                              f"перепроверить по id нечем")
+    if not _WANTAPPLY_UUID.match(external_id):
+        # external_id бывает слагом (когда id в выдаче не было), а ручка по id
+        # на слаг отвечает 500, а не 404 — сверено живьём. Слать бессмысленно.
+        return "НЕИЗВЕСТНО", (f"слага «{slug}» в каталоге нет, а external_id "
+                              f"{external_id!r} не UUID — перепроверить нечем")
+    _pause()
+    try:
+        job = fetch_json(f"{WANTAPPLY_API}/jobs/{external_id}",
+                         headers=WANTAPPLY_HEADERS, retries=1)
+    except FetchError as e:
+        if e.status == 404:
+            return "МЕРТВА", "ни по слагу, ни по id записи нет (404)"
+        return "НЕИЗВЕСТНО", f"ручка по id не ответила: {e.reason}"
+    return _wantapply_status_verdict(job if isinstance(job, dict) else {})
 
 
 def wantapply_apply_url(slug: str, token: str) -> str | None:

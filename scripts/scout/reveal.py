@@ -12,16 +12,20 @@ open_url из ответа. Мы ровно это и используем: од
 вакансия релевантна; идемпотентно, лимиты восстанавливаются; лишний раз не нажимай».
 Решение о релевантности принимает вызывающий (модель/человек) ДО запуска команды.
 
-Почему куки браузера пользователя здесь НЕ читаются никогда: refresh-токен hirehi
-ОДИН на все заходы и РОТИРУЕТСЯ каждым POST /api/auth/refresh — у того, кто обновил
-его не последним, сессия протухает мгновенно и выглядит не как «войдите», а как
-403/аноним. Заход с куками живого браузера сжёг бы сессию пользователя в его же
-вкладке. Работает только СОБСТВЕННАЯ сессия scout из .auth/hirehi.json (одноразовый
-`scout auth login hirehi`), и обновлённый storage_state после прогона перезаписывается
-туда же — ротация оседает у нас.
+Про refresh-токен hirehi: он ОДИН на все заходы и РОТИРУЕТСЯ каждым
+POST /api/auth/refresh — у того, кто обновил его не последним, сессия протухает
+мгновенно и выглядит не как «войдите», а как 403/аноним. Поэтому по умолчанию
+работает СОБСТВЕННАЯ сессия scout из .auth/hirehi.json (одноразовый
+`scout auth login hirehi`), и обновлённый storage_state после прогона
+перезаписывается туда же — ротация оседает у нас.
+
+`--from-browser` берёт куки из браузера пользователя и, значит, СОЗНАТЕЛЬНО
+роняет его живую вкладку hirehi: ротация уедет к нам. Это прямое разрешение
+пользователя в чате от 04.08.2026 («пусть убьёт мою живую вкладку, ничего в этом
+такого нет»), и включается только этим флагом — умолчание прежнее.
 
 Предохранители (все обязательны, ни один не выключается флагом):
-1. нет .auth/hirehi.json → код 2 и инструкция; фолбэка на куки браузера НЕТ;
+1. нет сессии и нет --from-browser → код 2 и инструкция;
 2. кликается ТОЛЬКО кнопка data-apply-link — раскрытие контакта, то самое, что
    разрешено; формы не заполняются и не отправляются, других кликов нет;
 3. уже раскрытое повторно не кликается: контакт берётся из базы (идемпотентность);
@@ -132,9 +136,17 @@ def page_state(vacancy_data) -> tuple[str, str]:
                            "или вёрстка сменилась")
     if not vacancy_data.get("is_authenticated"):
         return "anonymous", "is_authenticated=false"
-    if not vacancy_data.get("contact_ticket"):
-        return "anonymous", "contact_ticket пуст — сервер не выдал билет раскрытия"
-    return "ok", "сессия жива, contact_ticket есть"
+    # contact_ticket в состоянии страницы ПУСТ у живой сессии: билет выдаётся
+    # сервером на сам клик, а не кладётся в стейт заранее. Проверка «пусто =
+    # сессия протухла» блокировала раскрытие при полностью рабочем входе
+    # (живой прогон 04.08.2026: is_authenticated=true, direct_left 3 из 5,
+    # кнопка data-apply-link на месте — и всё равно «протухла»).
+    # Решает ровно один признак — is_authenticated.
+    left = (vacancy_data.get("free_limits") or {}).get("direct_left")
+    if left == 0 and not vacancy_data.get("has_pro"):
+        return "no_limits", "лимит раскрытий исчерпан (direct_left=0) — клик не поможет"
+    tail = f", раскрытий осталось {left}" if left is not None else ""
+    return "ok", f"сессия жива{tail}"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -162,10 +174,15 @@ def _save_contact(db: str, jid: str, url: str, c: Consume) -> None:
             payload["contact_kind"] = c.kind
             payload["contact_revealed_at"] = store.now()
             row = conn.execute(
-                "SELECT status FROM detail WHERE source='hirehi' AND external_id=?",
-                (jid,)).fetchone()
+                "SELECT status, page_state FROM detail "
+                "WHERE source='hirehi' AND external_id=?", (jid,)).fetchone()
+            # page_state переносим вместе со статусом: запись идёт через
+            # INSERT OR REPLACE, и без этого дописанный контакт стирал бы
+            # состояние страницы — снятая вакансия возвращалась бы в очередь
+            # закачки, причём ровно та, до которой мы дошли руками.
             store.save_detail(conn, "hirehi", jid, url,
-                              row["status"] if row else "ok", payload=payload)
+                              row["status"] if row else "ok", payload=payload,
+                              page_state=row["page_state"] if row else None)
     except Exception as e:  # noqa: BLE001 — контакт уже напечатан, база его не отменит
         print(f"  ⚠️  контакт в базу не записался: {type(e).__name__}: {e}",
               file=sys.stderr)
@@ -195,7 +212,8 @@ def _close_popups(popups: list) -> None:
     popups.clear()
 
 
-def reveal(urls: list[str], *, limit: int = 5, db: str = store.DEFAULT_DB) -> int:
+def reveal(urls: list[str], *, limit: int = 5, db: str = store.DEFAULT_DB,
+           from_browser: str | None = None) -> int:
     """Раскрывает прямой контакт по каждому URL. Коды — в шапке модуля."""
     try:
         from playwright.sync_api import sync_playwright  # noqa: PLC0415
@@ -204,7 +222,22 @@ def reveal(urls: list[str], *, limit: int = 5, db: str = store.DEFAULT_DB) -> in
         return 3
 
     state_file = auth.state_path("hirehi")
-    if not os.path.exists(state_file):
+    browser_state = None
+    if from_browser:
+        # Осознанный размен: заход этими куками ротирует refresh-токен и разлогинит
+        # живую вкладку пользователя. Разрешено им прямо и только под этим флагом.
+        from . import cookiesrc  # noqa: PLC0415 — ленивый импорт, как в деталке
+        src = cookiesrc.resolve(None if from_browser == "auto" else from_browser,
+                                ("hirehi.ru",), use_cache=False)
+        browser_state = src.storage_for_playwright()
+        n = len(browser_state.get("cookies") or ())
+        if not n:
+            print("куки hirehi.ru в браузере не нашлись — войди на площадку в браузере "
+                  "или сделай `scout auth login hirehi`", file=sys.stderr)
+            return 2
+        print(f"источник сессии: браузер ({src.line()}); "
+              f"живая вкладка hirehi будет разлогинена — так разрешено")
+    elif not os.path.exists(state_file):
         print(NO_SESSION, file=sys.stderr)
         return 2
 
@@ -218,8 +251,9 @@ def reveal(urls: list[str], *, limit: int = 5, db: str = store.DEFAULT_DB) -> in
         # и bundled-рендера (render._render_bundled).
         br = pw.chromium.launch(headless=True)
         try:
-            ctx = br.new_context(storage_state=state_file, locale="ru-RU",
-                                 user_agent=UA)
+            ctx = br.new_context(
+                storage_state=browser_state if browser_state else state_file,
+                locale="ru-RU", user_agent=UA)
             for url in urls:
                 jid = job_id_from_url(url)
                 if not jid:
@@ -245,7 +279,11 @@ def reveal(urls: list[str], *, limit: int = 5, db: str = store.DEFAULT_DB) -> in
                 got: dict = {}
                 popups: list = []
                 page.on("response", lambda r, g=got: _capture_consume(r, g))
-                page.on("popup", popups.append)
+                # Именно lambda, а не popups.append: Playwright вешает служебный
+                # атрибут на обработчик, а у встроенного метода списка нет __dict__ —
+                # `page.on("popup", popups.append)` падал AttributeError и ронял
+                # раскрытие целиком (поймано на живом прогоне 04.08.2026).
+                page.on("popup", lambda p, acc=popups: acc.append(p))
                 try:
                     resp = page.goto(url, wait_until="domcontentloaded", timeout=60000)
                 except Exception as e:  # noqa: BLE001 — одна вакансия не рвёт прогон
@@ -271,6 +309,10 @@ def reveal(urls: list[str], *, limit: int = 5, db: str = store.DEFAULT_DB) -> in
                     print(f"сессия протухла: scout auth login hirehi ({why}) — "
                           f"НЕ кликаю", file=sys.stderr)
                     stale = True
+                    page.close()
+                    break
+                if st == "no_limits":
+                    stopped = why
                     page.close()
                     break
                 if st == "unknown":
