@@ -126,7 +126,20 @@ def with_net(net, fn):
     from . import sources_glassdoor as G
     from . import webcommon as C
 
-    fakes = {"fetch": net.fetch, "fetch_json": net.fetch_json, "nap": net.naps.append}
+    # HostPacer спит собственным time.sleep — подменой `nap` его не заглушить.
+    # Без этого добор карточек EURES (до EURES_DETAIL_CAP штук по паузе хоста)
+    # спит в тестах ПО-НАСТОЯЩЕМУ: прогон вырастал с секунды до минут. Пауза
+    # тут по-прежнему считается — тем же списком naps, что и остальные.
+    class _NoPace:
+        def __init__(self, gap=0.0):
+            self.gap = gap
+
+        def wait(self, url: str) -> float:
+            net.naps.append(self.gap)
+            return 0.0
+
+    fakes = {"fetch": net.fetch, "fetch_json": net.fetch_json, "nap": net.naps.append,
+             "HostPacer": _NoPace}
     # Подменяем только то, что у модуля есть: у webcommon, например, нет
     # fetch_json — заводить его подменой значило бы создать имя, которого в бою
     # не существует, и спрятать опечатку в исходнике за зелёным тестом.
@@ -939,6 +952,44 @@ def test_eures_limit_raises_the_page_ceiling():
        "строки сверх умолчальных 10 страниц не доехали до отчёта")
 
 
+def test_eures_ceiling_does_not_carry_over_between_queries():
+    """Потолок, поднятый одной формулировкой, не достаётся следующей.
+
+    Раньше `max_pages` объявлялся снаружи цикла по формулировкам и поднимался
+    внутри — работал храповиком. Формулировка с numberRecords=1900 задирала
+    потолок до 38 страниц, и следующая, у которой записей 200, уходила с чужим
+    числом, а строка «ОБРЕЗАНО» сравнивала её выдачу с чужими 38×50."""
+    seen: list[tuple[str, int]] = []
+
+    class _Pages(_Net):
+        def fetch(self, url, **kw):
+            self.asked.append(url)
+            body = kw.get("data")
+            if isinstance(body, bytes):
+                self.bodies.append(body.decode())
+            req = json.loads(self.bodies[-1])
+            q = req["keywords"][0]["keyword"]
+            seen.append((q, req["page"]))
+            # Страницы ПОЛНЫЕ и с попаданиями у ОБЕИХ формулировок — иначе обход
+            # остановится сам (пустой страницей или терпением), и тест перестанет
+            # мерить потолок. Ровно на этом первая версия теста зеленела вхолостую
+            # при нарочно возвращённом храповике.
+            data = json.loads(_eures_page(f"{q}{req['page']}", True))
+            data["numberRecords"] = 1900 if q == "Golang" else 100
+            return (json.dumps(data), url)
+
+    net = _Pages({}, {"public/jv/id/": EURES_DETAIL})
+    with_net(net, lambda: W.src_eures(
+        Ctx(query="Golang", extra_queries=("Backend",), days=3650, limit=10)))
+    wide = max(p for q, p in seen if q == "Golang")
+    narrow = max(p for q, p in seen if q == "Backend")
+    true(wide > W.EURES_MAX_PAGES,
+         f"широкая формулировка не пошла за numberRecords: {wide} стр.")
+    true(narrow <= W.EURES_MAX_PAGES,
+         f"узкая формулировка унесла чужой потолок: {narrow} стр. при своих "
+         f"{W.EURES_MAX_PAGES}")
+
+
 def test_eures_page_ceiling_follows_the_platforms_own_count():
     """Сколько страниц нужно, площадка говорит сама — с первой же.
 
@@ -1537,6 +1588,7 @@ def main() -> int:
                test_eures_does_not_stop_at_the_first_page_without_hits,
                test_eures_limit_raises_the_page_ceiling,
                test_eures_page_ceiling_follows_the_platforms_own_count,
+               test_eures_ceiling_does_not_carry_over_between_queries,
                test_relocateme_takes_the_whole_board_and_filters_itself,
                test_relocateme_stops_when_a_page_brings_nothing_new,
                test_jobsdb_salary_range_keeps_upper_bound,
