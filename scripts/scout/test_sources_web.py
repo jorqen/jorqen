@@ -114,13 +114,31 @@ class _Net:
 
 
 def with_net(net, fn):
-    real_fetch, real_json, real_nap = W.fetch, W.fetch_json, W.nap
-    W.fetch, W.fetch_json = net.fetch, net.fetch_json
-    W.nap = net.naps.append
+    """Подменяет сеть СРАЗУ В ДВУХ модулях — `sources_web` и `webcommon`.
+
+    Второй обязателен с переезда 07.08.2026: `post_json` и `nap` живут теперь в
+    `webcommon` и зовут `webcommon.fetch`, а не тот `fetch`, что реэкспортирован
+    в `sources_web`. Подмена только первого перестаёт перехватывать что-либо —
+    и тест уходит в ЖИВУЮ СЕТЬ, зеленея или краснея по погоде на площадке.
+    Именно так это и вскрылось: dreamoffer вернул 23 172 настоящие строки.
+    """
+    from . import reference_levels as L
+    from . import sources_glassdoor as G
+    from . import webcommon as C
+
+    fakes = {"fetch": net.fetch, "fetch_json": net.fetch_json, "nap": net.naps.append}
+    # Подменяем только то, что у модуля есть: у webcommon, например, нет
+    # fetch_json — заводить его подменой значило бы создать имя, которого в бою
+    # не существует, и спрятать опечатку в исходнике за зелёным тестом.
+    saved = [(m, name, getattr(m, name))
+             for m in (W, C, G, L) for name in fakes if hasattr(m, name)]
+    for m, name, _ in saved:
+        setattr(m, name, fakes[name])
     try:
         return fn()
     finally:
-        W.fetch, W.fetch_json, W.nap = real_fetch, real_json, real_nap
+        for m, name, old in saved:
+            setattr(m, name, old)
 
 
 def with_render(html, fn, url="https://example.test/page"):
