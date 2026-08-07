@@ -30,6 +30,8 @@ from . import sources_auth as sa
 from .model import PLACEHOLDER_COMPANY, Vacancy, dup_key, no_dup_evidence
 from .sources import Ctx
 
+from .testutil import patched  # noqa: E402 — общая подмена
+
 FAILS: list[str] = []
 
 # Паузу между страницами тесты не ждут: она про вежливость к живым площадкам,
@@ -52,20 +54,6 @@ def ok(cond, label):
         FAILS.append(label)
 
 
-class patched:
-    """Точечная подмена атрибута модуля на время теста."""
-
-    def __init__(self, obj, name, value):
-        self.obj, self.name, self.value = obj, name, value
-
-    def __enter__(self):
-        self.old = getattr(self.obj, self.name)
-        setattr(self.obj, self.name, self.value)
-        return self.value
-
-    def __exit__(self, *a):
-        setattr(self.obj, self.name, self.old)
-        return False
 
 
 # ──────────────────────────────────────────────────────────────────────────────

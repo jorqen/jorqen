@@ -17,6 +17,7 @@ from .detail import html_to_text, md_to_text
 from .model import Vacancy, dup_key, norm_currency, salary_str
 from .resolve import classify, find_targets
 from .sources import parse_salary
+from .testutil import patched
 from .tg import classify as tg_classify, parse_dump
 
 FAILS: list[str] = []
@@ -1974,6 +1975,44 @@ def test_linkedin_asks_every_formulation():
     from .sources import LINKEDIN_EMPTY_RETRIES
     eq(len(fake.asked), 3 * len(LINKEDIN_REGIONS) * (1 + LINKEDIN_EMPTY_RETRIES),
        "не по одному запросу (с переспросом пустого) на пару «формулировка × регион»")
+
+
+def test_card_write_flags_dead_ats_links_before_writing():
+    """Мёртвая ATS-ссылка помечается ДО записи файла, а не после.
+
+    Ashby ротирует UUID вакансии при переопубликации: ссылка вчерашнего скана
+    бывает мёртвой при живой вакансии, и это уже случалось. Карточка всё равно
+    пишется (в ней есть всё остальное), но с пометкой сверху — молча положить
+    мёртвую ссылку значит отправить человека откликаться в никуда.
+
+    Доска, которая не ответила, мёртвой НЕ считается: «сервер молчит» и
+    «вакансии нет» — разные факты."""
+    from . import atsapi, cardfiles
+
+    class Job:
+        def __init__(self, i):
+            self.id = i
+
+    class Board:
+        def __init__(self, ids):
+            self.jobs = [Job(i) for i in ids]
+
+    live = "текст https://boards.greenhouse.io/gitlab/jobs/123 конец"
+    with patched(atsapi, "board", lambda a, t, q=None: Board(["123"])):
+        eq(cardfiles._dead_links(live), [], "живая ссылка помечена мёртвой")
+    with patched(atsapi, "board", lambda a, t, q=None: Board(["999"])):
+        eq(len(cardfiles._dead_links(live)), 1, "мёртвая ссылка не поймана")
+
+    def boom(*a, **kw):
+        raise RuntimeError("доска не ответила")
+
+    with patched(atsapi, "board", boom):
+        eq(cardfiles._dead_links(live), [],
+           "молчащая доска объявлена мёртвой вакансией")
+
+    # Не-ATS ссылки не трогаем вовсе: их живость стоит запроса на каждую.
+    eq(cardfiles._dead_links("https://hh.ru/vacancy/1"), [],
+       "обычная ссылка попала в предфлайт ATS")
 
 
 def test_brief_shows_other_roles_of_the_same_company():
@@ -6085,6 +6124,7 @@ def main() -> int:
                test_linkedin_paginates_by_start_and_drops_other_professions,
                test_linkedin_stops_where_the_search_drifts_off_topic,
                test_linkedin_asks_every_formulation,
+               test_card_write_flags_dead_ats_links_before_writing,
                test_brief_shows_other_roles_of_the_same_company,
                test_since_auto_never_narrows_below_a_day,
                test_connect_works_without_a_directory_in_the_path,

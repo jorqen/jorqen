@@ -47,6 +47,34 @@ def card_path(root: str, date: str, company: str | None, title: str) -> str:
     return os.path.join(root, date, "companies", company_slug, f"{date}-{role}.md")
 
 
+def _dead_links(text: str) -> list[str]:
+    """Мёртвые ATS-ссылки в тексте карточки. Проверяются только те, что умеем.
+
+    Живость обычной страницы вакансии стоит запроса на каждую и в предфлайт не
+    лезет: `check-links` для того и остался отдельной командой. Здесь — дешёвая
+    проверка ровно тех досок, у которых есть API и известна ротация id.
+    """
+    from .atsapi import board, parse_job_url  # noqa: PLC0415
+
+    bad: list[str] = []
+    seen: set[str] = set()
+    for url in re.findall(r"https?://\S+", text):
+        url = url.rstrip(").,;»\"'")
+        if url in seen:
+            continue
+        seen.add(url)
+        p = parse_job_url(url)
+        if not p:
+            continue
+        try:
+            b = board(p[0], p[1])
+        except Exception:  # noqa: BLE001 — доска не ответила, это не «мертва»
+            continue
+        if not any(str(j.id) == str(p[2]) for j in (b.jobs or [])):
+            bad.append(f"{url} — на доске такой вакансии нет (id ротирован?)")
+    return bad
+
+
 def write(db: str, urls: list[str], *, date: str, root: str = ".jobs",
           force: bool = False, skills=None, skills_note=None) -> list[tuple[str, str]]:
     """[(путь, что сделано)]. Существующие файлы не трогает без `force`."""
@@ -69,6 +97,16 @@ def write(db: str, urls: list[str], *, date: str, root: str = ".jobs",
                 out.append((path, "уже есть — не перезаписан (`--force`, если надо)"))
                 continue
             text = card.build(conn, url, skills=skills, skills_note=skills_note)
+            dead = _dead_links(text)
+            if dead:
+                # Ссылка проверяется ДО записи, а не после. Ashby ротирует UUID
+                # вакансии при переопубликации, и ссылка вчерашнего скана бывает
+                # мёртвой при живой вакансии — это уже случалось. Карточку всё
+                # равно пишем (в ней есть всё остальное), но помечаем сверху:
+                # молча положить мёртвую ссылку значит отправить человека
+                # откликаться в никуда.
+                text = ("⚠️ ПРОВЕРЬ ССЫЛКИ: " + "; ".join(dead)
+                        + "\n\n" + text)
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, "w", encoding="utf-8") as f:
                 f.write(text if text.endswith("\n") else text + "\n")
