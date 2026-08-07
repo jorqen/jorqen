@@ -204,6 +204,11 @@ def run_collect(ctx: Ctx, names: list[str], *, workers: int = 8,
             # страницы площадок между собой.
             from . import rawcache  # noqa: PLC0415
             rawcache.set_source(name)
+            # Тот же довод, что у кэша сырья: воркер переиспользуется, и без
+            # сброса следующий источник унаследовал бы вежливость предыдущего —
+            # заплатил бы паузу до своего ПЕРВОГО запроса к чужой площадке.
+            from .sources import reset_pace  # noqa: PLC0415
+            reset_pace()
             try:
                 return SOURCES[name](ctx)
             finally:

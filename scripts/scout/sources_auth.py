@@ -74,6 +74,7 @@ from dataclasses import dataclass, field
 from .model import Vacancy, norm_period
 from .net import FetchError, fetch, fetch_json, qs
 from .sources import Ctx, expand_k, parse_salary, period_from_text
+from .sources import _pause as _rate_pause  # общий гейт частоты, см. _pause ниже
 # Окно свежести считается ровно теми же двумя функциями, что и у web-площадок.
 # Свои завести было бы проще, но тогда «старше окна» у hirehi и у hackoffer
 # означало бы разное, а расходятся такие копии молча.
@@ -86,10 +87,19 @@ PAGE_PAUSE = 1.0
 
 
 def _pause() -> None:
-    """Пауза между запросами к одной площадке. Читает глобал на каждом вызове —
-    тесты обнуляют `PAGE_PAUSE` и не ждут по секунде на страницу."""
-    if PAGE_PAUSE > 0:
-        time.sleep(PAGE_PAUSE)
+    """Пауза между запросами к одной площадке — ОГРАНИЧИТЕЛЬ ЧАСТОТЫ.
+
+    Читает глобал на каждом вызове: тесты обнуляют `PAGE_PAUSE` и не ждут по
+    секунде на страницу.
+
+    Делегирует общему механизму в `sources`, а не спит сама. Раньше здесь стоял
+    свой `time.sleep(PAGE_PAUSE)`, и четыре авторизованные площадки (shadowhint,
+    hirehi, geekjob, wantapply — десять мест вызова) продолжали складывать паузу
+    со временем ответа уже после того, как всё остальное перевели на гейт. Две
+    разные вежливости в одном сборщике — это два разных ответа на вопрос
+    «с какой частотой мы ходим».
+    """
+    _rate_pause(PAGE_PAUSE)
 
 
 # Полнотекстовый поиск у hirehi и wantapply складывает слова через И и на
