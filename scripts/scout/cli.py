@@ -746,6 +746,11 @@ def cmd_research(args) -> int:
     return 0
 
 
+def cmd_lint_letter(args) -> int:
+    from . import lintletter
+    return lintletter.cli(args)
+
+
 def cmd_wavedoc(args) -> int:
     from . import wavedoc
     return wavedoc.cli(args)

@@ -1966,6 +1966,38 @@ def test_linkedin_asks_every_formulation():
        "не по одному запросу (с переспросом пустого) на пару «формулировка × регион»")
 
 
+def test_lint_letter_catches_the_generator_markers():
+    """Линтер ловит формальную часть канона и молчит на живом письме.
+
+    Правило про тире строгое НАМЕРЕННО. Первая версия пробовала отличать
+    грамматическое тире (замена связки) от риторического и пропускала почти всё:
+    «Senior Go Developer — я не просто разработчик» по форме неотличимо от
+    «Go — основной язык». Линтер, молчащий про главный маркер, хуже
+    отсутствующего."""
+    from .lintletter import check
+
+    codes = lambda t: {c for c, _, _ in check(t)}
+
+    ok_ru = ("Здравствуйте, Анна!\n\nОткликаюсь на позицию Senior Go Developer. "
+             "У вас в вакансии сказано, что переезжаете с монолита на сервисы. "
+             "Пять лет пишу распределённый backend на Go: платёжный шлюз, p99 упал "
+             "с 300 до 47 мс при 70K RPS. Kafka и NATS гонял в проде, схему "
+             "шардирования проектировал сам. Istio и Kubernetes держал в бою.\n\n"
+             "Вакансия: https://e.com/1 · резюме: https://jorqen.link. "
+             "Готов обсудить детали.")
+    eq(codes(ok_ru), set(), f"живое письмо помечено: {check(ok_ru)}")
+
+    eq("dash" in codes("Я сделал сервис — он держал нагрузку."), True,
+       "тире не поймано, а это главный маркер генератора")
+    eq("dash" in codes("I built it — it worked."), True, "тире в английском не поймано")
+    eq("word" in codes("Являюсь ключевым специалистом."), True, "слова-метки не пойманы")
+    eq("word" in codes("I am passionate about robust systems."), True,
+       "английские слова-метки не пойманы")
+    eq("phrase" in codes("Я не просто разработчик."), True, "оборот не пойман")
+    eq("format" in codes("- пункт списка\n- второй"), True, "список в письме не пойман")
+    eq("format" in codes("Текст; ещё текст."), True, "точка с запятой не поймана")
+
+
 def test_wavedoc_slug_folds_legal_forms_and_transliterates():
     """«АО «Каргономика»» и «Каргономика» обязаны дать ОДИН каталог.
 
@@ -5853,6 +5885,7 @@ def main() -> int:
                test_linkedin_paginates_by_start_and_drops_other_professions,
                test_linkedin_stops_where_the_search_drifts_off_topic,
                test_linkedin_asks_every_formulation,
+               test_lint_letter_catches_the_generator_markers,
                test_wavedoc_slug_folds_legal_forms_and_transliterates,
                test_wavedoc_never_overwrites_a_document_with_judgement_in_it,
                test_pause_charges_the_request_time_against_the_interval,
