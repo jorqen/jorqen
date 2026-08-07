@@ -21,7 +21,8 @@ import urllib.parse
 from datetime import datetime, timedelta, timezone
 
 from .model import Vacancy
-from .net import BlockedError, FetchError, fetch, looks_blocked
+from .net import BlockedError, FetchError, fetch, looks_blocked  # noqa: F401
+from .net import wall_marker as net_wall_marker
 # Ctx и Tally общие для всех адаптеров и живут в `sources`: счёт «отдано →
 # записано» нужен каждому источнику одинаково, а два расходящихся счётчика в
 # одном сборщике — это два разных ответа на вопрос «сколько потеряли».
@@ -45,10 +46,25 @@ _WALL_BODY = (
 
 
 def wall_marker(text: str, status: int | None = None) -> str | None:
-    """Маркер антибот-стены или None. Дополняет net.looks_blocked, не заменяет его."""
-    marker = looks_blocked(text, status)
+    """Маркер антибот-стены или None. Дополняет net.wall_marker, не заменяет его.
+
+    Базой служит `net.wall_marker`, а НЕ `net.looks_blocked`, и это не мелочь:
+    у первого есть поправка на JSON («распарсившийся JSON — данные, а не
+    стена»), которую однажды уже добавили по живому случаю — вакансия SteelMount
+    ПРО антифрод, где «CAPTCHA, антибот-системы» в первых 600 байтах ответа
+    объявлялись антибот-проверкой. Эта копия проверок стояла на `looks_blocked`
+    и поправки не имела, то есть чинёный баг здесь жил дальше: любой JSON API
+    со словом «captcha» или «datadome» в описании вакансии объявлял площадку
+    заблокированной.
+
+    Та же поправка распространена и на СВОИ маркеры (заголовок страницы, тело):
+    они ищутся только в том, что не разобралось как JSON.
+    """
+    marker = net_wall_marker(text, status)
     if marker:
         return marker
+    if _is_json(text):
+        return None
     title = re.search(r"<title[^>]*>(.*?)</title>", text[:4000], re.S | re.I)
     if title:
         low = H.unescape(title.group(1)).strip().lower()
@@ -60,6 +76,17 @@ def wall_marker(text: str, status: int | None = None) -> str | None:
         if m in head:
             return m
     return None
+
+
+def _is_json(text: str) -> bool:
+    """Ответ разобрался как JSON — значит это данные, а не страница-заслон."""
+    if text.lstrip()[:1] not in ("{", "["):
+        return False
+    try:
+        json.loads(text)
+    except ValueError:
+        return False
+    return True
 
 
 def check_wall(text: str, url: str, status: int | None = None) -> None:
@@ -116,7 +143,12 @@ def post_json(url: str, payload: dict, *, headers: dict | None = None,
             except json.JSONDecodeError as e:
                 raise FetchError(final, f"ответ не JSON: {e}") from e
         if attempt < tries - 1:
-            time.sleep(pause * (attempt + 1))
+            # Через `nap`, а не через time.sleep: это отступ после отказа, и
+            # спать его надо целиком (gate=False), но ВИДЕТЬ и подменять его
+            # тесты обязаны. Со своим sleep фейк, отдающий 502, заставлял тест
+            # спать по-настоящему 2 и 4 секунды — ровно тот класс «паузы,
+            # которую нельзя посчитать», ради которого `nap` и заведена.
+            nap(pause * (attempt + 1), gate=False)
     raise last or FetchError(url, "unknown")
 
 

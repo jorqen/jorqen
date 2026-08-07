@@ -952,6 +952,24 @@ def test_eures_limit_raises_the_page_ceiling():
        "строки сверх умолчальных 10 страниц не доехали до отчёта")
 
 
+def test_json_about_antifraud_is_not_a_wall():
+    """Вакансия ПРО антифрод, отданная JSON-API, — данные, а не стена.
+
+    Этот баг уже чинили однажды в `net.wall_marker` по живому случаю (SteelMount:
+    «CAPTCHA, антибот-системы» в первых 600 байтах ответа wantapply, и живость
+    вакансии было не узнать). Но у веб-площадок лежала ВТОРАЯ копия проверок,
+    стоявшая на `looks_blocked` без поправки на JSON, — и там чинёный баг жил
+    дальше. Копии расходятся молча; тест держит их сведёнными."""
+    payload = json.dumps({"title": "Antifraud Engineer",
+                          "description": "борьба с ботами: CAPTCHA, datadome, px-captcha"})
+    eq(W.wall_marker(payload), None, "JSON про антифрод объявлен антибот-стеной")
+    # А настоящие стены по-прежнему ловятся — обеими группами маркеров.
+    true(W.wall_marker("<html><title>Один момент…</title></html>"),
+         "русскоязычный челлендж Glassdoor перестал распознаваться")
+    true(W.wall_marker("<html><body>awswaf.com challenge-container</body></html>"),
+         "AWS WAF перестал распознаваться")
+
+
 def test_eures_ceiling_does_not_carry_over_between_queries():
     """Потолок, поднятый одной формулировкой, не достаётся следующей.
 
@@ -1589,6 +1607,7 @@ def main() -> int:
                test_eures_limit_raises_the_page_ceiling,
                test_eures_page_ceiling_follows_the_platforms_own_count,
                test_eures_ceiling_does_not_carry_over_between_queries,
+               test_json_about_antifraud_is_not_a_wall,
                test_relocateme_takes_the_whole_board_and_filters_itself,
                test_relocateme_stops_when_a_page_brings_nothing_new,
                test_jobsdb_salary_range_keeps_upper_bound,
