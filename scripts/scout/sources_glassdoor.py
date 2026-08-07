@@ -325,9 +325,20 @@ def _src_glassdoor_html(ctx: Ctx) -> list[Vacancy]:
     pages = render_pages(
         (_glassdoor_page_url(url, n) for n in range(1, GLASSDOOR_MAX_PAGES + 1)),
         browser=browser, wait=5.0, pause=GLASSDOOR_PAUSE)
+    wall: str | None = None
     for _asked, html, final in pages:
         tally.requests += 1
-        check_wall(html, final)      # иногда именно здесь всё и заканчивается
+        # Стена на СЕРЕДИНЕ пагинации не отменяет уже собранного. Cloudflare
+        # выставляет проверку не всегда, а по нагрузке: замер 07.08.2026 —
+        # первая страница прошла, вторая упёрлась. Прежний код бросал
+        # BlockedError прямо отсюда, и весь источник возвращал НОЛЬ, выбросив
+        # разобранные страницы. Это та же потеря, что «пустой ответ = конец
+        # выдачи», только дороже: собранное уже лежало в руках.
+        try:
+            check_wall(html, final)
+        except BlockedError as e:
+            wall = str(e)
+            break
         page_postings = _job_postings(html)
         page_cards = _glassdoor_cards(html) if not page_postings else []
         if not page_postings and not page_cards:
@@ -342,6 +353,13 @@ def _src_glassdoor_html(ctx: Ctx) -> list[Vacancy]:
         dry = 0 if (fresh or page_postings) else dry + 1
         if dry >= GLASSDOOR_DRY:
             break
+    if wall and not postings and not cards:
+        # Ни одной страницы не прошло — это честная стена, статус АНТИБОТ.
+        raise BlockedError(final, wall)
+    if wall:
+        tally.note(f"СТЕНА на стр. {tally.pages + 1}: собрано {tally.pages} страниц "
+                   f"до неё, дальше не пошли. Это НЕ полная выдача — "
+                   f"проверку проходит человек, зайди браузером сам")
     if not postings and not cards:
         raise FetchError(final, "стена не сработала, но и вакансий в разметке нет — "
                                 "разбирать нечего, проверь страницу глазами")

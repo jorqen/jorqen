@@ -407,6 +407,61 @@ def test_glassdoor_walks_pages_and_stops_on_repeats():
          f"обход не остановился на повторах: спрошено {len(asked)} страниц")
 
 
+def test_glassdoor_wall_mid_pagination_keeps_what_was_collected():
+    """Стена на середине обхода не отменяет уже собранных страниц.
+
+    Cloudflare выставляет проверку не всегда, а по нагрузке: замер 07.08.2026 —
+    первая страница прошла, вторая упёрлась. Прежний код бросал BlockedError
+    прямо из цикла, и весь источник возвращал НОЛЬ, выбросив разобранное. Это та
+    же потеря, что «пустой ответ = конец выдачи», только дороже: собранное уже
+    лежало в руках. Ни одной страницы не прошло — тогда да, честная стена."""
+    def card(vid):
+        return (f'<li class="JobsList_jobListItem__wjTHv" data-jobid="{vid}" '
+                f'data-test="jobListing"><div id="job-employer-{vid}"><span '
+                f'class="EmployerProfile_compactEmployerName__9MGcV">Acme</span></div>'
+                f'<a class="JobCard_jobTitle__GLyJ1" data-test="job-title" '
+                f'href="https://www.glassdoor.com.au/job-listing/x-JV_KO0,3.htm?jl={vid}" '
+                f'id="job-title-{vid}">Senior Golang Developer</a>'
+                f'<div class="JobCard_location__Ds1fM" data-test="emp-location">Berlin</div>'
+                f'<div data-test="job-age">3d</div></li>')
+
+    good = ('<html><head><title>75 golang jobs</title></head><body>'
+            '<ul aria-label="Jobs List">' + card(1) + card(2) + '</ul></body></html>')
+    walled = '<html><head><title>Один момент…</title></head><body>x</body></html>'
+
+    def run(seq):
+        from . import render as R
+        real_many, real_one = R.render_pages, R.render_page
+
+        def fake(urls, **kw):
+            for i, u in enumerate(urls):
+                if i >= len(seq):
+                    return
+                yield u, seq[i], u
+
+        R.render_pages = fake
+        R.render_page = lambda u, **kw: (seq[0], u)
+        try:
+            return W.src_glassdoor(Ctx(query="golang", days=30))
+        finally:
+            R.render_pages, R.render_page = real_many, real_one
+
+    rows = run([good, walled])
+    jobs = [v for v in rows if v.external_id != "_summary"]
+    eq(sorted(v.external_id for v in jobs), ["1", "2"],
+       "стена на второй странице выбросила разобранную первую")
+    notes = summary_of(rows).raw["notes"]
+    true(any("СТЕНА" in n for n in notes),
+         "неполнота выдачи из-за стены не названа в сводке")
+
+    # А если стена стоит с ПЕРВОЙ страницы — это честный АНТИБОТ, а не пустота.
+    try:
+        run([walled])
+        FAILS.append("стена с первой страницы не дала BlockedError")
+    except W.BlockedError:
+        pass
+
+
 def test_glassdoor_broken_markup_is_a_failure_not_zero():
     """Стены нет, карточек нет — это сменившаяся разметка, а не пустая выдача."""
     try:
@@ -1658,6 +1713,7 @@ def main() -> int:
                test_glassdoor_parses_when_wall_is_down,
                test_glassdoor_parses_search_cards_when_there_is_no_ldjson,
                test_glassdoor_walks_pages_and_stops_on_repeats,
+               test_glassdoor_wall_mid_pagination_keeps_what_was_collected,
                test_glassdoor_broken_markup_is_a_failure_not_zero,
                test_hackoffer_parses_ssr_json,
                test_hackoffer_stops_on_empty_page_not_on_error,
