@@ -1958,6 +1958,43 @@ def test_linkedin_asks_every_formulation():
        "не по одному запросу (с переспросом пустого) на пару «формулировка × регион»")
 
 
+def test_rate_gate_charges_the_request_time_against_the_interval():
+    """Ограничитель считает уже потраченное время, а не спит сверху него.
+
+    Замер LinkedIn 07.08.2026: фиксированная пауза 1.2 с ПОСЛЕ ответа давала
+    один запрос в 2.07 с при задуманной одной в 1.2 с. Площадка видела частоту
+    вдвое ниже назначенной, а прогон платил за это временем — на ста страницах
+    это 86 лишних секунд из 206.
+    """
+    from . import sources as S
+
+    slept: list[float] = []
+    real_pause, real_clock = S._pause, time.monotonic
+    now = [1000.0]
+    try:
+        S._pause = lambda s=0.0: (slept.append(s), now.__setitem__(0, now[0] + s))[0]
+        time.monotonic = lambda: now[0]
+        gate = S.RateGate(1.2)
+        gate.wait()                      # первый заход — ждать нечего
+        now[0] += 0.87                   # столько занял сам запрос
+        gate.wait()                      # ждём ОСТАТОК интервала, а не весь
+        now[0] += 0.87
+        gate.wait()
+    finally:
+        S._pause, time.monotonic = real_pause, real_clock
+
+    # Первый заход не спит вовсе, поэтому и вызова паузы у него нет: спим ровно
+    # два раза из трёх. Проверять надо именно это — «сна не было» и «сон нулевой»
+    # для площадки одно и то же, а для счётчика вежливости разное.
+    eq(len(slept), 2, "спали не столько раз, сколько ждали интервал")
+    for i, s in enumerate(slept, 1):
+        if abs(s - (1.2 - 0.87)) > 0.01:
+            FAILS.append(f"пауза {i} = {s:.2f} с вместо остатка "
+                         f"{1.2 - 0.87:.2f} с — время запроса не зачтено")
+    eq(round(now[0] - 1000.0, 2), round(1.2 * 2, 2),
+       "два интервала заняли не 2×1.2 с — частота разошлась с назначенной")
+
+
 def test_linkedin_empty_page_is_rechecked_before_calling_it_the_end():
     """Пустая страница переспрашивается, прежде чем объявить конец выдачи.
 
@@ -5753,6 +5790,7 @@ def main() -> int:
                test_linkedin_paginates_by_start_and_drops_other_professions,
                test_linkedin_stops_where_the_search_drifts_off_topic,
                test_linkedin_asks_every_formulation,
+               test_rate_gate_charges_the_request_time_against_the_interval,
                test_linkedin_empty_page_is_rechecked_before_calling_it_the_end,
                test_linkedin_throttling_is_a_pause_not_the_end_of_the_region,
                test_linkedin_limit_counts_all_regions_together,

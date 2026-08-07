@@ -91,6 +91,52 @@ def _pause(seconds: float = PAGE_PAUSE) -> None:
         time.sleep(seconds)
 
 
+class RateGate:
+    """Ограничитель ЧАСТОТЫ: не чаще одного обращения раз в `interval` секунд.
+
+    Отличается от `_pause` тем, что считает уже потраченное время. `_pause`
+    спит фиксированные N секунд ПОСЛЕ ответа, то есть к паузе прибавляется время
+    самого запроса: замер LinkedIn 07.08.2026 — 1.2 с сна плюс 0.87 с ответа,
+    итого один запрос в 2.07 с при задуманной одной в 1.2 с. Площадка при этом
+    видела частоту вдвое ниже назначенной, а прогон платил за это временем.
+
+    Здесь спится РОВНО остаток интервала. Для площадки частота та же, что была
+    задумана; для нас проход быстрее почти вдвое. Никакой конкурентности: у
+    LinkedIn признак перегрузки — молча пустой ответ (см. `_linkedin_retry_empty`),
+    и разгонять его несколькими соединениями значит менять время на тихо
+    потерянные вакансии.
+
+    Не потокобезопасен намеренно: сборщик обходит площадку в один поток, и
+    блокировка здесь создала бы вид общей защиты, которой нет.
+    """
+
+    __slots__ = ("interval", "_next")
+
+    def __init__(self, interval: float):
+        self.interval = max(0.0, interval)
+        self._next = 0.0
+
+    def wait(self) -> float:
+        """Спит столько, сколько осталось до следующего разрешённого обращения.
+
+        Возвращает фактически проспанное — это нужно сводке: «сколько прогон
+        стоял» и «сколько ждал площадку» отвечают на разные вопросы.
+        """
+        now = time.monotonic()
+        slept = 0.0
+        if now < self._next:
+            slept = self._next - now
+            # Через `_pause`, а не через time.sleep напрямую: это единственная
+            # точка сна источников, её подменяют тесты, и они же СЧИТАЮТ вызовы —
+            # «пауз столько-то на столько-то запросов» и есть проверка вежливости.
+            # Собственный sleep сделал бы её слепой, а тесты — по-настоящему
+            # спящими (45 запросов × 1.2 с в одном прогоне).
+            _pause(slept)
+            now = self._next
+        self._next = now + self.interval
+        return slept
+
+
 def _page_budget(ctx: Ctx, per_page: int, default_pages: int) -> int:
     """Сколько страниц источнику разрешено взять.
 
@@ -1015,13 +1061,17 @@ def src_linkedin(ctx: Ctx) -> list[Vacancy]:
     budget = min(budget, LINKEDIN_MAX_PAGES)  # дальше площадка отвечает HTTP 400
     pairs_done = 0
     queries = ctx.queries()
+    # Ограничитель ОДИН на весь источник, а не на пару: частоту площадка считает
+    # по себе, и обнулять её на каждой новой паре значило бы разгоняться ровно там,
+    # где пар больше всего. Он же снимает двойную оплату — см. RateGate.
+    gate = RateGate(LINKEDIN_PAUSE)
+    slept = 0.0
     for q in queries:
         for region in LINKEDIN_REGIONS:
             label = f"{region}/«{q}»"
             cards = dry = 0
             for page in range(budget):
-                if tally.requests:
-                    _pause(LINKEDIN_PAUSE)
+                slept += gate.wait()
                 url = qs("https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search", {
                     "keywords": q, "location": region,
                     "start": page * LINKEDIN_PAGE, "f_TPR": f"r{seconds}",
@@ -1059,7 +1109,9 @@ def src_linkedin(ctx: Ctx) -> list[Vacancy]:
                 pairs_done += 1
     pairs = len(queries) * len(LINKEDIN_REGIONS)
     tally.note(f"пар «формулировка × регион» с выдачей {pairs_done}/{pairs}, "
-               f"страниц {tally.pages}, запросов {tally.requests}")
+               f"страниц {tally.pages}, запросов {tally.requests}, "
+               f"из них простой {slept:.0f} с (частота — не чаще 1 запроса "
+               f"в {LINKEDIN_PAUSE} с)")
     # Формулировок несколько намеренно: потолок start<1000 действует на ПАРУ,
     # поэтому каждая новая формулировка приносит собственную тысячу карточек, а
     # не долистывает чужую. Замер 07.08.2026 показал, что глубина внутри одной
