@@ -715,8 +715,17 @@ def cmd_tg_mirror(args) -> int:
 
 def cmd_card(args) -> int:
     """Скелет карточки: всё, кроме фита и письма — их пишет модель."""
+    if getattr(args, "write", False):
+        from . import cardfiles
+        return cardfiles.cli_write(args)
     from . import card
     return card.cli(args)
+
+
+def cmd_lint_cards(args) -> int:
+    """Формальная проверка готовых карточек волны."""
+    from . import cardfiles
+    return cardfiles.cli_lint(args)
 
 
 def cmd_research(args) -> int:

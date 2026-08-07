@@ -268,7 +268,14 @@ def migrate(conn) -> list[str]:
 
 @contextmanager
 def connect(path: str = DEFAULT_DB):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    # Каталог создаём, только если он в пути ЕСТЬ. `os.path.dirname` для
+    # «scout.db» и для «:memory:» отдаёт пустую строку, и makedirs("") падает
+    # FileNotFoundError — то есть база в текущем каталоге и база в памяти были
+    # недоступны обе. Первое ломало `scout --db scout.db <команда>`, второе —
+    # любой тест, которому база не нужна вовсе.
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     conn = sqlite3.connect(path, timeout=30)
     conn.row_factory = sqlite3.Row
     try:

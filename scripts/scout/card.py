@@ -219,9 +219,13 @@ def apply_cost(payload: dict | None) -> list[str]:
         out.append(f"🧪 тестовое задание: {extra['test_required']}")
     questions = [str(q) for q in (p.get("questions") or []) if q]
     if questions:
-        out.append(f"📋 анкета формы отклика — {len(questions)} вопрос(ов): "
-                   + "; ".join(q[:70] for q in questions[:3])
-                   + ("…" if len(questions) > 3 else ""))
+        # ВСЕ вопросы и ЦЕЛИКОМ. Раньше печатались первые три по 70 символов, и
+        # модель добирала остальные отдельным `detail --json` на каждую вакансию
+        # с анкетой — при том, что SKILL.md требует «готовый текст под каждое
+        # поле». Обрезанный вопрос для этого бесполезен: под «Расскажите о своём
+        # опыте с…» текст не напишешь, не зная, чем фраза кончается.
+        out.append(f"📋 анкета формы отклика — {len(questions)} вопрос(ов):")
+        out.extend(f"   {i}. {q}" for i, q in enumerate(questions, 1))
 
     text = "\n".join(str(p.get(k) or "") for k in
                      ("description", "requirements", "apply_note"))

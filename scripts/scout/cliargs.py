@@ -29,7 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
         cmd_employer, cmd_enrich, cmd_habr_sync, cmd_hh_auth, cmd_hh_sync,
         cmd_mail_ingest, cmd_mail_read, cmd_mail_sync, cmd_mark, cmd_new,
         cmd_profile, cmd_raw, cmd_render, cmd_research, cmd_resolve, cmd_reveal,
-        cmd_lint_letter, cmd_scan, cmd_shortlist, cmd_status, cmd_wavedoc, cmd_tg, cmd_tg_auth, cmd_tg_dm,
+        cmd_lint_cards, cmd_lint_letter, cmd_scan, cmd_shortlist, cmd_status, cmd_wavedoc, cmd_tg, cmd_tg_auth, cmd_tg_dm,
         cmd_tg_fetch, cmd_tg_mirror, cmd_tg_reparse, cmd_tg_rollback, cmd_wave,
     )
 
@@ -147,6 +147,14 @@ def build_parser() -> argparse.ArgumentParser:
     # собираются пачкой, и поход в сеть на каждую — это и минуты, и свежая
     # антибот-стена. С флагом справочники рынка спрашиваются живьём и ложатся
     # в суточный кэш, дальше пачка берёт их оттуда.
+    cd.add_argument("--write", action="store_true",
+                    help="разложить карточки по каталогам волны "
+                         ".jobs/<дата>/companies/<слаг>/ вместо печати; "
+                         "безымянный работодатель уходит в _hidden/")
+    cd.add_argument("--date", help="дата волны (по умолчанию сегодня)")
+    cd.add_argument("--force", action="store_true",
+                    help="--write: перезаписать существующие файлы (по умолчанию "
+                         "НЕ трогает: там уже может лежать фит и письмо)")
     cd.add_argument("--fetch-market", action="store_true",
                     help="спросить справочники зарплат (levels.fyi, dreamoffer) "
                          "живьём, а не брать из базы")
@@ -307,6 +315,13 @@ def build_parser() -> argparse.ArgumentParser:
                    help="login: ждать входа СЕК секунд, опрашивая страницу, вместо "
                         "Enter (нужно, когда команду запускают не из терминала)")
     a.set_defaults(func=cmd_auth)
+
+    lc = sub.add_parser("lint-cards", parents=[common],
+                        help="формальная проверка карточек волны: есть ли раздел "
+                             "«Отклик», не осталось ли заглушек и предупреждений")
+    lc.add_argument("path", nargs="?", default=".jobs",
+                    help="каталог волны или один файл (по умолчанию .jobs)")
+    lc.set_defaults(func=cmd_lint_cards)
 
     ll = sub.add_parser("lint-letter", parents=[common],
                         help="проверить сопроводительное по формальной части канона: "

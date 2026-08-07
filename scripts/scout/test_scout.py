@@ -1966,6 +1966,74 @@ def test_linkedin_asks_every_formulation():
        "не по одному запросу (с переспросом пустого) на пару «формулировка × регион»")
 
 
+def test_connect_works_without_a_directory_in_the_path():
+    """База в текущем каталоге и база в памяти обязаны открываться.
+
+    `os.path.dirname` для «scout.db» и «:memory:» отдаёт пустую строку, а
+    makedirs("") падает FileNotFoundError. То есть `scout --db scout.db status`
+    не работал вовсе, и ни один тест не мог взять базу в памяти. Нашлось при
+    написании теста на раскладку карточек — сам тест и уткнулся."""
+    import os
+    import tempfile
+
+    from . import store
+
+    with store.connect(":memory:") as conn:
+        eq(conn.execute("SELECT 1").fetchone()[0], 1, "база в памяти не открылась")
+    with tempfile.TemporaryDirectory() as d:
+        cwd = os.getcwd()
+        try:
+            os.chdir(d)
+            with store.connect("scout.db") as conn:
+                eq(conn.execute("SELECT 1").fetchone()[0], 1,
+                   "база в текущем каталоге не открылась")
+        finally:
+            os.chdir(cwd)
+
+
+def test_card_files_layout_and_lint():
+    """Раскладка карточек и их проверка — механика, а не работа глазами.
+
+    Требование SKILL.md «один работодатель — один каталог» до сих пор выполняла
+    модель: двадцать восемь путей на волну 04.08.2026 и класс ошибок «две папки
+    на одну компанию». Безымянный работодатель (за заглушкой агрегатора) обязан
+    уходить отдельно, а не в каталог с пустым именем."""
+    import os
+    import tempfile
+
+    from .cardfiles import card_path, check_card
+
+    a = card_path(".jobs", "2026-08-08", "АО «Каргономика»", "Senior Go Developer")
+    b = card_path(".jobs", "2026-08-08", "Каргономика", "Senior Go Developer")
+    eq(a, b, "организационно-правовая форма развела одну компанию по двум каталогам")
+    eq("_hidden" in card_path(".jobs", "2026-08-08", None, "Go"), True,
+       "безымянный работодатель не отделён")
+
+    # Линт: скелет НЕ готовая карточка, и он обязан это говорить.
+    eq(check_card("## Роль\n\n- Ссылка: https://x/1\n"),
+       ["нет раздела «Отклик» — откликнуться по ней нельзя"],
+       "скелет без раздела «Отклик» объявлен готовым")
+    ok_card = "## Роль\n\n- Ссылка: https://x/1\n\n## Отклик\n\nписьмо\n"
+    eq(check_card(ok_card), [], f"готовая карточка помечена: {check_card(ok_card)}")
+    eq(len(check_card(ok_card.replace("письмо", "TODO допишу"))), 1,
+       "оставшаяся заглушка не поймана")
+    eq(len(check_card(ok_card.replace("письмо", "⚠️ проверь"))), 1,
+       "оставшееся предупреждение не поймано")
+
+    # Существующий файл не затирается: там уже может лежать фит и письмо.
+    from . import cardfiles
+    with tempfile.TemporaryDirectory() as d:
+        path = card_path(d, "2026-08-08", "Acme", "Go")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("## Роль\n\n## Отклик\n\nмоё письмо\n")
+        # url заведомо не в базе — проверяем именно ветку «нет в базе», а заодно
+        # что дошли до неё, не тронув чужой файл.
+        cardfiles.write(":memory:", ["https://нет-такого/1"], date="2026-08-08", root=d)
+        with open(path, encoding="utf-8") as f:
+            eq("моё письмо" in f.read(), True, "скелет затёр дописанное письмо")
+
+
 def test_raw_cache_prunes_stale_days_on_start():
     """Кэш сырых ответов ограничен сверху, а не растёт вечно.
 
@@ -5541,7 +5609,13 @@ def test_apply_cost_names_the_questionnaire_and_the_test_task():
     got = apply_cost({"questions": ["Почему вы хотите к нам?",
                                     "Ваши зарплатные ожидания?"],
                       "extra": {"test_required": "hh: тестовое прикреплено"}})
-    eq(len(got), 2, "вопросы формы и флаг площадки — две разные строки")
+    # Флаг тестового + заголовок анкеты + по строке на КАЖДЫЙ вопрос. Вопросы
+    # печатаются целиком с 08.08.2026: SKILL.md требует готовый текст под каждое
+    # поле, а под обрезанным «Расскажите о своём опыте с…» его не напишешь.
+    eq(len(got), 4, "вопросы формы печатаются не по одному на строку")
+    eq(got[-1], "   2. Ваши зарплатные ожидания?", "вопрос обрезан или потерян")
+    if any("…" in g for g in got):
+        FAILS.append("вопрос всё ещё обрезается многоточием")
 
     for quiet in ("Тестовое окружение поднимается в docker-compose.",
                   "Этапы интервью: HR Screening (30 min) → Team Interview.",
@@ -5929,6 +6003,8 @@ def main() -> int:
                test_linkedin_paginates_by_start_and_drops_other_professions,
                test_linkedin_stops_where_the_search_drifts_off_topic,
                test_linkedin_asks_every_formulation,
+               test_connect_works_without_a_directory_in_the_path,
+               test_card_files_layout_and_lint,
                test_raw_cache_prunes_stale_days_on_start,
                test_lint_letter_catches_the_generator_markers,
                test_wavedoc_slug_folds_legal_forms_and_transliterates,

@@ -1,0 +1,141 @@
+"""Раскладка карточек по каталогам и их проверка — работа алгоритма, не модели.
+
+Две команды:
+
+* `card --write` — кладёт скелет карточки туда, где ему место по SKILL.md:
+  `.jobs/<дата>/companies/<слаг>/<дата>-<слаг роли>.md`. Слаг сворачивает
+  организационно-правовую форму, поэтому «АО «Каргономика»» и «Каргономика»
+  дают ОДИН каталог. Работодатель за заглушкой агрегатора уходит в `_hidden/`.
+* `lint-cards` — проверяет готовые карточки по формальным признакам: есть ли
+  раздел «Отклик», не остались ли незаполненные заглушки, нет ли предупреждений.
+
+Почему это здесь, а не в голове модели. Раскладку она делала руками — двадцать
+восемь путей на волну 04.08.2026 и класс ошибок «две папки на одну компанию».
+Проверку карточек — перечитыванием всех файлов перед сдачей. И то и другое
+механика: путь считается, признаки конечны, ошибка объективна.
+
+Чего эти команды НЕ делают: не пишут фит, не пишут письмо, не решают, достойна
+ли вакансия карточки. Это суждение, оно остаётся модели.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+
+from . import store
+from .wavedoc import slug
+
+# Признаки незаполненного места. Модель оставляет их намеренно (скелет так и
+# печатается), но карточка с ними ГОТОВОЙ не является.
+_HOLES = (
+    "<!-- ЗАПОЛНЯЕТ МОДЕЛЬ",
+    "<заполни",
+    "TODO",
+    "…дописать",
+    "нет в базе —",
+)
+
+# Разделы, без которых карточка бесполезна: по ней нельзя откликнуться.
+_NEEDED = ("## Отклик",)
+
+
+def card_path(root: str, date: str, company: str | None, title: str) -> str:
+    """Путь карточки. Пустая компания → `_hidden/`, а не каталог с пустым именем."""
+    company_slug = slug(company)
+    role = slug(title)[:60] or "vakansiya"
+    return os.path.join(root, date, "companies", company_slug, f"{date}-{role}.md")
+
+
+def write(db: str, urls: list[str], *, date: str, root: str = ".jobs",
+          force: bool = False, skills=None, skills_note=None) -> list[tuple[str, str]]:
+    """[(путь, что сделано)]. Существующие файлы не трогает без `force`."""
+    from . import card  # noqa: PLC0415 — тяжёлый импорт (резюме, разбор вилок)
+
+    if skills is None:
+        skills, skills_note = card.load_skills()
+    out: list[tuple[str, str]] = []
+    with store.connect(db) as conn:
+        for url in urls:
+            row = conn.execute(
+                "SELECT title, company FROM vacancy WHERE url = ?", (url,)).fetchone()
+            if row is None:
+                out.append((url, "нет в базе — ссылку возьми из `scout shortlist`"))
+                continue
+            path = card_path(root, date, row["company"], row["title"] or "")
+            if os.path.exists(path) and not force:
+                # Тот же довод, что у `wavedoc`: в файле уже может лежать фит и
+                # письмо, которых в базе нет и восстановить их нечем.
+                out.append((path, "уже есть — не перезаписан (`--force`, если надо)"))
+                continue
+            text = card.build(conn, url, skills=skills, skills_note=skills_note)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text if text.endswith("\n") else text + "\n")
+            out.append((path, f"записан скелет ({len(text.splitlines())} строк)"))
+    return out
+
+
+def check_card(text: str) -> list[str]:
+    """Замечания к одной карточке. Пусто — формально готова."""
+    bad: list[str] = []
+    for needed in _NEEDED:
+        if needed not in text:
+            bad.append(f"нет раздела «{needed.strip('# ')}» — откликнуться по ней нельзя")
+    for hole in _HOLES:
+        if hole in text:
+            bad.append(f"осталась заглушка «{hole}»")
+    if "⚠️" in text:
+        bad.append("осталось предупреждение ⚠️ — разберись с ним или убери")
+    # Ссылка на вакансию обязана быть: без неё карточка не привязана ни к чему.
+    if not re.search(r"https?://", text):
+        bad.append("нет ни одной ссылки")
+    return bad
+
+
+def lint(path: str) -> list[tuple[str, list[str]]]:
+    """[(файл, замечания)] по каталогу волны или одному файлу."""
+    files: list[str] = []
+    if os.path.isfile(path):
+        files = [path]
+    else:
+        for base, _dirs, names in os.walk(path):
+            files.extend(os.path.join(base, n) for n in sorted(names)
+                         if n.endswith(".md"))
+    out: list[tuple[str, list[str]]] = []
+    for f in sorted(files):
+        try:
+            with open(f, encoding="utf-8") as fh:
+                text = fh.read()
+        except OSError as e:
+            out.append((f, [f"не читается: {e}"]))
+            continue
+        bad = check_card(text)
+        if bad:
+            out.append((f, bad))
+    return out, len(files)
+
+
+def cli_write(args) -> int:
+    date = getattr(args, "date", None) or store.now()[:10]
+    rows = write(args.db, list(args.urls), date=date,
+                 force=getattr(args, "force", False))
+    for path, what in rows:
+        print(f"{path}: {what}")
+    return 1 if any("нет в базе" in w for _, w in rows) else 0
+
+
+def cli_lint(args) -> int:
+    path = getattr(args, "path", None) or ".jobs"
+    found, total = lint(path)
+    if not found:
+        print(f"{path}: {total} карточек, замечаний нет")
+        return 0
+    print(f"{path}: {len(found)} из {total} карточек с замечаниями")
+    for f, bad in found:
+        print(f"  {f}")
+        for b in bad:
+            print(f"    - {b}")
+    print("\nСуждение это НЕ проверяет: верность фита, качество письма и то, "
+          "достойна ли вакансия карточки, остаются на тебе.")
+    return 1
