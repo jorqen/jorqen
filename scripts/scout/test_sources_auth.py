@@ -1445,8 +1445,9 @@ def test_localstorage_token_is_merged_not_overwritten():
 class _FakePW:
     """Playwright ровно в том объёме, который трогает renew_hirehi."""
 
-    def __init__(self, state: dict, *, boom: str | None = None):
+    def __init__(self, state: dict, *, boom: str | None = None, api_status: int = 200):
         self.state, self.boom, self.saved = state, boom, []
+        self.api_status = api_status
 
     # sync_playwright() → контекстный менеджер → объект с .chromium
     def __call__(self):
@@ -1487,8 +1488,18 @@ class _FakePW:
         if self.boom == "wait":
             raise RuntimeError("Target page closed")
 
+    def evaluate(self, script, *a):
+        # Приватная ручка — главный свидетель входа, и подделка обязана уметь
+        # именно её. Без этого метода `api_state` ловит AttributeError, падает
+        # в «unknown» и вердикт берётся с ВЁРСТКИ — то есть с того свидетеля,
+        # которого разбор 07.08.2026 объявил лгущим в обе стороны. Тесты
+        # продления зеленели, не проверив ничего из починенного.
+        return self.api_status
+
     def content(self):
-        return "<html>Личный кабинет</html>"
+        # Разметка нарочно анонимная: у hirehi «Войти» есть и у залогиненного.
+        # Если вердикт когда-нибудь снова начнут брать отсюда, тесты покраснеют.
+        return "<html>Войти</html>"
 
     def storage_state(self):
         return dict(self.state)
@@ -1535,11 +1546,10 @@ def test_hirehi_renewal_confirms_by_the_page_not_by_the_absence_of_errors():
             ok_, why = authrefresh.renew_hirehi(wait_ms=0)
         ok(ok_, f"признаки входа на странице — продление удалось ({why})")
 
-        fake = _FakePW({"cookies": [], "origins": []})
-        with patched(fake, "content", lambda: "<html>Войти</html>"), \
-                patched(authrefresh, "_playwright", lambda: fake):
+        fake = _FakePW({"cookies": [], "origins": []}, api_status=401)
+        with patched(authrefresh, "_playwright", lambda: fake):
             ok_, why = authrefresh.renew_hirehi(wait_ms=0)
-        ok(not ok_, "анонимный вид с кодом 200 успехом не считается")
+        ok(not ok_, "401 на приватной ручке успехом не считается")
         ok("auth login hirehi" in why, "названо, чем это чинится")
 
 
