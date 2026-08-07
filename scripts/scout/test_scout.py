@@ -1911,14 +1911,19 @@ def test_linkedin_paginates_by_start_and_drops_other_professions():
 
     jobs = [v for v in got if v.external_id != "_summary"]
     summary = [v for v in got if v.external_id == "_summary"][0]
-    regions = len(__import__("scripts.scout.sources", fromlist=["x"]).LINKEDIN_REGIONS)
+    S = __import__("scripts.scout.sources", fromlist=["x"])
+    regions, LINKEDIN_EMPTY_RETRIES = len(S.LINKEDIN_REGIONS), S.LINKEDIN_EMPTY_RETRIES
     eq(len(jobs), 2, "два региона не размножают карточки: id общий, повтор — это дубль")
     eq([v.external_id for v in jobs], ["1", "3"],
        "Head of Finance и HR/Payroll Manager отсеяны фильтром профессии")
     eq(summary.raw["skipped_profile"], 2, "отсеянные по профессии посчитаны")
     eq(summary.raw["mismatch"], 0, "баланс сошёлся")
-    eq(len(fake.asked), 3 * regions, "по каждому региону: две страницы с карточками "
-                                     "и третья пустая — она и есть конец выдачи")
+    # 5, а не 3: две страницы с карточками, третья пустая и ДВА повтора этой
+    # пустой. С 07.08.2026 пустому ответу не верят с первого раза — у гостевого
+    # поиска «выдача кончилась» и «мы вас притормозили» выглядят одинаково
+    # (200 с телом в 26 байт), см. _linkedin_retry_empty.
+    eq(len(fake.asked), (3 + LINKEDIN_EMPTY_RETRIES) * regions,
+       "конец выдачи объявлен без переспроса — молча обрежется троттлинг")
     if not any("start=10" in u for u in fake.asked):
         FAILS.append(f"вторая страница региона не спрошена: {fake.asked[:5]}")
     if len(fake.naps) != len(fake.asked) - 1:
@@ -1946,8 +1951,54 @@ def test_linkedin_asks_every_formulation():
     for q in ("Golang", "Go", "Backend"):
         if not any(f"keywords={q}&" in u for u in fake.asked):
             FAILS.append(f"формулировка «{q}» не спрошена вовсе")
-    eq(len(fake.asked), 3 * len(LINKEDIN_REGIONS),
-       "не по одному запросу на пару «формулировка × регион»")
+    # На пару приходится запрос плюс повторы пустого: пустой ответ у гостевого
+    # поиска неотличим от временного отказа по IP, и верить ему сразу нельзя.
+    from .sources import LINKEDIN_EMPTY_RETRIES
+    eq(len(fake.asked), 3 * len(LINKEDIN_REGIONS) * (1 + LINKEDIN_EMPTY_RETRIES),
+       "не по одному запросу (с переспросом пустого) на пару «формулировка × регион»")
+
+
+def test_linkedin_empty_page_is_rechecked_before_calling_it_the_end():
+    """Пустая страница переспрашивается, прежде чем объявить конец выдачи.
+
+    Самое дорогое место источника. У гостевого поиска «выдача кончилась» и «мы
+    вас притормозили» выглядят ОДИНАКОВО — 200 с телом в 26 байт. Замер
+    07.08.2026: один и тот же запрос отдал 0 карточек, а следом, без всякого
+    ожидания, десять. Поверить первому ответу значит молча обрезать регион и
+    отчитаться о полном обходе — то есть соврать ровно тем способом, от которого
+    во всём сборщике стоят счётчики «отдано → записано»."""
+    from .sources import Ctx, src_linkedin
+
+    def card(vid):
+        return ('<div class="base-card" '
+                f'data-entity-urn="urn:li:jobPosting:{vid}">'
+                f'<span class="sr-only">Senior Golang Developer</span>'
+                f'<a class="hidden-nested-link" href="/c">Acme</a>'
+                f'<span class="job-search-card__location">Berlin</span>'
+                f'<time datetime="{_fresh()[:10]}">вчера</time></div>')
+
+    seen: dict[str, int] = {}
+
+    class Flaky(_FakeFetch):
+        def __call__(self, url, **kw):
+            self.asked.append(url)
+            start = url.split("start=")[1].split("&")[0]
+            seen[start] = seen.get(start, 0) + 1
+            # Вторая страница «пустеет» ровно один раз — как живой троттлинг.
+            if start == "10" and seen[start] == 1:
+                return "", url
+            if start in ("0", "10"):
+                return "<ul>" + card(int(start) + 1) + "</ul>", url
+            return "<ul></ul>", url
+
+    fake = Flaky({})
+    got = _with_fake_fetch(fake, lambda: src_linkedin(Ctx(query="Golang", days=3)))
+    ids = sorted({v.external_id for v in got if v.external_id != "_summary"})
+    eq(ids, ["1", "11"],
+       "карточки со страницы, пришедшей пустой по троттлингу, потеряны")
+    if seen.get("10", 0) < 2:
+        FAILS.append("пустую страницу не переспросили — конец выдачи объявлен по "
+                     "первому же пустому ответу")
 
 
 def test_linkedin_throttling_is_a_pause_not_the_end_of_the_region():
@@ -5702,6 +5753,7 @@ def main() -> int:
                test_linkedin_paginates_by_start_and_drops_other_professions,
                test_linkedin_stops_where_the_search_drifts_off_topic,
                test_linkedin_asks_every_formulation,
+               test_linkedin_empty_page_is_rechecked_before_calling_it_the_end,
                test_linkedin_throttling_is_a_pause_not_the_end_of_the_region,
                test_linkedin_limit_counts_all_regions_together,
                test_linkedin_ru_only_still_reports_itself,
