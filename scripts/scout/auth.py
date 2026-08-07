@@ -45,6 +45,11 @@ AUTH_DIR = os.environ.get("SCOUT_AUTH_DIR") or os.path.join(
 # (cookiesrc.resolve). Файла может не быть вовсе — ни одна команда от этого не ломается.
 BROWSER_STATE = os.path.join(AUTH_DIR, "browser.json")
 
+# Начало пояснения, которым session_token сообщает «до кук не добрался».
+# Живёт константой, потому что по нему принимается решение (unknown вместо
+# anonymous), а решение по подстроке-литералу ломается от любой правки текста.
+UNREADABLE = "куки прочитать не вышло"
+
 
 def profile_dir(name: str) -> str:
     """Каталог ОТДЕЛЬНОГО браузерного профиля scout (`.auth/chrome-profile` и т.п.).
@@ -183,6 +188,84 @@ def bearer_from_state(platform: str) -> tuple[str | None, str]:
                   f"сохранился, повтори: scout auth login {platform}")
 
 
+def state_cookie(platform: str) -> tuple[str | None, str]:
+    """(значение сессионной куки из СОБСТВЕННОЙ сессии scout, пояснение).
+
+    Отдельно от `session_token` намеренно: тот читает браузер пользователя, а
+    здесь источник строго `.auth/<площадка>.json`. Разница принципиальная для
+    ротационных площадок — у hirehi refresh-токен один на всех, и заход куками
+    из живого браузера обесценивает его там. Поэтому у таких площадок вообще нет
+    другого честного источника, кроме собственного файла.
+
+    Никакой сети: только чтение файла.
+    """
+    cfg = PLATFORMS.get(platform) or {}
+    pair = cfg.get("state_cookie")
+    if not pair:
+        return None, f"{platform}: собственная сессия scout для площадки не описана"
+    domain, name = pair
+    if not have(platform):
+        return None, (f"нет .auth/{platform}.json — собственной сессии scout нет. "
+                      f"Разовый вход: scout auth login {platform}")
+    try:
+        with open(state_path(platform), encoding="utf-8") as f:
+            state = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        return None, f".auth/{platform}.json не читается: {type(e).__name__}: {e}"
+    for c in state.get("cookies", []):
+        if c.get("name") == name and (c.get("domain") or "").lstrip(".").endswith(domain):
+            if c.get("value"):
+                # Формулировка ровно про то, что проверено. Файл говорит, что
+                # токен ЕСТЬ, и молчит о том, принимают ли его: у hirehi срок
+                # внутрь куки не положен, а анонимный вид отдаётся с кодом 200.
+                # Сказать здесь «сессия жива» значит завести ложное спокойствие —
+                # ровно так и было 06.08.2026: файл на месте, заход анонимный.
+                return str(c["value"]), (f"токен {name} на месте (.auth/{platform}.json); "
+                                         f"принимают ли его — покажет заход")
+    return None, (f"в .auth/{platform}.json нет куки {name} — вход не сохранился, "
+                  f"повтори: scout auth login {platform}")
+
+
+def save_localstorage_token(platform: str, origin: str, name: str, token: str) -> None:
+    """Кладёт свежий localStorage-токен в `.auth/<площадка>.json`, не трогая куки.
+
+    Нужно для площадок с сессией на клиенте (careered): жить она обязана в
+    постоянном профиле, где продлевается сама, а файл — только слепок для
+    stdlib-слоя. Слепок и обновляем, целиком storage_state ради одной строки
+    не переписывая: в файле могут лежать куки, которых в профиле уже нет."""
+    path = state_path(platform)
+    state: dict = {"cookies": [], "origins": []}
+    if have(platform):
+        try:
+            with open(path, encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                state = loaded
+        except (json.JSONDecodeError, OSError):
+            pass  # битый слепок — перезаписываем целиком, это не потеря сессии
+    state.setdefault("cookies", [])
+    origins = state.setdefault("origins", [])
+    want = origin.rstrip("/")
+    for o in origins:
+        if (o.get("origin") or "").rstrip("/") != want:
+            continue
+        items = o.setdefault("localStorage", [])
+        for item in items:
+            if item.get("name") == name:
+                item["value"] = token
+                break
+        else:
+            items.append({"name": name, "value": token})
+        break
+    else:
+        origins.append({"origin": want,
+                        "localStorage": [{"name": name, "value": token}]})
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
+    os.chmod(path, 0o600)
+
+
 def session_token(platform: str, *, cookies_from: str | None = None) -> tuple[str | None, str]:
     """(Bearer-токен площадки, пояснение) — БЕЗ запуска браузера.
 
@@ -205,7 +288,37 @@ def session_token(platform: str, *, cookies_from: str | None = None) -> tuple[st
         # продолжал брать снимок, снятый до входа, и требовал войти ещё раз.
         src = cookiesrc.resolve(cookies_from, (domain,), use_cache=False)
     except Exception as e:  # noqa: BLE001 — нет доступа к кукам не повод падать
-        return None, f"куки {domain} прочитать не вышло: {type(e).__name__}: {e}"
+        # Отдельная формулировка, а не просто «токена нет»: по ней session_probe
+        # отличает «не смог прочитать» от «точно вышел». Свалить их в одно значит
+        # объявлять разлогин каждый раз, когда браузер держит свою базу кук
+        # залоченной, — и приучить не верить предупреждению вовсе.
+        return None, f"{UNREADABLE}: {domain}: {type(e).__name__}: {e}"
+    token, why = _token_in(src, platform, name, domain)
+    if token or cookies_from not in (None, "", "auto"):
+        # Явный источник спрашивали — его и отвечаем, не подменяя другим:
+        # `--cookies-from yandex` это вопрос про Яндекс, а не «найди хоть где».
+        return token, why
+
+    # Живой сессии в выбранном браузере нет — спрашиваем остальные ПОИМЁННО.
+    # `auto` выбирает один браузер по покрытию доменов и свежести БД, и про
+    # СРОК токена внутри куки не знает ничего: 07.08.2026 он выбрал Яндекс с
+    # токеном wantapply, истёкшим 31.07, при живом до 08.08 в Chrome. Цена
+    # ошибки — прямые ссылки в ATS, потерянные при работающем входе.
+    from . import cookiesrc  # noqa: PLC0415
+
+    for other in getattr(cookiesrc, "BROWSER_NAMES", ()):
+        try:
+            alt = cookiesrc.resolve(other, (domain,), use_cache=False)
+        except Exception:  # noqa: BLE001 — нет такого браузера или нет доступа
+            continue
+        alt_token, alt_why = _token_in(alt, platform, name, domain)
+        if alt_token:
+            return alt_token, f"{alt_why} — источник {other}, а не выбранный auto"
+    return token, why
+
+
+def _token_in(src, platform: str, name: str, domain: str) -> tuple[str | None, str]:
+    """Разбор сессионной куки в одном конкретном источнике."""
     for c in src.cookies:
         if c.get("name") == name:
             return token_from_cookie(platform, c.get("value") or "")
@@ -228,10 +341,19 @@ def session_probe(platform: str, *, cookies_from: str | None = None) -> tuple[st
         # смотрим сохранённый storage_state — тоже без браузера и без сети.
         token, why = bearer_from_state(platform)
         return ("logged_in" if token else "anonymous"), why
+    if cfg.get("state_cookie"):
+        # Ротационные площадки (hirehi): единственный честный источник — своя
+        # сессия scout. Куки живого браузера сюда не годятся не потому, что их
+        # трудно прочитать, а потому, что чтение с последующим заходом сожгло бы
+        # токен у пользователя.
+        token, why = state_cookie(platform)
+        return ("logged_in" if token else "anonymous"), why
     if not cfg.get("session_cookie"):
         return "unknown", "по кукам не понять — нужна страница (auth check)"
     token, why = session_token(platform, cookies_from=cookies_from)
-    return ("logged_in" if token else "anonymous"), why
+    if token:
+        return "logged_in", why
+    return ("unknown" if why.startswith(UNREADABLE) else "anonymous"), why
 
 
 def secure_auth_dir(prune_foreign: bool = True) -> list[str]:
@@ -417,9 +539,18 @@ PLATFORMS: dict[str, dict] = {
         "login_optional": True,
         # refresh-токен ОДИН на браузер пользователя и на любой наш заход: POST
         # /api/auth/refresh ротирует его, и у того, кто обновил не последним, кука
-        # мгновенно протухает. Поэтому мы этот POST не делаем НИКОГДА, а сессию
-        # держим на постоянном профиле scout, где ротация оседает сама.
+        # мгновенно протухает. Поэтому мы этот POST не делаем НИКОГДА сами —
+        # продление идёт клиентом площадки на своей же странице, см.
+        # authrefresh.renew_hirehi, а ротация оседает в собственной сессии scout.
         "rotating_refresh": True,
+        # Живость видна офлайн по своему же файлу — и ТОЛЬКО по нему: куки браузера
+        # владельца для hirehi не читаются нигде, это тот самый заход, что жжёт токен.
+        "state_cookie": ("hirehi.ru", "hirehi-refresh-token"),
+        # Единственный надёжный признак входа: вёрстка врёт в обе стороны —
+        # «Войти» есть у залогиненного (модалка рендерится всегда), а «Мои
+        # отклики» нет и у него (рисуется клиентом после гидрации). Замер
+        # 07.08.2026: 200 нашей сессии против 401 анониму. См. api_state.
+        "alive_api": "/api/favorites",
     },
 }
 
@@ -447,8 +578,73 @@ def _require_playwright():
     return sync_playwright
 
 
+def api_state(page, platform: str) -> tuple[str, str] | None:
+    """Состояние входа по ПРИВАТНОЙ РУЧКЕ площадки, а не по вёрстке.
+
+    Заведено после разбора 07.08.2026, который стоил трёх ложных «войди ещё раз»
+    подряд: у hirehi слово «Войти» лежит в разметке ВСЕГДА (форма входа в модалке
+    рендерится и залогиненному), а «Мои отклики»/«Личный кабинет» в серверный HTML
+    не попадают вовсе — их рисует клиент после гидрации. Проверка по тексту
+    объявляла живую сессию анонимной: замер того же дня — `/api/favorites`,
+    `/api/hidden`, `/api/recruiter/chats/unread` отдали 200 нашей сессии и 401
+    анониму, при том что вёрстка в обоих случаях одинаковая.
+
+    Запрос идёт СО СТРАНИЦЫ и same-origin: это тот же вызов, что делает сам
+    клиент площадки, ничего не подделывается.
+
+    Возвращает None, если у площадки такой ручки не описано, — тогда решает вёрстка.
+    """
+    path = (PLATFORMS.get(platform) or {}).get("alive_api")
+    if not path:
+        return None
+    try:
+        status = page.evaluate(
+            "async (p) => { const r = await fetch(p, {credentials: 'include'});"
+            " return r.status; }", path)
+    except Exception as e:  # noqa: BLE001 — не смогли спросить, а не «вышли»
+        return "unknown", f"приватную ручку не спросить: {type(e).__name__}: {e}"
+    if status == 200:
+        return "logged_in", f"{path} отвечает 200 — сессия принята площадкой"
+    if status in (401, 403):
+        return "anonymous", f"{path} отвечает {status} — площадка нас не узнаёт"
+    return "unknown", f"{path} отвечает {status} — по нему о входе не судить"
+
+
+def storage_state_probe(page, platform: str) -> tuple[str, str] | None:
+    """Состояние входа по localStorage открытой страницы.
+
+    Для careered это ЕДИНСТВЕННЫЙ честный признак, и в реестре так и написано:
+    «настоящая проверка живости — токен в localStorage». Вёрстка там не говорит
+    ничего — ни `alive_if`, ни `dead_if` не срабатывают, и проверка по ней даёт
+    «unknown», из-за чего вход человека 07.08.2026 не был засчитан, а слепок
+    не снялся при живой сессии.
+
+    Возвращает None, если у площадки сессия не клиентская.
+    """
+    pair = (PLATFORMS.get(platform) or {}).get("localstorage_token")
+    if not pair:
+        return None
+    _, key = pair
+    try:
+        token = page.evaluate("() => window.localStorage.getItem(%r)" % key)
+    except Exception as e:  # noqa: BLE001 — не смогли прочитать, а не «вышли»
+        return "unknown", f"localStorage не прочитать: {type(e).__name__}: {e}"
+    if token:
+        return "logged_in", f"токен {key} лежит в localStorage страницы"
+    return "anonymous", f"в localStorage страницы нет {key!r}"
+
+
 def _page_state(page, platform: str) -> tuple[str, str]:
-    """Состояние входа по УЖЕ открытой странице."""
+    """Состояние входа по УЖЕ открытой странице.
+
+    Порядок проб — от свидетеля к пересказу: приватная ручка отвечает за
+    площадку, localStorage хранит то, чем площадка нас узнаёт, и только потом
+    вёрстка, которая всего лишь описывает нарисованное. Обе первые пробы
+    заведены после того, как вёрстка соврала в обе стороны за один день.
+    """
+    for probe in (api_state(page, platform), storage_state_probe(page, platform)):
+        if probe and probe[0] != "unknown":
+            return probe
     try:
         return login_state(platform, page.content())
     except Exception as e:  # noqa: BLE001
@@ -484,6 +680,65 @@ def wait_for_login(page, platform: str, seconds: int) -> tuple[str, str]:
     return st, why
 
 
+def _snapshot_cookies(ctx, platform: str, cfg: dict) -> bool:
+    """Слепок кук постоянного профиля в `.auth/<площадка>.json`.
+
+    Та же болезнь, что у careered, только сессия в куках: вход оседает в
+    постоянном профиле, а `reveal` и `authrefresh.renew_hirehi` читают файл —
+    и без слепка после входа файла бы просто не появилось. Пишем сразу, пока
+    контекст жив.
+
+    Площадкам без собственной сессии scout (`state_cookie`) здесь делать
+    нечего — тихо возвращаем True.
+    """
+    if not cfg.get("state_cookie"):
+        return True
+    try:
+        save_filtered(ctx.storage_state(), state_path(platform),
+                      domains=tuple(cfg.get("domains") or ()))
+    except Exception as e:  # noqa: BLE001 — вход состоялся, ронять его нечем
+        print(f"⚠️  вход есть, но слепок не сохранился ({type(e).__name__}: {e}) — "
+              f"`reveal` и `auth refresh` останутся без сессии", file=sys.stderr)
+        return False
+    token, _ = state_cookie(platform)
+    if not token:
+        name = cfg["state_cookie"][1]
+        print(f"⚠️  вход есть, но куки {name} в профиле нет — `reveal` и "
+              f"`auth refresh` останутся без сессии", file=sys.stderr)
+        return False
+    print(f"  слепок для reveal/refresh: {state_path(platform)}")
+    return True
+
+
+def _snapshot_localstorage(page, platform: str, cfg: dict) -> bool:
+    """Снимает клиентскую сессию со страницы в `.auth/<площадка>.json`.
+
+    Сессия careered живёт в localStorage постоянного профиля — там она и
+    продлевается сама. Но stdlib-слой в профиль не ходит, ему нужен файл;
+    снимаем его, пока страница открыта. Отложить до `auth refresh` значит
+    оставить окно, в котором вход уже сделан, а сборщик всё ещё аноним.
+
+    Площадкам без клиентской сессии делать здесь нечего — тихо возвращаем True.
+    """
+    pair = cfg.get("localstorage_token")
+    if not pair:
+        return True
+    origin, key = pair
+    try:
+        token = page.evaluate("() => window.localStorage.getItem(%r)" % key)
+    except Exception as e:  # noqa: BLE001 — вход уже состоялся, ронять нечего
+        token, why = None, f"{type(e).__name__}: {e}"
+    else:
+        why = f"в localStorage нет {key!r}"
+    if not token:
+        print(f"⚠️  вход есть, но слепок не снялся ({why}) — сборщик останется "
+              f"анонимом на этой площадке", file=sys.stderr)
+        return False
+    save_localstorage_token(platform, origin, key, str(token))
+    print(f"  слепок для сборщика: {state_path(platform)}")
+    return True
+
+
 def login(platform: str, *, browser: str | None = None, wait: int = 0) -> int:
     """Открывает НАСТОЯЩИЙ браузер пользователя на странице площадки.
 
@@ -513,7 +768,11 @@ def login(platform: str, *, browser: str | None = None, wait: int = 0) -> int:
         return 0
 
     state, why = session_probe(platform)
-    if state == "logged_in":
+    # Ранний выход только там, где проба ДОКАЗЫВАЕТ живость. У площадок с
+    # `state_cookie` она видит лишь наличие токена: срок внутрь куки не положен,
+    # а мёртвый вход hirehi отдаёт кодом 200 и анонимной вёрсткой. Выйти здесь
+    # значило бы отказать человеку во входе ровно тогда, когда вход и нужен.
+    if state == "logged_in" and not cfg.get("state_cookie"):
         print(f"{platform}: уже залогинен — делать ничего не надо ({why}).")
         return 0
 
@@ -527,11 +786,14 @@ def login(platform: str, *, browser: str | None = None, wait: int = 0) -> int:
     except ValueError as e:
         print(str(e), file=sys.stderr)
         return 2
-    # Площадки с сессией в localStorage (careered) логинятся ТОЛЬКО bundled-путём:
-    # он сохраняет storage_state (куки + origins/localStorage) в .auth/<площадка>.json,
-    # откуда Bearer читают session_probe и деталка. Постоянный профиль настоящего
-    # браузера держит localStorage у себя внутри — файла бы просто не появилось.
-    if name == BUNDLED or cfg.get("localstorage_token"):
+    # Раньше площадки с сессией в localStorage (careered) уходили сюда ВСЕГДА:
+    # bundled-путь сохраняет storage_state с origins/localStorage в файл, а из
+    # постоянного профиля localStorage было не достать — файла бы не появилось.
+    # Теперь достаётся (authrefresh.renew_careered снимает его со страницы), и
+    # принуждение снято: разовый слепок стареет, а постоянный профиль сессию
+    # продлевает сам. Bundled остался тем, чем и был, — запасным путём для
+    # машин без настоящего браузера.
+    if name == BUNDLED:
         return _login_bundled(platform, cfg, wait=wait)
 
     try:
@@ -545,6 +807,12 @@ def login(platform: str, *, browser: str | None = None, wait: int = 0) -> int:
                 st, why = "unknown", f"{type(e).__name__}: {e}"
             if st == "logged_in":
                 print(f"{platform}: уже залогинен — делать ничего не надо ({why}).")
+                # Кроме одного: слепка могло не быть. Сюда приходят как раз тогда,
+                # когда session_probe сказал «аноним» (иначе команда закончилась бы
+                # выше), а страница профиля показала вход, — то есть сессия в
+                # профиле есть, а файла для stdlib-слоя нет.
+                _snapshot_localstorage(page, platform, cfg)
+                _snapshot_cookies(ctx, platform, cfg)
                 return 0
 
             page.goto(cfg["login_url"], wait_until="domcontentloaded", timeout=60000)
@@ -574,6 +842,9 @@ def login(platform: str, *, browser: str | None = None, wait: int = 0) -> int:
                 page.goto(cfg["check_url"], wait_until="domcontentloaded", timeout=60000)
                 page.wait_for_timeout(3000)
                 st, why = _page_state(page, platform)
+            if st == "logged_in":
+                _snapshot_localstorage(page, platform, cfg)
+                _snapshot_cookies(ctx, platform, cfg)
     except ProfileBusy as e:
         print(str(e), file=sys.stderr)
         return 4

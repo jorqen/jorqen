@@ -677,9 +677,18 @@ def cmd_auth(args) -> int:
             print(f"укажи площадку: {', '.join(auth.PLATFORMS)}  "
                   f"(или `--all` — вход разом на все)", file=sys.stderr)
             return 2
-        return auth.login(args.platform, wait=args.wait)
+        # browser обязан доехать: без него `--browser chrome` молча уходил в
+        # встроенный chromium, то есть человек входил в одно окно, а сессия
+        # ложилась разовым слепком вместо постоянного профиля.
+        return auth.login(args.platform, wait=args.wait,
+                          browser=getattr(args, "browser", None))
     if args.action == "check":
         return auth.check([args.platform] if args.platform else None)
+    if args.action == "refresh":
+        from . import authrefresh
+        return authrefresh.renew([args.platform] if args.platform else None,
+                                 browser=getattr(args, "browser", None),
+                                 from_browser=args.from_browser)
     if args.action == "push-browser":
         from . import cookiepush
         if not args.platform:
@@ -2487,10 +2496,16 @@ def build_parser() -> argparse.ArgumentParser:
     w.set_defaults(func=cmd_raw)
 
     a = sub.add_parser("auth", help="сессии площадок в .auth/ (вход делает пользователь); "
+                                    "refresh — продлить то, что продлевается без человека; "
                                     "import — забрать куки из браузеров в единый профиль",
                        parents=[common])
-    a.add_argument("action", choices=["status", "login", "check", "import", "secure",
-                                      "push-browser"],
+    # careered продлевается настоящим браузером на постоянном профиле — здесь
+    # нужен тот же выбор браузера, что у `render`/`browse`. Импорт локальный:
+    # ядро обязано подниматься без playwright, а render тянет его лениво.
+    from .render import add_browser_args  # noqa: PLC0415
+    add_browser_args(a)
+    a.add_argument("action", choices=["status", "login", "check", "refresh", "import",
+                                      "secure", "push-browser"],
                    nargs="?", default="status")
     a.add_argument("platform", nargs="?")
     a.add_argument("--all", action="store_true",
@@ -2502,6 +2517,12 @@ def build_parser() -> argparse.ArgumentParser:
                         "allowlist; `*` не поддерживается)")
     a.add_argument("--list", action="store_true",
                    help="import: показать домены и число кук, не записывая")
+    a.add_argument("--from-browser", dest="from_browser", nargs="?", const="auto",
+                   default=None, metavar="БРАУЗЕР",
+                   help="refresh: забрать вход из ПОВСЕДНЕВНОГО браузера "
+                        "(yandex|chrome|auto) вместо окна. У ротационных площадок "
+                        "(hirehi) ротация уедет к нам и живая вкладка там "
+                        "разлогинится — поэтому только явным флагом")
     a.add_argument("--wait", type=int, default=0, metavar="СЕК",
                    help="login: ждать входа СЕК секунд, опрашивая страницу, вместо "
                         "Enter (нужно, когда команду запускают не из терминала)")

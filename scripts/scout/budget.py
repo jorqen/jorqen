@@ -137,8 +137,16 @@ def max_top(db: str, *, days: int, cap: int = WAVE_CAP) -> int:
     return best
 
 
-def render(m: dict, *, suggest: int | None = None) -> str:
-    """Смета человеку и модели. Вердикт — первой строкой после заголовка."""
+def render(m: dict, *, suggest: int | None = None,
+           auth_lines: list[str] | None = None) -> str:
+    """Смета человеку и модели. Вердикт — первой строкой после заголовка.
+
+    `auth_lines` — предупреждение о разлогине (см. `authrefresh.preflight_lines`).
+    Оно здесь не ради полноты: смета отвечает на вопрос «стоит ли пускать волну»,
+    а волна с мёртвой сессией стоит столько же, но приносит меньше. Узнать об
+    этом ПОСЛЕ прогона — значит заплатить за неполный сбор и заплатить второй раз
+    за повторный.
+    """
     k = lambda n: f"{n / 1000:.1f}K"
     out = [f"# Смета волны: окно {m['days']}d, топ {m['top']}", ""]
 
@@ -147,6 +155,11 @@ def render(m: dict, *, suggest: int | None = None) -> str:
     if not m["fits"] and suggest is not None:
         out.append(f"   Уменьшай --top, а не надежду: влезает --top {suggest}.")
     out.append("")
+
+    if auth_lines:
+        out.append("## Авторизация — починить ДО прогона")
+        out.extend(f"  {ln}" for ln in auth_lines)
+        out.append("")
 
     out.append("## Что уже в базе (сеть не трогалась)")
     out.append(f"  дельта за окно            {m['delta']}")
@@ -195,7 +208,8 @@ def cli(args) -> int:
     suggest = None
     if not m["fits"]:
         suggest = max_top(args.db, days=args.days, cap=args.cap)
-    print(render(m, suggest=suggest))
+    from . import authrefresh  # noqa: PLC0415 — ленивый импорт, как везде в ядре
+    print(render(m, suggest=suggest, auth_lines=authrefresh.preflight_lines()))
     # Ненулевой код — чтобы «не влезает» было видно вызывающему, а не утонуло
     # в выводе: смета существует ровно ради этого решения.
     return 0 if m["fits"] else 1

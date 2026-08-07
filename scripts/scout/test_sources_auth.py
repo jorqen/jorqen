@@ -1282,6 +1282,393 @@ def test_registry_is_complete():
         ok(name in sa.LOGIN_VALUE, f"{name} назвал, что даёт вход")
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Продление сессий: предупреждение обязано быть точным, иначе его перестанут читать
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _auth_dir(d: str):
+    """Подменяет `.auth/` на временный каталог. Настоящий каталог тесты не трогают
+    ни на чтение, ни на запись: там предъявительский доступ к живым аккаунтам."""
+    return patched(auth, "AUTH_DIR", d)
+
+
+def _write_state(d: str, platform: str, state: dict) -> None:
+    with open(os.path.join(d, f"{platform}.json"), "w", encoding="utf-8") as f:
+        json.dump(state, f)
+
+
+def test_hirehi_session_is_read_only_from_our_own_file():
+    """Сессия hirehi берётся ТОЛЬКО из .auth/hirehi.json.
+
+    Не стилистика, а защита от прожига: refresh-токен hirehi один на всех, и
+    заход куками живого браузера ротирует его — у пользователя вкладка
+    разлогинивается мгновенно. Поэтому проба обязана не ходить в cookiesrc
+    вовсе, даже если куки там есть."""
+    from . import cookiesrc
+
+    called: list[str] = []
+
+    def boom(*a, **kw):
+        called.append("resolve")
+        raise AssertionError("cookiesrc для hirehi звать нельзя")
+
+    with tempfile.TemporaryDirectory() as d, _auth_dir(d), \
+            patched(cookiesrc, "resolve", boom):
+        state, why = auth.session_probe("hirehi")
+        eq(state, "anonymous", "нет своего файла — сессии нет")
+        _write_state(d, "hirehi", {"cookies": [
+            {"domain": ".hirehi.ru", "name": "hirehi-refresh-token", "value": "T"}]})
+        state, why = auth.session_probe("hirehi")
+        eq(state, "logged_in", "свой файл с refresh-кукой — сессия есть")
+    eq(called, [], "куки браузера для hirehi не читались ни разу")
+
+
+def test_unreadable_cookie_db_is_not_a_logout():
+    """Не смог прочитать куки ≠ пользователь вышел.
+
+    Chrome держит свою базу залоченной, и раньше это давало «❌ разлогин» в
+    каждой волне, запущенной при открытом браузере. Ложная тревога в отчёте
+    дороже пропущенной: после третьей такой строки блок перестают читать."""
+    from . import cookiesrc
+
+    def locked(*a, **kw):
+        raise sqlite3.OperationalError("database is locked")
+
+    with patched(cookiesrc, "resolve", locked):
+        state, why = auth.session_probe("shadowhint")
+    eq(state, "unknown", "залоченная база — неизвестность, а не разлогин")
+    ok(auth.UNREADABLE in why, "пояснение названо тем же признаком, по которому решали")
+
+
+def test_preflight_reports_only_what_it_knows():
+    """В предупреждение попадает `anonymous` и только он.
+
+    `unknown` — отсутствие знания; выдать его за поломку значит тревожить в
+    каждом прогоне. Живые сессии тоже не печатаем: строка «shadowhint жив» не
+    меняет ни одного решения, а место в отчёте занимает."""
+    from . import authrefresh
+
+    rows = [{"platform": "shadowhint", "state": "unknown", "why": "не понять",
+             "loss": "сбор по площадке: всё", "critical": True, "renewable": False},
+            {"platform": "wantapply", "state": "logged_in", "why": "жив",
+             "loss": "ссылки в ATS", "critical": False, "renewable": False}]
+    with patched(authrefresh, "preflight", lambda *a, **kw: rows):
+        eq(authrefresh.preflight_lines(), [], "ни неизвестность, ни живое не печатаются")
+        eq(authrefresh.preflight_block(), "", "пустой список не даёт заголовка")
+
+
+def test_preflight_is_silent_about_platforms_that_lose_nothing():
+    """habr не должен появляться в предупреждении.
+
+    Вход туда даёт свою историю откликов, но её тянет отдельная синхронизация,
+    а не сбор. Строка «залогинься ради ничего» — тот самый шум, из-за которого
+    перестают читать весь список."""
+    from . import authrefresh
+
+    with tempfile.TemporaryDirectory() as d, _auth_dir(d):
+        authrefresh.forget()  # кэш на процесс — иначе тест прочитает чужую пробу
+        seen = [r["platform"] for r in authrefresh.preflight(cookies_from="none")]
+        authrefresh.forget()
+    ok("habr" not in seen, "площадка, от разлогина которой ничего не теряется, молчит")
+    ok("shadowhint" in seen, "площадка, без которой нет сбора, — на месте")
+
+
+def test_hirehi_is_not_promised_to_renew_itself_without_a_session():
+    """«Поднимется само» обещается, только если есть что поднимать.
+
+    Клиенту hirehi нужен живой refresh-токен из .auth/hirehi.json. Без файла
+    `auth refresh hirehi` заведомо вернёт отказ, и советовать его — значит
+    послать человека выполнить команду вместо той, что действительно чинит."""
+    from . import authrefresh
+
+    with tempfile.TemporaryDirectory() as d, _auth_dir(d):
+        ok(not authrefresh.can_renew("hirehi"), "нет файла — продлевать нечего")
+        _write_state(d, "hirehi", {"cookies": [
+            {"domain": ".hirehi.ru", "name": "hirehi-refresh-token", "value": "T"}]})
+        ok(authrefresh.can_renew("hirehi"), "есть файл — продление возможно")
+        # careered наоборот: источник — постоянный профиль, а слепок только итог.
+        ok(authrefresh.can_renew("careered"), "careered продлевается без слепка")
+
+
+def test_localstorage_token_is_merged_not_overwritten():
+    """Свежий токен careered кладётся в слепок, не выбрасывая остального.
+
+    Переписать файл целиком ради одной строки — значит потерять куки, которых
+    в постоянном профиле уже нет, а в слепке они ещё живы."""
+    with tempfile.TemporaryDirectory() as d, _auth_dir(d):
+        _write_state(d, "careered", {
+            "cookies": [{"domain": "careered.io", "name": "cf_clearance", "value": "C"}],
+            "origins": [{"origin": "https://careered.io",
+                         "localStorage": [{"name": "access_token", "value": "СТАРЫЙ"},
+                                          {"name": "theme", "value": "dark"}]}]})
+        auth.save_localstorage_token("careered", "https://careered.io",
+                                     "access_token", "СВЕЖИЙ")
+        token, _ = auth.bearer_from_state("careered")
+        eq(token, "СВЕЖИЙ", "токен обновлён")
+        with open(os.path.join(d, "careered.json"), encoding="utf-8") as f:
+            state = json.load(f)
+        eq([c["name"] for c in state["cookies"]], ["cf_clearance"], "куки на месте")
+        eq(sorted(i["name"] for i in state["origins"][0]["localStorage"]),
+           ["access_token", "theme"], "соседний ключ localStorage не затёрт")
+        eq(os.stat(os.path.join(d, "careered.json")).st_mode & 0o777, 0o600,
+           "права слепка 0600 — там предъявительский доступ")
+
+
+class _FakePW:
+    """Playwright ровно в том объёме, который трогает renew_hirehi."""
+
+    def __init__(self, state: dict, *, boom: str | None = None):
+        self.state, self.boom, self.saved = state, boom, []
+
+    # sync_playwright() → контекстный менеджер → объект с .chromium
+    def __call__(self):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    @property
+    def chromium(self):
+        return self
+
+    def launch(self, **kw):
+        return self
+
+    def new_context(self, **kw):
+        return self
+
+    def new_page(self):
+        return self
+
+    def close(self):
+        pass
+
+    def goto(self, *a, **kw):
+        # Ротация происходит В МОМЕНТ захода — как у настоящего клиента,
+        # который меняет токен сам, ещё до того, как страница дорисуется.
+        self.state["cookies"] = [{"domain": "hirehi.ru", "path": "/",
+                                  "name": "hirehi-refresh-token",
+                                  "value": "ПРОРОТИРОВАННЫЙ"}]
+        if self.boom == "goto":
+            raise RuntimeError("net::ERR_CONNECTION_RESET")
+
+    def wait_for_timeout(self, ms):
+        if self.boom == "wait":
+            raise RuntimeError("Target page closed")
+
+    def content(self):
+        return "<html>Личный кабинет</html>"
+
+    def storage_state(self):
+        return dict(self.state)
+
+
+def test_hirehi_saves_rotation_even_when_the_page_dies():
+    """Обрыв страницы НЕ отменяет запись сессии.
+
+    Самое дорогое место всей конструкции. Клиент hirehi меняет refresh-токен
+    в момент захода; если после этого страница отвалилась, а мы вышли не
+    записав, у нас в файле останется кука, которую сервер уже обесценил, —
+    и сессия сгорит именно там, где мы обещали её сберечь. Проверяется на обоих
+    обрывах: до отрисовки и после неё."""
+    from . import authrefresh
+
+    for boom in ("goto", "wait"):
+        with tempfile.TemporaryDirectory() as d, _auth_dir(d):
+            _write_state(d, "hirehi", {"cookies": [
+                {"domain": "hirehi.ru", "path": "/",
+                 "name": "hirehi-refresh-token", "value": "СТАРЫЙ"}]})
+            fake = _FakePW({"cookies": [], "origins": []}, boom=boom)
+            with patched(authrefresh, "_playwright", lambda: fake):
+                ok_, why = authrefresh.renew_hirehi(wait_ms=0)
+            ok(not ok_, f"обрыв на {boom} — не успех")
+            ok("сохранён" in why, f"обрыв на {boom}: сказано, что снимок сохранён")
+            got, _ = auth.state_cookie("hirehi")
+            eq(got, "ПРОРОТИРОВАННЫЙ",
+               f"обрыв на {boom}: в файле новый токен, а не сожжённый старый")
+
+
+def test_hirehi_renewal_confirms_by_the_page_not_by_the_absence_of_errors():
+    """Успех — это признаки входа на странице, а не «ничего не упало».
+
+    Анонимный вид у hirehi отдаётся с кодом 200: без проверки вёрстки продление
+    рапортовало бы об успехе ровно тогда, когда сессия умерла."""
+    from . import authrefresh
+
+    with tempfile.TemporaryDirectory() as d, _auth_dir(d):
+        _write_state(d, "hirehi", {"cookies": [
+            {"domain": "hirehi.ru", "path": "/",
+             "name": "hirehi-refresh-token", "value": "СТАРЫЙ"}]})
+        fake = _FakePW({"cookies": [], "origins": []})
+        with patched(authrefresh, "_playwright", lambda: fake):
+            ok_, why = authrefresh.renew_hirehi(wait_ms=0)
+        ok(ok_, f"признаки входа на странице — продление удалось ({why})")
+
+        fake = _FakePW({"cookies": [], "origins": []})
+        with patched(fake, "content", lambda: "<html>Войти</html>"), \
+                patched(authrefresh, "_playwright", lambda: fake):
+            ok_, why = authrefresh.renew_hirehi(wait_ms=0)
+        ok(not ok_, "анонимный вид с кодом 200 успехом не считается")
+        ok("auth login hirehi" in why, "названо, чем это чинится")
+
+
+def test_careered_snapshot_comes_from_the_persistent_profile():
+    """Токен careered снимается с постоянного профиля и ложится в слепок.
+
+    Сессия careered живёт в localStorage, а не в куках, — поэтому `cookiesrc`
+    её не видит в принципе, и разовый слепок стареет. Источник обязан быть тот,
+    где сессия продлевается сама: постоянный профиль scout."""
+    from . import authrefresh, render
+
+    asked: list[tuple] = []
+
+    def fake_eval(url, script, **kw):
+        asked.append((url, script))
+        return "СВЕЖИЙ-BEARER"
+
+    with tempfile.TemporaryDirectory() as d, _auth_dir(d), \
+            patched(render, "evaluate_on", fake_eval):
+        ok_, why = authrefresh.renew_careered()
+    ok(ok_, f"токен снят и записан ({why})")
+    ok(asked and asked[0][0].startswith("https://careered.io"),
+       "спрашивали именно careered")
+    ok("localStorage" in asked[0][1], "спрашивали localStorage, а не куки")
+
+    # Пустой профиль — это отказ с названной командой, а не молчаливый успех:
+    # записать в слепок None значило бы объявить сессию живой.
+    with tempfile.TemporaryDirectory() as d, _auth_dir(d), \
+            patched(render, "evaluate_on", lambda *a, **kw: None):
+        ok_, why = authrefresh.renew_careered()
+        # Проверка ВНУТРИ подмены: снаружи `.auth/` уже настоящий, и на машине
+        # с живым входом careered она читала бы чужой файл и зеленела вхолостую.
+        ok(not auth.have("careered"), "пустой слепок не создаётся")
+    ok(not ok_, "нет токена в профиле — не успех")
+    ok("auth login careered" in why, "названо, чем это чинится")
+
+
+def test_snapshot_is_taken_even_when_already_logged_in():
+    """Слепок снимается и на ветке «уже залогинен».
+
+    Именно этот случай и есть обычный для careered: сессия живёт в постоянном
+    профиле и продлевается там сама, а `.auth/careered.json` может отстать или
+    не появиться вовсе. Выйти по «уже залогинен», не сняв слепок, значит
+    оставить сборщик анонимом при живом входе."""
+    class FakePage:
+        def __init__(self, value):
+            self.value = value
+
+        def evaluate(self, script):
+            return self.value
+
+    cfg = auth.PLATFORMS["careered"]
+    with tempfile.TemporaryDirectory() as d, _auth_dir(d):
+        ok(auth._snapshot_localstorage(FakePage("BEARER"), "careered", cfg),
+           "живой токен снят")
+        eq(auth.bearer_from_state("careered")[0], "BEARER", "и лёг в слепок")
+    with tempfile.TemporaryDirectory() as d, _auth_dir(d):
+        ok(not auth._snapshot_localstorage(FakePage(None), "careered", cfg),
+           "пустой localStorage — честный отказ")
+        ok(not auth.have("careered"), "пустого слепка не создаётся")
+    # Площадке без клиентской сессии здесь делать нечего, и это не провал.
+    with tempfile.TemporaryDirectory() as d, _auth_dir(d):
+        ok(auth._snapshot_localstorage(FakePage(None), "hh", auth.PLATFORMS["hh"]),
+           "площадка без localStorage-сессии проходит молча")
+
+
+def test_private_endpoint_outranks_the_markup():
+    """Вход определяется приватной ручкой, а не словом «Войти» в разметке.
+
+    Стоило трёх ложных «войди ещё раз» подряд 07.08.2026. У hirehi форма входа
+    рендерится ВСЕГДА, в том числе залогиненному, а «Мои отклики» не попадают
+    в серверный HTML вовсе — их дорисовывает клиент. Замер того же дня:
+    `/api/favorites` отдаёт 200 нашей сессии и 401 анониму при одинаковой
+    вёрстке. Значит вёрстка для этой площадки не свидетель."""
+    class Page:
+        def __init__(self, status):
+            self.status = status
+
+        def evaluate(self, script, *a):
+            return self.status
+
+        def content(self):
+            # Ровно тот HTML, что сбивал проверку: «Войти» есть, признаков входа нет.
+            return "<html>Войти</html>"
+
+    st, why = auth._page_state(Page(200), "hirehi")
+    eq(st, "logged_in", f"200 на приватной ручке — вход есть, что бы ни было в HTML ({why})")
+    st, why = auth._page_state(Page(401), "hirehi")
+    eq(st, "anonymous", "401 — площадка нас не узнаёт")
+    # Неожиданный код — не приговор: по нему о входе судить нельзя, решает вёрстка.
+    st, _ = auth._page_state(Page(503), "hirehi")
+    eq(st, "anonymous", "503 на ручке — падаем на разметку, а не выдумываем вход")
+
+    # Площадка без описанной ручки судится по вёрстке, как и раньше.
+    ok(auth.api_state(Page(200), "shadowhint") is None,
+       "у площадки без alive_api ручки нет — проба молчит")
+
+
+def test_live_session_is_found_in_another_browser():
+    """`auto` выбрал браузер с мёртвым токеном — ищем живой в остальных.
+
+    Живой случай 07.08.2026: `auto` берёт браузер по покрытию доменов и свежести
+    базы кук и про СРОК внутри куки не знает ничего. Он выбрал Яндекс с токеном
+    wantapply, истёкшим 31.07, при живом до 08.08 в Chrome — то есть прямые
+    ссылки в ATS терялись при работающем входе. Явно названный источник при этом
+    подменять нельзя: `--cookies-from yandex` — вопрос про Яндекс."""
+    from . import cookiesrc
+
+    fresh = int((datetime.now(timezone.utc) + timedelta(days=1)).timestamp() * 1000)
+    stale = int((datetime.now(timezone.utc) - timedelta(days=7)).timestamp() * 1000)
+
+    def cookie(exp):
+        return {"name": "auth-token-data",
+                "value": urllib.parse.quote(json.dumps({"token": "T", "tokenExpires": exp}))}
+
+    class Src:
+        def __init__(self, exp):
+            self.cookies = [cookie(exp)]
+
+        def line(self):
+            return "тест"
+
+    by_name = {"yandex": Src(stale), "chrome": Src(fresh)}
+
+    def fake_resolve(spec=None, domains=(), **kw):
+        return by_name.get(spec) or by_name["yandex"]   # auto → Яндекс, как живьём
+
+    with patched(cookiesrc, "resolve", fake_resolve), \
+            patched(cookiesrc, "BROWSER_NAMES", ("yandex", "chrome")):
+        token, why = auth.session_token("wantapply")
+        eq(bool(token), True, f"живой токен найден в другом браузере ({why})")
+        ok("chrome" in why, "источник назван — иначе непонятно, откуда взялась сессия")
+
+        token, why = auth.session_token("wantapply", cookies_from="yandex")
+    eq(token, None, "явно названный источник другим не подменяется")
+    ok("истёк" in why, "и про него сказана правда")
+
+
+def test_dead_critical_session_is_the_first_next_step():
+    """Разлогин на площадке, без которой сбора нет, идёт ПЕРВЫМ шагом волны.
+
+    Выше деградации выдачи: деградация — «нашлось меньше обычного», разлогин —
+    «не нашлось ничего, и не найдётся, пока не починишь»."""
+    from . import authrefresh, wave
+
+    rows = [{"platform": "shadowhint", "state": "anonymous", "why": "нет куки",
+             "loss": "сбор по площадке: всю выдачу", "critical": True,
+             "renewable": False}]
+    res = {"stages": {"collect": {"health": [{"label": "мало", "source": "hh",
+                                             "found": 3}], "report": []}}}
+    with patched(authrefresh, "preflight", lambda *a, **kw: rows):
+        steps = wave.next_steps(res, {"rows": []})
+    ok(steps and "ВОССТАНОВИ ВХОД" in steps[0],
+       "вход чинится раньше, чем разбирается неполная выдача")
+    ok("scout auth login shadowhint" in steps[0], "названа команда, а не намёк")
+
+
 def main() -> int:
     for fn in (test_k_suffix_is_thousands, test_k_suffix_does_not_eat_words,
                test_zero_salary_is_not_a_salary,
@@ -1356,7 +1743,21 @@ def main() -> int:
                test_lock_holder_ignores_a_dead_pid, test_busy_profile_explains_itself,
                test_profile_keeps_only_platform_domains,
                test_top_up_never_overwrites_a_rotated_cookie,
-               test_rotating_hosts_are_known, test_registry_is_complete):
+               test_rotating_hosts_are_known, test_registry_is_complete,
+               # ── продление сессий: точность предупреждения ───────────────
+               test_hirehi_session_is_read_only_from_our_own_file,
+               test_unreadable_cookie_db_is_not_a_logout,
+               test_preflight_reports_only_what_it_knows,
+               test_preflight_is_silent_about_platforms_that_lose_nothing,
+               test_hirehi_is_not_promised_to_renew_itself_without_a_session,
+               test_localstorage_token_is_merged_not_overwritten,
+               test_hirehi_saves_rotation_even_when_the_page_dies,
+               test_hirehi_renewal_confirms_by_the_page_not_by_the_absence_of_errors,
+               test_careered_snapshot_comes_from_the_persistent_profile,
+               test_snapshot_is_taken_even_when_already_logged_in,
+               test_private_endpoint_outranks_the_markup,
+               test_live_session_is_found_in_another_browser,
+               test_dead_critical_session_is_the_first_next_step):
         fn()
     if FAILS:
         print(f"ПРОВАЛЕНО {len(FAILS)}:")

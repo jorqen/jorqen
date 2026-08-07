@@ -54,6 +54,19 @@ def next_steps(res: dict, sl: dict) -> list[str]:
     steps: list[str] = []
     stages = res.get("stages") or {}
 
+    # Разлогин на площадке, без которой сбора нет, стоит выше деградации выдачи:
+    # деградация — это «нашлось меньше обычного», а разлогин — «не нашлось ничего,
+    # и в следующей волне тоже не найдётся, пока не починишь».
+    from . import authrefresh  # noqa: PLC0415
+    dead = [r for r in authrefresh.preflight()
+            if r["state"] == "anonymous" and r["critical"]]
+    if dead:
+        steps.append(
+            "СНАЧАЛА ВОССТАНОВИ ВХОД — без него площадка не собирается вовсе: "
+            + "; ".join(f"{r['platform']} (`scout auth login {r['platform']}`)"
+                        for r in dead)
+            + ". Пароль и код вводишь только ты.")
+
     # Деградация источника идёт ПЕРВЫМ пунктом: она означает, что вакансий
     # в этой волне физически меньше, чем могло быть, и любой отбор ниже сделан
     # по неполной выдаче. Читать это надо до, а не после карточек.
@@ -119,6 +132,15 @@ def render_picture(res: dict, sl: dict, *, top: int) -> str:
         found = st.get("found", st.get("candidates", st.get("ok", "—")))
         note = (st.get("note") or st.get("error") or "")[:90]
         out.append(f"| {label} | {status} | {found} | {note} |")
+
+    # Авторизация — сразу под этапами и ДО шорт-листа. Разлогин означает, что
+    # часть выдачи не собралась вовсе, то есть любой отбор ниже сделан по
+    # неполной картине; прочитать это надо раньше, чем сами вакансии.
+    from . import authrefresh  # noqa: PLC0415 — ленивый импорт, как и остальное
+    block = authrefresh.preflight_block()
+    if block:
+        out.append("")
+        out.append(block)
 
     st = sl.get("stats") or {}
     out.append("")
