@@ -12,7 +12,7 @@ import json
 import sys
 
 from . import store
-from .net import BlockedError, FetchError, HostPacer, parallel
+from .net import BlockedError, HostPacer, parallel
 from .sources import ATS_ROLE_RE
 
 # ──────────────────────────────────────────────────────────────────────────────

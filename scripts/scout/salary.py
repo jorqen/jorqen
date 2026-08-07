@@ -14,8 +14,6 @@ from __future__ import annotations
 
 import html as H
 import re
-from datetime import datetime, timezone
-
 from .model import PERIOD_SUFFIX
 
 # ──────────────────────────────────────────────────────────────────────────────

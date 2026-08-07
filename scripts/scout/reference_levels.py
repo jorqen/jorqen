@@ -9,19 +9,12 @@
 
 from __future__ import annotations
 
-import json
 import re
-import urllib.parse
-from datetime import datetime, timedelta, timezone
 
-from .model import SUMMARY_ID, Vacancy, norm_period
-from .net import BlockedError, FetchError, fetch, fetch_json, looks_blocked, qs
-from .sources import ATS_ROLE_RE, Ctx, Tally, parse_salary, period_from_text
-from .webcommon import (
-    ThrottledError, _cut_note, _ld_json_blocks, _long_queries, _job_postings,
-    _strip_tags, check_wall, cutoff, nap, older_than, post_json, query_re,
-    row_budget, throttle_marker, wall_marker,
-)
+from .model import Vacancy
+from .net import FetchError, fetch
+from .sources import Ctx
+from .webcommon import check_wall
 
 # ──────────────────────────────────────────────────────────────────────────────
 # levels.fyi — СПРАВОЧНИК ЗАРПЛАТ, не вакансии

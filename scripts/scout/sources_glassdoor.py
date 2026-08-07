@@ -11,18 +11,12 @@ from __future__ import annotations
 import html as H
 import json
 import re
-import urllib.parse
 from datetime import datetime, timedelta, timezone
 
 from .model import SUMMARY_ID, Vacancy, norm_period
-from .net import BlockedError, FetchError, fetch, fetch_json, looks_blocked, qs
+from .net import BlockedError, FetchError
 from .sources import ATS_ROLE_RE, Ctx, Tally, parse_salary, period_from_text
-from .sources import _pause  # общий ограничитель частоты
-from .webcommon import (
-    ThrottledError, _cut_note, _ld_json_blocks, _long_queries, _job_postings,
-    _strip_tags, check_wall, cutoff, nap, older_than, post_json, query_re,
-    row_budget, throttle_marker, wall_marker,
-)
+from .webcommon import _job_postings, _strip_tags, check_wall, cutoff, older_than
 
 # ──────────────────────────────────────────────────────────────────────────────
 # glassdoor.com.au — стена
