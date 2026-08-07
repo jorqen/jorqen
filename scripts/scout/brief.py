@@ -107,6 +107,27 @@ def one(conn, url: str, *, desc_chars: int = 900) -> str:
         out.append(f"  ⛔ наше решение по ЭТОЙ вакансии: {dec[0]}"
                    + (f" — {_trim(dec[1], 80)}" if dec[1] else ""))
 
+    # ДРУГИЕ роли той же компании и решения по ним. Раньше это добиралось
+    # отдельным `scout status --query <компания>` перед каждой карточкой — до
+    # тридцати вызовов на волну, — и заодно вручную собирался блок «другие роли
+    # этой компании в волне», который SKILL.md требует. И то и другое один
+    # запрос по нормализованному имени: точное совпадение, а не LIKE, ровно по
+    # тому же доводу, что у истории выше (ALTEN ↔ Altenar, 26 коллизий).
+    if company:
+        others = conn.execute(
+            "SELECT v.title, v.url, d.state, d.note FROM vacancy v "
+            "LEFT JOIN decision d ON d.source = v.source "
+            "AND d.external_id = v.external_id "
+            "WHERE v.company IS NOT NULL AND v.url != ? "
+            "AND lower(trim(v.company)) = lower(trim(?)) "
+            "ORDER BY v.last_seen DESC LIMIT 6", (url, company)).fetchall()
+        if others:
+            out.append(f"  другие роли {company} в базе: {len(others)}")
+            for t, u, st, note in others:
+                mark = f" [{st}]" if st else ""
+                tail = f" — {_trim(note, 50)}" if note else ""
+                out.append(f"    · {_trim(t, 52)}{mark}{tail}  {u}")
+
     # Маршруты отклика: считаем заново из того, что знаем, и ДОПОЛНЯЕМ кэш.
     # Пересчёт дешёвый (это разбор доменов), а кэш хранит то, что нашли волны
     # раньше, — вместе они дают полный список, а не последний известный.

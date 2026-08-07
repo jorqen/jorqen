@@ -27,6 +27,16 @@ def eq(got, want, label):
         FAILS.append(f"{label}: получено {got!r}, ожидалось {want!r}")
 
 
+def ok(cond, label):
+    """Проверка условия без печати значений.
+
+    Есть в test_sources_auth и test_sources_web, а здесь не было — и каждая
+    новая проверка вида «в тексте есть строка» писалась через `if …:
+    FAILS.append(…)`. Один хелпер вместо трёх копий одного и того же."""
+    if not cond:
+        FAILS.append(label)
+
+
 def test_salary():
     # Реальные строки с площадок, а не выдуманные примеры.
     cases = [
@@ -1964,6 +1974,44 @@ def test_linkedin_asks_every_formulation():
     from .sources import LINKEDIN_EMPTY_RETRIES
     eq(len(fake.asked), 3 * len(LINKEDIN_REGIONS) * (1 + LINKEDIN_EMPTY_RETRIES),
        "не по одному запросу (с переспросом пустого) на пару «формулировка × регион»")
+
+
+def test_brief_shows_other_roles_of_the_same_company():
+    """Другие роли компании и решения по ним — в `brief`, а не отдельным вызовом.
+
+    Раньше модель звала `scout status --query <компания>` перед КАЖДОЙ карточкой
+    (до тридцати вызовов на волну) и вручную собирала блок «другие роли этой
+    компании в волне», который требует SKILL.md. Это один запрос.
+
+    Совпадение имени ТОЧНОЕ, а не LIKE: на живой базе «ALTEN» получал историю
+    «Altenar» просто потому, что одно имя — подстрока другого, 26 коллизий."""
+    import os
+    import tempfile
+
+    from . import brief, store
+
+    with tempfile.TemporaryDirectory() as d:
+        db = os.path.join(d, "t.db")
+        with store.connect(db) as conn:
+            for i, (comp, title) in enumerate((
+                    ("Acme", "Senior Go Developer"),
+                    ("Acme", "Backend Go"),
+                    ("Acme Corp", "Чужая роль"),   # ДРУГАЯ компания, не подстрока
+            ), 1):
+                conn.execute(
+                    "INSERT INTO vacancy (source, external_id, url, title, company, "
+                    "first_seen, last_seen) VALUES (?,?,?,?,?,?,?)",
+                    ("hh", str(i), f"https://x/{i}", title, comp, "2026-08-01",
+                     "2026-08-01"))
+            conn.execute("INSERT INTO decision (source, external_id, state, note, "
+                         "updated_at) VALUES ('hh','2','skipped','мимо','2026-08-01')")
+            txt = brief.one(conn, "https://x/1")
+
+    ok("другие роли Acme" in txt, f"блок других ролей не собран:\n{txt[:400]}")
+    ok("Backend Go" in txt, "вторая роль той же компании потеряна")
+    ok("[skipped]" in txt, "решение по другой роли не показано")
+    ok("Чужая роль" not in txt,
+       "«Acme Corp» затянута как «Acme» — совпадение имени не точное")
 
 
 def test_since_auto_never_narrows_below_a_day():
@@ -6037,6 +6085,7 @@ def main() -> int:
                test_linkedin_paginates_by_start_and_drops_other_professions,
                test_linkedin_stops_where_the_search_drifts_off_topic,
                test_linkedin_asks_every_formulation,
+               test_brief_shows_other_roles_of_the_same_company,
                test_since_auto_never_narrows_below_a_day,
                test_connect_works_without_a_directory_in_the_path,
                test_card_files_layout_and_lint,
