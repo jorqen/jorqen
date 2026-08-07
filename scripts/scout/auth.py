@@ -1218,8 +1218,13 @@ def status(cookies_from: str | None = None) -> int:
                    "not_needed": "вход не нужен"}.get(state, "")
         print(f"  {name:<12} {verdict or ('есть' if where else 'НЕТ')!s:<14} "
               + (", ".join(where) if where else f"— {cfg['note'][:48]}"))
-        if state in ("anonymous", "not_needed"):
-            print(f"  {'':<12} {'':<14} {why[:96]}")
+        # Пояснение печатается ВСЕГДА, а не только при анониме. Список `where`
+        # собран по `choose_browser` — это выбор режима `auto` по покрытию
+        # доменов, и он может назвать НЕ ТОТ браузер, в котором сессия на самом
+        # деле жива: 07.08.2026 строка гласила «wantapply ВХОД ЖИВ · yandex
+        # (7 кук)», тогда как живой токен лежал в chrome, а в яндексовском он
+        # истёк неделю назад. Вердикт был верен, источник — нет.
+        print(f"  {'':<12} {'':<14} {why[:110]}")
 
     cache = cookiesrc.cache_state()
     print(f"\n## Кэш {BROWSER_STATE}")
