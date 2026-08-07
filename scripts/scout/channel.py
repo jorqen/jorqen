@@ -27,6 +27,8 @@
 
 from __future__ import annotations
 
+import argparse
+
 import random
 import re
 import time
@@ -340,8 +342,52 @@ def best(hits: list[dict]) -> dict | None:
     return hits[0] if hits else None
 
 
+def companies_without_channel(db: str, *, days: int, top: int) -> list[str]:
+    """Компании из топа шорт-листа, у которых прямого канала ещё нет.
+
+    Ровно тот список, который `wave` уже печатает строкой «нет прямого канала
+    найма у N компаний» — но печатает НАЗВАНИЯМИ, и модель звала `channel` по
+    одному на каждую (18 вызовов на волне 04.08.2026). Считает его алгоритм,
+    значит и подставлять его должен алгоритм.
+    """
+    from . import shortlist, store  # noqa: PLC0415
+
+    sl = shortlist.build(db, since=store.since_arg(f"{days}d"), by="seen",
+                         sources=None, limit=0)
+    seen: dict[str, None] = {}
+    for r in (sl.get("rows") or [])[:top]:
+        name = (r.get("company") or "").strip()
+        if name and not r.get("_channel"):
+            seen.setdefault(name, None)
+    return list(seen)
+
+
 def cli(args) -> int:
     from datetime import datetime, timezone  # noqa: PLC0415
+
+    # Пачкой: список компаний считает шорт-лист, а не человек глазами.
+    if getattr(args, "from_shortlist", False):
+        names = companies_without_channel(args.db, days=getattr(args, "days", 3),
+                                          top=getattr(args, "top", 30))
+        if not names:
+            print("у всех компаний топа канал уже есть — искать нечего")
+            return 0
+        print(f"компаний без канала: {len(names)}")
+        worst = 0
+        for i, name in enumerate(names, 1):
+            print(f"\n[{i}/{len(names)}] {name}")
+            one = argparse.Namespace(**{**vars(args), "company": name,
+                                        "site": None, "from_shortlist": False})
+            worst = max(worst, cli(one))
+        return worst
+
+    # Имя стало необязательным вместе с --from-shortlist, поэтому его отсутствие
+    # надо назвать словами: без этого команда печатала заголовок «# None» и
+    # выглядела как поломка поиска, а не как забытый аргумент.
+    if not getattr(args, "company", None):
+        print("укажи компанию: `scout channel \"<название>\"` — или возьми все "
+              "сразу: `scout channel --from-shortlist --save`", file=sys.stderr)
+        return 2
 
     from . import shortlist, store  # noqa: PLC0415
 

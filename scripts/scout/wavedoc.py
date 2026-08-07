@@ -156,12 +156,47 @@ def write(db: str, *, days: int, top: int, date: str, root: str = ".jobs",
     return path, f"записан скелет ({len(text.splitlines())} строк)"
 
 
+def index(root: str = ".jobs") -> str:
+    """Индекс волн: дата, число карточек, ссылка на главный документ.
+
+    В SKILL.md `.jobs/README.md` описан, а на диске его не было вовсе — его
+    никто не вёл, потому что вести его руками значит переписывать список после
+    каждой волны. Список каталога — работа алгоритма.
+    """
+    if not os.path.isdir(root):
+        return "# Волны\n\nпока ни одной\n"
+    out = ["# Волны", ""]
+    for name in sorted(os.listdir(root), reverse=True):
+        path = os.path.join(root, name)
+        if name.startswith(".") or not os.path.isdir(path):
+            continue
+        cards = sum(1 for base, _d, files in os.walk(path)
+                    for f in files if f.endswith(".md"))
+        doc = f"{name}.md"
+        link = f"[{name}]({doc})" if os.path.exists(os.path.join(root, doc)) else name
+        out.append(f"- {link} — карточек {cards}")
+    if len(out) == 2:
+        out.append("пока ни одной")
+    return "\n".join(out) + "\n"
+
+
+def write_index(root: str = ".jobs") -> str:
+    path = os.path.join(root, "README.md")
+    os.makedirs(root, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(index(root))
+    return path
+
+
 def cli(args) -> int:
     date = getattr(args, "date", None) or store.now()[:10]
     if getattr(args, "write", False):
         path, what = write(args.db, days=args.days, top=args.top, date=date,
                            force=getattr(args, "force", False))
         print(f"{path}: {what}")
+        # Индекс перегенерируется ВСЕГДА: он целиком выводится из каталога,
+        # поэтому терять в нём нечего, а устаревший индекс хуже отсутствующего.
+        print(f"{write_index(os.path.dirname(path) or '.jobs')}: индекс волн обновлён")
         return 0
     print(render(build(args.db, days=args.days, top=args.top), date))
     return 0

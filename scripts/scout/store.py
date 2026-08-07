@@ -291,8 +291,47 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def since_arg(value: str | None) -> str | None:
-    """Понимает `3d`, `12h`, `2026-07-20` и полный ISO. Возвращает ISO в UTC."""
+def last_run_at(db: str = DEFAULT_DB) -> str | None:
+    """Когда сборщик ходил в последний раз. ISO или None, если не ходил вовсе.
+
+    Берётся из журнала прогонов, а не из mtime отчётов: файл отчёта можно
+    удалить, переместить и скопировать, а строка в `run` — факт обхода.
+    """
+    try:
+        with connect(db) as conn:
+            row = conn.execute(
+                "SELECT started_at FROM run WHERE finished_at IS NOT NULL "
+                "ORDER BY id DESC LIMIT 1").fetchone()
+    except Exception:  # noqa: BLE001 — нет базы это не ошибка вызова
+        return None
+    return row["started_at"] if row else None
+
+
+def since_arg(value: str | None, *, db: str = DEFAULT_DB) -> str | None:
+    """Понимает `3d`, `12h`, `2026-07-20`, полный ISO и `auto`. Возвращает ISO в UTC.
+
+    `auto` — «с прошлого прогона», и это ответ на шаг, который до сих пор делала
+    модель рассуждением (SKILL.md: непрочитанное в Telegram → дата последнего
+    отчёта → спросить человека). Оба источника машинные, и решение по ним
+    воспроизводимо.
+
+    ⚠️ Окно НИКОГДА не уже суток. Прогон мог упасть на середине, и взять окно
+    ровно от его начала значит оставить дыру, которую следующее узкое окно уже
+    не закроет, — а в отчёте она выглядит как «новых вакансий не было».
+    Перекрытие стоит дублей, дедуп их схлопывает; экономия стоила бы вакансий.
+    """
+    if value and value.strip().lower() == "auto":
+        last = last_run_at(db)
+        if not last:
+            return since_arg("3d")
+        try:
+            dt = datetime.fromisoformat(last)
+        except ValueError:
+            return since_arg("3d")
+        if not dt.tzinfo:
+            dt = dt.replace(tzinfo=timezone.utc)
+        edge = min(dt, datetime.now(timezone.utc) - timedelta(days=1))
+        return edge.astimezone(timezone.utc).isoformat()
     if not value:
         return None
     v = value.strip().lower()

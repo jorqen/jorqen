@@ -1966,6 +1966,40 @@ def test_linkedin_asks_every_formulation():
        "не по одному запросу (с переспросом пустого) на пару «формулировка × регион»")
 
 
+def test_since_auto_never_narrows_below_a_day():
+    """`--since auto` берёт окно с прошлого прогона, но НИКОГДА уже суток.
+
+    Шаг, который до сих пор делала модель рассуждением (SKILL.md: непрочитанное
+    в Telegram → дата отчёта → спросить человека). Оба источника машинные.
+    Ограничение снизу обязательно: прогон мог упасть на середине, и окно ровно
+    от его начала оставило бы дыру, которую следующее узкое окно не закроет, —
+    а в отчёте она выглядит как «новых вакансий не было». Перекрытие стоит
+    дублей, дедуп их схлопывает; экономия стоила бы вакансий."""
+    import os
+    import tempfile
+    from datetime import datetime, timedelta, timezone
+
+    from . import store
+
+    with tempfile.TemporaryDirectory() as d:
+        db = os.path.join(d, "t.db")
+        with store.connect(db):
+            pass
+        # Прогонов нет — падаем на штатные трое суток, а не на «всю базу».
+        got = store.since_arg("auto", db=db)
+        eq(bool(got), True, "без прогонов auto не дал окна вовсе")
+
+        # Прогон час назад: окно всё равно не уже суток.
+        hour_ago = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        with store.connect(db) as conn:
+            conn.execute("INSERT INTO run (started_at, finished_at) VALUES (?,?)",
+                         (hour_ago, hour_ago))
+        got = datetime.fromisoformat(store.since_arg("auto", db=db))
+        age = (datetime.now(timezone.utc) - got).total_seconds() / 3600
+        if age < 23.5:
+            FAILS.append(f"окно сузилось до {age:.1f} ч — упавший прогон оставит дыру")
+
+
 def test_connect_works_without_a_directory_in_the_path():
     """База в текущем каталоге и база в памяти обязаны открываться.
 
@@ -6003,6 +6037,7 @@ def main() -> int:
                test_linkedin_paginates_by_start_and_drops_other_professions,
                test_linkedin_stops_where_the_search_drifts_off_topic,
                test_linkedin_asks_every_formulation,
+               test_since_auto_never_narrows_below_a_day,
                test_connect_works_without_a_directory_in_the_path,
                test_card_files_layout_and_lint,
                test_raw_cache_prunes_stale_days_on_start,

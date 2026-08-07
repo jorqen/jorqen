@@ -264,7 +264,9 @@ def enrich_summary(res: dict) -> str:
 
 
 def cmd_enrich(args) -> int:
-    since = store.since_arg(args.since)
+    # db передаётся ЯВНО: `auto` читает журнал прогонов, и без этого он
+    # смотрел бы в базу по умолчанию, а не в ту, что просили флагом --db.
+    since = store.since_arg(args.since, db=args.db)
     res = run_enrich(args.db, since,
                      sources=args.source.split(",") if args.source else None,
                      max_n=enrich_max(args.max), workers=args.workers,

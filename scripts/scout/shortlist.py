@@ -876,7 +876,7 @@ def render(res: dict, *, fmt: str = "table") -> str:
 
 
 def cli(args) -> int:
-    since = store.since_arg(args.since) if args.since else None
+    since = store.since_arg(args.since, db=args.db) if args.since else None
     res = build(args.db, since=since, by=args.by,
                 sources=args.sources.split(",") if args.sources else None,
                 limit=args.limit,

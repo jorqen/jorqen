@@ -453,7 +453,7 @@ def _print_coverage(report, total, new, updated, elapsed, *, subset: bool = Fals
 # ──────────────────────────────────────────────────────────────────────────────
 
 def cmd_new(args) -> int:
-    since = store.since_arg(args.since)
+    since = store.since_arg(args.since, db=args.db)
     kw = dict(since=since if args.by == "published" else None,
               first_seen_since=since if args.by == "seen" else None,
               sources=args.sources.split(",") if args.sources else None,

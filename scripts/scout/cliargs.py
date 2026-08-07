@@ -87,7 +87,8 @@ def build_parser() -> argparse.ArgumentParser:
     c.set_defaults(func=cmd_collect)
 
     n = sub.add_parser("new", help="дельта: что появилось с указанного момента", parents=[common])
-    n.add_argument("--since", default="3d", help="3d, 12h, 2026-07-20 или ISO")
+    n.add_argument("--since", default="3d",
+                   help="3d, 12h, 2026-07-20, ISO или auto (с прошлого прогона, но не уже суток)")
     n.add_argument("--by", choices=["seen", "published"], default="seen",
                    help="seen — чего не было в базе; published — по дате площадки")
     n.add_argument("--sources")
@@ -205,7 +206,13 @@ def build_parser() -> argparse.ArgumentParser:
     ch = sub.add_parser("channel", help="найти careers-страницу/ATS/HR-почту "
                                         "работодателя зондированием (без модели)",
                         parents=[common])
-    ch.add_argument("company")
+    ch.add_argument("company", nargs="?",
+                    help="название компании; не нужно с --from-shortlist")
+    ch.add_argument("--from-shortlist", dest="from_shortlist", action="store_true",
+                    help="взять ВСЕ компании топа, у которых канала ещё нет "
+                         "(список считает shortlist, а не человек глазами)")
+    ch.add_argument("--days", type=int, default=3, help="--from-shortlist: окно волны")
+    ch.add_argument("--top", type=int, default=30, help="--from-shortlist: глубина топа")
     ch.add_argument("--site", help="домен компании, если он известен")
     ch.add_argument("--timeout", type=int, default=12)
     ch.add_argument("--render", action="store_true",
@@ -223,7 +230,8 @@ def build_parser() -> argparse.ArgumentParser:
     sl = sub.add_parser("shortlist", help="дельта → строка на вакансию: дедуп, "
                                           "сверка с историей, разбор стажа (для карточек)",
                         parents=[common])
-    sl.add_argument("--since", default="3d", help="окно (3d, 2026-08-01); пусто — вся база")
+    sl.add_argument("--since", default="3d",
+                    help="окно (3d, 2026-08-01, auto — с прошлого прогона, но не уже суток); пусто — вся база")
     sl.add_argument("--by", choices=["seen", "published"], default="seen")
     sl.add_argument("--sources", help="через запятую")
     sl.add_argument("--limit", type=int, default=0, help="0 — без ограничения")
@@ -394,7 +402,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     e = sub.add_parser("enrich", help="выжимки по дельте из базы, с хранением "
                                       "(второй раз не качает)", parents=[common])
-    e.add_argument("--since", default="3d", help="окно дельты: 3d, 12h, ISO")
+    e.add_argument("--since", default="3d",
+                   help="окно дельты: 3d, 12h, ISO, auto")
     e.add_argument("--source", help="через запятую: hh,habr,…")
     e.add_argument("--max", type=int, default=DEFAULT_MAX_ENRICH,
                    help=f"потолок выжимок за прогон (по умолчанию "
