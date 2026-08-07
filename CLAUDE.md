@@ -37,7 +37,12 @@ scripts/build_resume_formats.sh          # resume.yaml → en/, ru/, PDF, DOCX, 
 for m in test_scout test_sources_web test_sources_auth test_atsapi test_profile; do
   .venv/bin/python -m scripts.scout.$m || break
 done
+.venv/bin/python -m scripts.scout.test_e2e --offline   # шестой, обязательно с --offline
 ```
+
+**`test_e2e` БЕЗ `--offline` делает живой обход всех площадок** — это десятки
+минут, а не «тест завис». Флаг обязателен всегда, кроме случая, когда живой обход
+и нужен. Есть ещё `--fast` — без браузерных площадок.
 
 ## Состояние и направление
 
@@ -116,7 +121,9 @@ done
 - `assets/` — стили, `app.js`, медиа (`light/`, `dark/`, генерируемые варианты в `generated/`).
 - `index.html`, `en/`, `ru/` — **генерируемые**, в `.gitignore`; правишь источник, не их.
 - `scripts/scout/` — сборщик. Точки входа: `cli.py` (команды), `sources.py` (площадки),
-  `sources_web.py` / `sources_auth.py` (обход), `store.py` (база), `detail.py` (выжимки).
+  `sources_web.py` / `sources_auth.py` (обход), `store.py` (база), `detail.py` (выжимки),
+  `salary.py` (разбор вилок), `webcommon.py` (общая механика обхода),
+  `auth.py` + `authrefresh.py` (сессии площадок и их продление).
 - `.claude/skills/jobs/` — скилл суждения: отбор, карточки, письма. Механику не дублирует.
 
 ## Где что записано (единый источник истины)
@@ -141,14 +148,20 @@ done
 
 `scout` — большой код. Одно неосторожное чтение съедает прогон.
 
-| Файл | Размер | Как заходить |
+| Файл | Строк | Как заходить |
 |---|---|---|
-| `scripts/scout/test_scout.py` | ~370 КБ | `grep -n 'def test_'` → читать нужный тест |
-| `scripts/scout/sources.py` | ~175 КБ | `grep -n 'def \|class '` → нужная площадка |
-| `scripts/scout/cli.py` | ~170 КБ | `grep -n 'def cmd_'` → нужная команда |
-| `scripts/scout/sources_web.py`, `sources_auth.py`, `detail.py` | 70–150 КБ | то же |
-| `scripts/scout/README.md` | ~1200 строк | `grep -n '^###'` → нужный раздел |
+| `scripts/scout/test_scout.py` | ~5800 | `grep -n 'def test_'` → читать нужный тест |
+| `scripts/scout/cli.py` | ~2750 | `grep -n 'def cmd_'` → нужная команда |
+| `scripts/scout/sources.py` | ~2120 | `grep -n 'def src_'` → нужная площадка |
+| `scripts/scout/test_sources_auth.py`, `sources_web.py`, `test_sources_web.py`, `sources_auth.py` | 1500–1800 | то же |
+| `scripts/scout/README.md` | ~1250 строк | `grep -n '^###'` → нужный раздел |
 | `.claude/skills/jobs/references/oss-references.md` | ~100 КБ | справочник, читать по `grep` |
+
+Часть кода уже разъехалась по отдельным модулям — ищи там, прежде чем грепать
+гиганты: `salary.py` (разбор вилок), `webcommon.py` (общая механика обхода:
+стены, окно свежести, POST, вежливость), `sources_glassdoor.py` (единственная
+площадка за стеной), `reference_levels.py` (справочник зарплат, НЕ вакансии).
+Имена реэкспортируются из прежних модулей, поэтому старые импорты работают.
 
 Правило общее: **файл больше ~1500 строк — сначала `grep -n`, потом `Read` с
 `offset`/`limit`.** Дешевле на порядок и точнее.
