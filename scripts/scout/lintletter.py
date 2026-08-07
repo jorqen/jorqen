@@ -46,6 +46,7 @@ _EN_WORDS = (
     "elevate", "spearhead", "cutting-edge", "streamline", "holistic",
     "passionate about", "excited about the opportunity", "proven track record",
     "dear sir", "to whom it may concern", "align with your needs",
+    "i am writing to express", "detail-oriented", "i am excited to apply",
 )
 _PHRASES = (
     ("не просто", "«не просто X, а Y» — самый частый оборот генератора"),
@@ -101,15 +102,31 @@ def check(text: str) -> list[tuple[str, str, str]]:
         out.append(("format", "markdown в письме", "убери разметку"))
     if re.search(r"[\U0001F300-\U0001FAFF☀-➿]", text):
         out.append(("format", "эмодзи в письме", "убери"))
-    if ";" in text:
-        out.append(("format", "точка с запятой",
-                    "в письме она не нужна никогда — раздели предложения"))
+    if text.count(";") > 1:
+        out.append(("style", "точки с запятой больше одной",
+                    "для короткого письма это тяжело; но это правило КРАТКОСТИ, "
+                    "а не признак генератора — люди ставят её чаще моделей, "
+                    "и вычищать пунктуацию ради «человечности» вредно"))
+
+    # ── длинные предложения на союзе ──────────────────────────────────────────
+    # Замер 07.08.2026: тире перестало быть надёжной приметой генератора, а
+    # ВМЕСТО него ею стала нехватка пунктуации — модели сцепляют длинные
+    # предложения союзом «и»/and, он у них самое частое слово.
+    for sent in re.split(r"(?<=[.!?])\s+", text):
+        n = len(re.findall(r"\S+", sent))
+        joins = len(re.findall(r"\b(?:и|and)\b", sent, re.I))
+        if n > 40 and joins >= 2:
+            out.append(("run-on", f"предложение на {n} слов с {joins} союзами: "
+                                  f"«{sent[:60].strip()}…»",
+                        "разбей: длинная фраза, собранная на «и», — примета "
+                        "генератора вместо длинного тире"))
+            break
 
     # ── длина ─────────────────────────────────────────────────────────────────
     words = len(re.findall(r"\S+", text))
-    if words > 220:
-        out.append(("length", f"{words} слов — длиннее 200",
-                    "режь: длинное письмо не дочитывают"))
+    if words > 400:
+        out.append(("length", f"{words} слов — длиннее 400",
+                    "режь: даже в Европе, где письмо ждут целиком, 400 это потолок"))
     elif words < 60:
         out.append(("length", f"{words} слов — короче 60",
                     "проверь, что есть позиция, кейс с цифрой и ссылка"))
