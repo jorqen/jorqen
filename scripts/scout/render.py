@@ -621,6 +621,54 @@ def _render_real(url: str, name: str, *, wait: float, timeout: float,
                             f"{BROWSERS[name]['title']}, профиль scout"), final
 
 
+def render_pages(urls, *, browser: str | None = None, wait: float = 3.0,
+                 timeout: float = 60.0, cookies_from: str | None = None,
+                 pause: float = 0.0):
+    """Открывает НЕСКОЛЬКО адресов в ОДНОМ окне. Генератор (url, html, final).
+
+    Ради чего. `render_page` поднимает браузер и профиль на каждый вызов, и на
+    пагинации это доминирует над всем остальным: замер Glassdoor 07.08.2026 —
+    277 секунд на четыре страницы, то есть около семидесяти на страницу при
+    ожидании в пять. Само чтение страницы столько не стоит; столько стоит запуск.
+
+    Ленивый генератор, а не список: вызывающий сам решает, когда остановиться
+    (дубли, пустая страница, потолок), и лишние страницы не грузятся.
+
+    Профиль постоянный, поэтому проверка Cloudflare, однажды пройденная
+    человеком, действует на все страницы обхода — заново её никто не проходит.
+    """
+    from . import cookiesrc  # noqa: PLC0415
+
+    urls = list(urls)
+    if not urls:
+        return
+    domains = cookiesrc.domains_for_url(urls[0])
+    name = pick_browser(browser, domains)
+    if name == BUNDLED:
+        # Встроенный шелл держать здесь незачем: единственный смысл функции —
+        # не перезапускать НАСТОЯЩИЙ браузер. Пусть вызывающий решает сам.
+        raise FetchError(urls[0], "нужен настоящий браузер (--browser chrome)")
+    with real_context(name, offscreen=True, domains=domains) as ctx:
+        added = top_up_cookies(ctx, domains, cookies_from)
+        if added:
+            print(f"  досыпано {added} кук из живого браузера (в профиле их не было)",
+                  file=sys.stderr)
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        # Пауза через общий ограничитель частоты, а не своим sleep: он один на
+        # весь сборщик, вычитает время самой загрузки страницы и подменяется
+        # тестами. Импорт ленивый — `sources` тянет пол-модуля.
+        from .sources import _pause  # noqa: PLC0415
+
+        for i, url in enumerate(urls):
+            if i and pause:
+                _pause(pause)
+            status = _goto(page, url, timeout)
+            _settle(page, wait, timeout)
+            html, final = page.content(), page.url
+            yield url, _blocked_or_html(
+                html, status, final, f"{BROWSERS[name]['title']}, профиль scout"), final
+
+
 def _render_bundled(url: str, *, session: str | None, session_file: str | None,
                     wait: float, timeout: float, cookies_from: str | None,
                     use_cache: bool, save_session: bool) -> tuple[str, str]:

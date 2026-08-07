@@ -154,15 +154,35 @@ def with_net(net, fn):
             setattr(m, name, old)
 
 
-def with_render(html, fn, url="https://example.test/page"):
-    """Подменяет render.render_page — Playwright в тестах не запускается."""
+def with_render(html, fn, url="https://example.test/page", pages=None):
+    """Подменяет render.render_page И render.render_pages — Playwright не запускается.
+
+    Вторая обязательна с 07.08.2026: Glassdoor листается через `render_pages`
+    (одно окно на все страницы), и подмена только `render_page` перестаёт
+    перехватывать — тест лезет в НАСТОЯЩИЙ браузер и падает на занятом профиле
+    либо, что хуже, уходит в живую сеть.
+
+    `pages` — список HTML по страницам; None означает «одна страница `html`,
+    дальше пусто», то есть прежнее поведение для тестов, которым пагинация
+    безразлична.
+    """
     from . import render as R
-    real = R.render_page
+
+    real_one, real_many = R.render_page, R.render_pages
+    seq = list(pages) if pages is not None else [html]
+
+    def fake_many(urls, **kw):
+        for i, u in enumerate(urls):
+            if i >= len(seq):
+                return
+            yield u, seq[i], url
+
     R.render_page = lambda u, **kw: (html, url)
+    R.render_pages = fake_many
     try:
         return fn()
     finally:
-        R.render_page = real
+        R.render_page, R.render_pages = real_one, real_many
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -325,6 +345,66 @@ def test_glassdoor_parses_search_cards_when_there_is_no_ldjson():
     eq(s.raw["mismatch"], 0, "баланс карточек не сошёлся")
     eq(s.raw["offered"], 3, "в сводке не все отданные карточки")
     true("82" in s.title, "заявленное площадкой число вакансий не попало в сводку")
+
+
+def test_glassdoor_walks_pages_and_stops_on_repeats():
+    """Выдача листается суффиксом `_IP<N>`, конец — по отсутствию НОВОГО.
+
+    До 07.08.2026 источник читал ровно одну страницу и отдавал максимум тридцать
+    карточек, при том что площадка заявляет сотни. Владелец: «glassdoor —
+    огромное количество вакансий, пропускать их нельзя». Соседние страницы у
+    Glassdoor пересекаются, поэтому концом считается не «мало нового», а
+    НИСКОЛЬКО нового подряд — иначе обход встал бы на второй же странице."""
+    def card(vid):
+        # Разметка та же, что в GLASSDOOR_CARDS: селекторы у площадки длинные и
+        # с хешами, сочинять их заново — писать тест на выдуманную страницу.
+        return (f'<li class="JobsList_jobListItem__wjTHv" data-jobid="{vid}" '
+                f'data-test="jobListing"><div id="job-employer-{vid}"><span '
+                f'class="EmployerProfile_compactEmployerName__9MGcV">Acme</span></div>'
+                f'<a class="JobCard_jobTitle__GLyJ1" data-test="job-title" '
+                f'href="https://www.glassdoor.com.au/job-listing/x-JV_KO0,3.htm?jl={vid}" '
+                f'id="job-title-{vid}">Senior Golang Developer</a>'
+                f'<div class="JobCard_location__Ds1fM" data-test="emp-location">Berlin</div>'
+                f'<div data-test="job-age">3d</div></li>')
+
+    def page_html(ids):
+        return ('<html><head><title>75 golang jobs</title></head><body>'
+                '<h1 data-test="search-title">75 Golang jobs</h1>'
+                '<ul aria-label="Jobs List">' + "".join(card(i) for i in ids)
+                + '</ul></body></html>')
+
+    p1, p2, p3, p4 = (page_html([1, 2]), page_html([2, 3]),
+                      page_html([2, 3]), page_html([2, 3]))
+    asked: list[str] = []
+
+    def run():
+        from . import render as R
+        real = R.render_pages
+
+        def fake(urls, **kw):
+            for i, u in enumerate(urls):
+                asked.append(u)
+                if i >= 4:
+                    return
+                yield u, [p1, p2, p3, p4][i], u
+
+        real_one = R.render_page
+        R.render_pages = fake
+        # И одиночный рендер: ветка GraphQL зовёт именно его, и без подмены
+        # тест уходит в настоящий браузер на живую площадку.
+        R.render_page = lambda u, **kw: (p1, u)
+        try:
+            return W.src_glassdoor(Ctx(query="golang", days=30))
+        finally:
+            R.render_pages, R.render_page = real, real_one
+
+    rows = run()
+    jobs = [v for v in rows if v.external_id != "_summary"]
+    eq(sorted(v.external_id for v in jobs), ["1", "2", "3"],
+       "карточки со второй страницы не доехали или дубли не схлопнулись")
+    true(any("_IP2" in u for u in asked), f"вторая страница не спрошена: {asked}")
+    true(len(asked) <= 4,
+         f"обход не остановился на повторах: спрошено {len(asked)} страниц")
 
 
 def test_glassdoor_broken_markup_is_a_failure_not_zero():
@@ -1577,6 +1657,7 @@ def main() -> int:
                test_glassdoor_reports_wall_and_never_bypasses,
                test_glassdoor_parses_when_wall_is_down,
                test_glassdoor_parses_search_cards_when_there_is_no_ldjson,
+               test_glassdoor_walks_pages_and_stops_on_repeats,
                test_glassdoor_broken_markup_is_a_failure_not_zero,
                test_hackoffer_parses_ssr_json,
                test_hackoffer_stops_on_empty_page_not_on_error,

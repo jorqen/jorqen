@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 from .model import SUMMARY_ID, Vacancy, norm_period
 from .net import BlockedError, FetchError, fetch, fetch_json, looks_blocked, qs
 from .sources import ATS_ROLE_RE, Ctx, Tally, parse_salary, period_from_text
+from .sources import _pause  # общий ограничитель частоты
 from .webcommon import (
     ThrottledError, _cut_note, _ld_json_blocks, _long_queries, _job_postings,
     _strip_tags, check_wall, cutoff, nap, older_than, post_json, query_re,
@@ -87,8 +88,17 @@ def _glassdoor_cards(html: str) -> list[dict]:
 
 
 GLASSDOOR_GRAPH = "/graph"
-GLASSDOOR_PAGE = 30      # серверный размер страницы
-GLASSDOOR_MAX_PAGES = 5  # 150 записей на прогон — площадка дорогая, жадничать незачем
+GLASSDOOR_PAGE = 30      # серверный размер страницы; листается суффиксом _IP<N>
+# Потолок страниц. Стоял 5 с формулировкой «жадничать незачем» — при том, что
+# источник вообще не листался и отдавал одну страницу. Владелец 07.08.2026:
+# «glassdoor — огромное количество вакансий, пропускать их нельзя, нужен полный
+# список рынка». Тридцать страниц это 900 карточек на формулировку; дальше
+# останавливает не потолок, а сама выдача (пустая страница или сплошные дубли).
+GLASSDOOR_MAX_PAGES = 30
+GLASSDOOR_PAUSE = 2.0    # площадка за управляемым Cloudflare — ходим медленно
+# Сколько страниц подряд без НОВЫХ карточек считать концом выдачи. Не одна:
+# Glassdoor повторяет часть карточек между соседними страницами.
+GLASSDOOR_DRY = 2
 
 # Токен CSRF ищется в теле страницы регуляркой, а не разбором JSON: он раскидан
 # по нескольким инлайновым скриптам.
@@ -187,7 +197,7 @@ def _src_glassdoor_api(ctx: Ctx) -> list[Vacancy]:
 
     tally = Tally("glassdoor")
     url = getattr(ctx, "glassdoor_url", GLASSDOOR_URL)
-    html, _final = render_page(url, wait=5.0)
+    html, _final = render_page(url, wait=5.0, browser=_real_browser())
     tally.requests += 1
     m = _GD_TOKEN.search(html)
     if not m:
@@ -257,6 +267,34 @@ def _gd_api_rows(listings: list, out: list[Vacancy], seen: set[str],
         ))
 
 
+def _glassdoor_page_url(url: str, page: int) -> str:
+    """Страница N выдачи. Glassdoor листается суффиксом `_IP<N>` перед `.htm`."""
+    if page <= 1:
+        return url
+    base, _, tail = url.rpartition(".htm")
+    return f"{base}_IP{page}.htm{tail}" if base else url
+
+
+def _real_browser() -> str:
+    """Настоящий браузер для Glassdoor. Встроенный шелл сюда не годится.
+
+    Это не предпочтение, а устройство площадки: у неё управляемая проверка
+    Cloudflare, и встроенный chromium её НЕ ПРОХОДИТ — замер 07.08.2026 на одной
+    и той же странице дал «Один момент…» у chromium и 963 КБ живой выдачи
+    у настоящего Chrome на постоянном профиле scout. Проверку проходит человек
+    один раз, её результат оседает в профиле, и дальше выдача читается сама.
+    Ничего не подделывается: запрос делает тот самый браузер, которому площадка
+    уже ответила.
+
+    Настоящего браузера нет — возвращаем None и честно упираемся в стену: это
+    видно строкой «АНТИБОТ» в покрытии, а не притворяется нулём вакансий.
+    """
+    from .render import BUNDLED, installed_browsers  # noqa: PLC0415
+
+    real = [b for b in installed_browsers() if b != BUNDLED]
+    return real[0] if real else None
+
+
 def _src_glassdoor_html(ctx: Ctx) -> list[Vacancy]:
     """glassdoor.com.au — только через браузер пользователя, и только если стена снята.
 
@@ -276,19 +314,46 @@ def _src_glassdoor_html(ctx: Ctx) -> list[Vacancy]:
     """
     tally = Tally("glassdoor")
     url = getattr(ctx, "glassdoor_url", GLASSDOOR_URL)
-    from .render import render_page  # noqa: PLC0415 — Playwright опционален
+    from .render import render_pages  # noqa: PLC0415 — Playwright опционален
 
-    html, final = render_page(url, wait=5.0)
-    tally.requests += 1
-    check_wall(html, final)          # иногда именно здесь всё и заканчивается
-
+    browser = _real_browser()
     out: list[Vacancy] = []
     edge = cutoff(ctx.days)
-    postings = _job_postings(html)
-    cards = _glassdoor_cards(html) if not postings else []
+    postings: list[dict] = []
+    cards: list[dict] = []
+    seen_ids: set[str] = set()
+    dry = 0
+    final = url
+    # Все страницы в ОДНОМ окне: перезапуск браузера на каждую стоил семидесяти
+    # секунд из семидесяти пяти (замер 07.08.2026 — 277 с на четыре страницы).
+    # Генератор ленивый, поэтому лишние страницы не грузятся: выходим по дублям,
+    # пустой выдаче или потолку, и на этом обход прекращается.
+    pages = render_pages(
+        (_glassdoor_page_url(url, n) for n in range(1, GLASSDOOR_MAX_PAGES + 1)),
+        browser=browser, wait=5.0, pause=GLASSDOOR_PAUSE)
+    for _asked, html, final in pages:
+        tally.requests += 1
+        check_wall(html, final)      # иногда именно здесь всё и заканчивается
+        page_postings = _job_postings(html)
+        page_cards = _glassdoor_cards(html) if not page_postings else []
+        if not page_postings and not page_cards:
+            break                    # выдача кончилась
+        fresh = [c for c in page_cards if (c.get("id") or "") not in seen_ids]
+        seen_ids.update(c.get("id") or "" for c in page_cards)
+        postings.extend(page_postings)
+        cards.extend(fresh)
+        tally.pages += 1
+        # Соседние страницы у Glassdoor пересекаются, поэтому концом выдачи
+        # считается не «мало нового», а НИСКОЛЬКО нового подряд.
+        dry = 0 if (fresh or page_postings) else dry + 1
+        if dry >= GLASSDOOR_DRY:
+            break
     if not postings and not cards:
         raise FetchError(final, "стена не сработала, но и вакансий в разметке нет — "
                                 "разбирать нечего, проверь страницу глазами")
+    if tally.pages >= GLASSDOOR_MAX_PAGES:
+        tally.note(f"ОБРЕЗАНО по потолку страниц ({GLASSDOOR_MAX_PAGES} × "
+                   f"{GLASSDOOR_PAGE}) — за остальным нужен потолок выше")
 
     for j in postings:
         tally.offered += 1
