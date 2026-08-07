@@ -932,8 +932,58 @@ def test_eures_limit_raises_the_page_ceiling():
     rows = with_net(net, lambda: W.src_eures(Ctx(query="Golang", days=3650, limit=600)))
     true(max(pages) > W.EURES_MAX_PAGES,
          f"потолок страниц не поднялся выше умолчания: спрошены {sorted(pages)}")
-    eq(len(jobs_of(rows)), 12 * W.EURES_PAGE,
+    # 14, а не 12: с 07.08.2026 потолок идёт за numberRecords (667 → 14 страниц),
+    # и --limit 600 его уже не ограничивает — контракт row_budget односторонний,
+    # лимит умеет ПОДНЯТЬ потолок, но не опустить. См. соседний тест.
+    eq(len(jobs_of(rows)), 14 * W.EURES_PAGE,
        "строки сверх умолчальных 10 страниц не доехали до отчёта")
+
+
+def test_eures_page_ceiling_follows_the_platforms_own_count():
+    """Сколько страниц нужно, площадка говорит сама — с первой же.
+
+    Замер 07.08.2026: по «Golang» numberRecords=659, то есть 14 страниц по 50,
+    а умолчание в 10 страниц забирало 500 и молчало про оставшиеся 159. При этом
+    СЕРВЕРНОГО потолка у EURES нет: страница 11 отдаёт полные 50, а 20-я пуста
+    просто потому, что выдача кончилась. Упираться в своё число, зная настоящее,
+    — чистая потеря четверти источника."""
+    pages: dict[int, int] = {}
+
+    class _Pages(_Net):
+        def fetch(self, url, **kw):
+            self.asked.append(url)
+            body = kw.get("data")
+            if isinstance(body, bytes):
+                self.bodies.append(body.decode())
+            page = json.loads(self.bodies[-1])["page"]
+            pages[page] = pages.get(page, 0) + 1
+            return (_eures_page(f"p{page}", True), url)
+
+    net = _Pages({}, {"public/jv/id/": EURES_DETAIL})
+    # limit НЕ задан: потолок обязан подняться сам, по числу самой площадки.
+    with_net(net, lambda: W.src_eures(Ctx(query="Golang", days=3650, limit=10)))
+    eq(max(pages), 14, f"потолок не пошёл за numberRecords=667: спрошены {sorted(pages)}")
+
+    # Но не дальше EURES_RECORDS_CAP: с specificSearchCode=EVERYWHERE площадка
+    # называет 46 153 записи, и без верхней границы одна формулировка увела бы
+    # прогон в девятьсот запросов.
+    pages.clear()
+
+    class _Huge(_Pages):
+        def fetch(self, url, **kw):
+            _, u = super().fetch(url, **kw)
+            # id уникальны по странице: одинаковые превратились бы в дубли,
+            # страница стала бы «пустой по попаданиям», и обход остановило бы
+            # терпение, а не предохранитель — тест мерил бы не то.
+            page = json.loads(self.bodies[-1])["page"]
+            data = json.loads(_eures_page(f"h{page}", True))
+            data["numberRecords"] = 46153
+            return (json.dumps(data), u)
+
+    net = _Huge({}, {"public/jv/id/": EURES_DETAIL})
+    with_net(net, lambda: W.src_eures(Ctx(query="Golang", days=3650, limit=10)))
+    eq(max(pages), W.EURES_RECORDS_CAP,
+       "чужое число увело обход за собственный предохранитель")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1486,6 +1536,7 @@ def main() -> int:
                test_eures_asks_for_full_pages_only,
                test_eures_does_not_stop_at_the_first_page_without_hits,
                test_eures_limit_raises_the_page_ceiling,
+               test_eures_page_ceiling_follows_the_platforms_own_count,
                test_relocateme_takes_the_whole_board_and_filters_itself,
                test_relocateme_stops_when_a_page_brings_nothing_new,
                test_jobsdb_salary_range_keeps_upper_bound,

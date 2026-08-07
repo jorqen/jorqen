@@ -937,7 +937,17 @@ LINKEDIN_REGIONS = ("Germany", "Netherlands", "Poland", "Cyprus", "Portugal", "S
 
 
 LINKEDIN_PAGE = 10        # гостевая выдача отдаёт ровно 10 карточек за запрос
-LINKEDIN_MAX_PAGES = 30   # предохранитель: start=0…290 на регион
+# Потолок ПЛОЩАДКИ, измерен 07.08.2026: start=900 отдаёт карточки, start=1000 —
+# HTTP 400. То есть 1000 карточек на пару «формулировка × регион», и это единственная
+# граница, которая здесь настоящая. Своей мы больше не ставим: владелец 07.08.2026 —
+# «лимитов на площадках быть не должно, ищи любые пути к наиполнейшему списку».
+LINKEDIN_HARD_START = 1000
+LINKEDIN_MAX_PAGES = LINKEDIN_HARD_START // 10
+# Троттлинг — не конец региона, а просьба подождать. Раньше 429 обрывал регион
+# целиком, и «linkedin 86» означало «нас попросили притормозить на второй странице».
+# Ждём с удвоением и продолжаем; сдаёмся только после LINKEDIN_RETRIES подряд.
+LINKEDIN_RETRIES = 3
+LINKEDIN_BACKOFF = 20.0
 # Сколько страниц подряд без единой профильной карточки считать концом полезной
 # выдачи. Замер по Германии (start=0…250, «под профиль» на страницу):
 # 10,9,10,10,10,10,1,3,0,10,1,0,10,0,0,10,1,10,1,0,0,10,10,0,0,0 — выдача
@@ -998,58 +1008,97 @@ def src_linkedin(ctx: Ctx) -> list[Vacancy]:
     # означает «принеси примерно четыреста карточек», а не «четыреста из каждой
     # из девяти стран» (это 3 600 карточек и 360 запросов вместо сорока).
     budget = _page_budget(ctx, LINKEDIN_PAGE * len(LINKEDIN_REGIONS), LINKEDIN_MAX_PAGES)
-    regions_done = 0
-    for region in LINKEDIN_REGIONS:
-        cards = dry = 0
-        for page in range(budget):
-            if tally.requests:
-                _pause(LINKEDIN_PAUSE)
-            url = qs("https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search", {
-                "keywords": ctx.query, "location": region,
-                "start": page * LINKEDIN_PAGE, "f_TPR": f"r{seconds}",
-            })
-            try:
-                text, _ = fetch(url)
-                tally.requests += 1
-            except FetchError as e:
-                # 429 у LinkedIn — норма при частых запросах; регион пропускаем,
-                # прогон живёт. Но пропущенный регион — это НЕ ноль вакансий в нём,
-                # и молчать об этом нельзя: иначе «linkedin 86» читается как полный
-                # обход девяти стран. Уже собранные страницы региона остаются.
-                if e.status in (429, 403):
-                    lost_regions.append(f"{region} (HTTP {e.status} на стр. {page + 1})")
+    budget = min(budget, LINKEDIN_MAX_PAGES)  # дальше площадка отвечает HTTP 400
+    pairs_done = 0
+    queries = ctx.queries()
+    for q in queries:
+        for region in LINKEDIN_REGIONS:
+            label = f"{region}/«{q}»"
+            cards = dry = 0
+            for page in range(budget):
+                if tally.requests:
+                    _pause(LINKEDIN_PAUSE)
+                url = qs("https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search", {
+                    "keywords": q, "location": region,
+                    "start": page * LINKEDIN_PAGE, "f_TPR": f"r{seconds}",
+                })
+                text = _linkedin_fetch(url, tally)
+                if text is None:
+                    # Площадка просила подождать LINKEDIN_RETRIES раз подряд —
+                    # это НЕ ноль вакансий здесь, а неспрошенная выдача, и молчать
+                    # об этом нельзя: иначе «linkedin 86» читается как полный обход.
+                    lost_regions.append(f"{label} (стр. {page + 1})")
                     break
-                raise
-            chunks = text.split('<div class="base-card')[1:]
-            if not chunks:
-                break  # пустой ответ — выдача региона кончилась
-            tally.pages += 1
-            cards += len(chunks)
-            dry = 0 if _linkedin_rows(chunks, region, ctx, out, seen, tally) else dry + 1
-            if dry >= LINKEDIN_DRY_STREAK:
-                # Не «обрезано»: площадка перестала отвечать на наш запрос
-                # и добивает регион чем попало. Это конец выдачи, а не потолок.
-                drifted.append(f"{region} (стр. {page + 1})")
-                break
-        else:
-            truncated.append(f"{region} ({cards})")
-        if cards:
-            regions_done += 1
-    tally.note(f"регионов с выдачей {regions_done}/{len(LINKEDIN_REGIONS)}, "
+                chunks = text.split('<div class="base-card')[1:]
+                if not chunks:
+                    break  # пустой ответ — выдача этой пары кончилась
+                tally.pages += 1
+                cards += len(chunks)
+                dry = 0 if _linkedin_rows(chunks, region, ctx, out, seen, tally) else dry + 1
+                if dry >= LINKEDIN_DRY_STREAK:
+                    # Не «обрезано»: площадка перестала отвечать на наш запрос
+                    # и добивает выдачу чем попало. Это конец, а не потолок.
+                    drifted.append(f"{label} (стр. {page + 1})")
+                    break
+            else:
+                truncated.append(f"{label} ({cards})")
+            if cards:
+                pairs_done += 1
+    pairs = len(queries) * len(LINKEDIN_REGIONS)
+    tally.note(f"пар «формулировка × регион» с выдачей {pairs_done}/{pairs}, "
                f"страниц {tally.pages}, запросов {tally.requests}")
-    tally.note(f"формулировка одна («{ctx.query}»): девять регионов на три "
-               f"формулировки — это сотни запросов к площадке, которая троттлит")
+    # Формулировок несколько намеренно: потолок start<1000 действует на ПАРУ,
+    # поэтому каждая новая формулировка приносит собственную тысячу карточек, а
+    # не долистывает чужую. Замер 07.08.2026 показал, что глубина внутри одной
+    # пары окупается всё хуже (648 повторов на 1160 карточек), а вширь — нет.
+    tally.note(f"формулировки: {', '.join(queries)} — каждая со своим потолком "
+               f"выдачи; глубина внутри одной формулировки даёт больше повторов")
     if drifted:
         tally.note(f"выдача уехала от запроса (>{LINKEDIN_DRY_STREAK} стр. подряд без "
                    f"профильных ролей), обход региона закончен: {', '.join(drifted)}")
     if truncated:
-        tally.note(f"ОБРЕЗАНО по потолку страниц ({budget}): {', '.join(truncated)} — "
-                   f"за остальным нужен --limit больше")
+        # Разница принципиальная. Упёрлись в потолок ПЛОЩАДКИ — поднимать нечего,
+        # start=1000 отдаёт HTTP 400, и совет «подними --limit» отправил бы за
+        # выдачей, которой не существует. Расти отсюда можно только ВШИРЬ:
+        # новой формулировкой или регионом, у каждой пары потолок свой.
+        if budget >= LINKEDIN_MAX_PAGES:
+            tally.note(f"УПЁРЛИСЬ В ПОТОЛОК ПЛОЩАДКИ ({LINKEDIN_HARD_START} карточек "
+                       f"на пару): {', '.join(truncated)}. Глубже LinkedIn не пускает "
+                       f"(start={LINKEDIN_HARD_START} → HTTP 400) — за остальным нужна "
+                       f"новая формулировка (--query/--extra-query), а не --limit")
+        else:
+            tally.note(f"ОБРЕЗАНО по потолку страниц ({budget}): {', '.join(truncated)} — "
+                       f"за остальным нужен --limit больше")
     if lost_regions:
         tally.note(f"НЕ ОТДАЛИСЬ регионы: {', '.join(lost_regions)} — "
                    f"это не ноль вакансий в них, а неспрошенная выдача")
     out.append(tally.row())
     return out
+
+
+def _linkedin_fetch(url: str, tally) -> str | None:
+    """Страница гостевого поиска с отступом при троттлинге.
+
+    Возвращает None, когда площадка просила подождать LINKEDIN_RETRIES раз
+    подряд. Раньше первый же 429 обрывал регион целиком — а 429 у LinkedIn это
+    не «нельзя», а «не так часто»: подождать и продолжить дешевле, чем потерять
+    остаток выдачи и объявить его нулём.
+    """
+    delay = LINKEDIN_BACKOFF
+    for attempt in range(LINKEDIN_RETRIES):
+        try:
+            text, _ = fetch(url)
+            tally.requests += 1
+            return text
+        except FetchError as e:
+            if e.status not in (429, 403):
+                raise
+            tally.requests += 1
+            if attempt + 1 >= LINKEDIN_RETRIES:
+                return None
+            _pause(delay)
+            delay *= 2
+    return None
 
 
 def _linkedin_title(chunk: str) -> str:

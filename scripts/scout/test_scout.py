@@ -1930,6 +1930,70 @@ def test_linkedin_paginates_by_start_and_drops_other_professions():
                      f"detail пойдёт на /jobs/view/, где капча")
 
 
+def test_linkedin_asks_every_formulation():
+    """Каждая формулировка обходится отдельно — у неё свой потолок выдачи.
+
+    Потолок площадки (start<1000, замер 07.08.2026) действует на ПАРУ
+    «формулировка × регион», а не на источник. Значит вторая формулировка
+    приносит собственную тысячу карточек, а не долистывает чужую, — и это
+    единственный способ расти вширь там, где вглубь уже нельзя. Раньше
+    спрашивалась ровно одна: девять регионов экономились на запросах."""
+    from .sources import Ctx, LINKEDIN_REGIONS, src_linkedin
+
+    fake = _FakeFetch({"start=": "<ul></ul>"})
+    ctx = Ctx(query="Golang", days=3, extra_queries=("Go", "Backend"))
+    _with_fake_fetch(fake, lambda: src_linkedin(ctx))
+    for q in ("Golang", "Go", "Backend"):
+        if not any(f"keywords={q}&" in u for u in fake.asked):
+            FAILS.append(f"формулировка «{q}» не спрошена вовсе")
+    eq(len(fake.asked), 3 * len(LINKEDIN_REGIONS),
+       "не по одному запросу на пару «формулировка × регион»")
+
+
+def test_linkedin_throttling_is_a_pause_not_the_end_of_the_region():
+    """429 — это «не так часто», а не «нельзя».
+
+    Раньше первый же 429 обрывал регион целиком, и остаток выдачи молча
+    становился нулём. Теперь ждём с удвоением и продолжаем; сдаёмся только
+    после LINKEDIN_RETRIES отказов подряд — и тогда говорим об этом вслух."""
+    from . import sources as S
+    from .net import FetchError
+    from .sources import Ctx, src_linkedin
+
+    def card(vid):
+        return ('<div class="base-card" '
+                f'data-entity-urn="urn:li:jobPosting:{vid}">'
+                f'<span class="sr-only">Senior Golang Developer</span>'
+                f'<a class="hidden-nested-link" href="/c">Acme</a>'
+                f'<span class="job-search-card__location">Berlin</span>'
+                f'<time datetime="{_fresh()[:10]}">вчера</time></div>')
+
+    state = {"n": 0}
+
+    class Throttled(_FakeFetch):
+        def __call__(self, url, **kw):
+            self.asked.append(url)
+            state["n"] += 1
+            # Ровно один отказ, и он не последний: дальше выдача обязана пойти.
+            if state["n"] == 1:
+                raise FetchError(url, "HTTP 429", status=429)
+            if "start=0&" in url:
+                return "<ul>" + card(7) + "</ul>", url
+            return "<ul></ul>", url
+
+    fake = Throttled({})
+    got = _with_fake_fetch(fake, lambda: src_linkedin(Ctx(query="Golang", days=3)))
+    jobs = [v for v in got if v.external_id != "_summary"]
+    summary = [v for v in got if v.external_id == "_summary"][0]
+    eq([v.external_id for v in jobs], ["7"],
+       "после 429 обход не продолжился — регион потерян целиком")
+    if any("НЕ ОТДАЛИСЬ" in n for n in summary.raw["notes"]):
+        FAILS.append("один 429 объявлен потерей региона, хотя площадка "
+                     "просто просила подождать")
+    if S.LINKEDIN_RETRIES < 2:
+        FAILS.append("отступ без повторов отступом не является")
+
+
 def test_linkedin_stops_where_the_search_drifts_off_topic():
     """Вглубь гостевая выдача уезжает от запроса совсем.
 
@@ -5637,6 +5701,8 @@ def main() -> int:
                test_careered_filters_profession_and_reads_to_the_window_edge,
                test_linkedin_paginates_by_start_and_drops_other_professions,
                test_linkedin_stops_where_the_search_drifts_off_topic,
+               test_linkedin_asks_every_formulation,
+               test_linkedin_throttling_is_a_pause_not_the_end_of_the_region,
                test_linkedin_limit_counts_all_regions_together,
                test_linkedin_ru_only_still_reports_itself,
                test_ats_role_filter_covers_the_audit_list,

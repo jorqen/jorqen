@@ -935,6 +935,13 @@ EURES_SEARCH_CODE = "TITLE"   # EVERYWHERE даёт 46 153 против 666 по
 # странице без попаданий нельзя: по «Golang» пустая ровно вторая, а на 3–7
 # снова есть. Отсюда «терпение» в страницах, а не немедленный выход.
 EURES_MAX_PAGES = 10   # потолок страниц ПО УМОЛЧАНИЮ: --limit его поднимает
+# Насколько разрешено поднять потолок ВСЛЕД ЗА numberRecords, который площадка
+# отдаёт с первой страницы. Нужен, потому что число это чужое: с
+# specificSearchCode=TITLE оно живёт в сотнях (659 по «Golang»), но EVERYWHERE
+# даёт 46 153 — то есть без верхней границы одна формулировка увела бы прогон
+# в девятьсот запросов. 40 страниц это 2000 строк: заведомо больше любого
+# реального окна и заведомо меньше побега.
+EURES_RECORDS_CAP = 40
 EURES_PATIENCE = 3
 EURES_PAUSE = 1.5
 # Карточки добираются по одной (вилка, работодатель, ссылка на отклик). Это
@@ -977,7 +984,12 @@ def src_eures(ctx: Ctx) -> list[Vacancy]:
         off_target = 0
         dry_pages = 0
         records = None
-        for page in range(1, max_pages + 1):
+        # while, а не range: потолок поднимается ВНУТРИ цикла, когда площадка
+        # назовёт numberRecords, а range вычисляется один раз при входе — с ним
+        # поднятый потолок молча ни на что не влиял.
+        page = 0
+        while page < max_pages:
+            page += 1
             if page > 1:
                 nap(EURES_PAUSE)
             data = post_json(f"{EURES_API}/public/jv-search/search", {
@@ -996,6 +1008,15 @@ def src_eures(ctx: Ctx) -> list[Vacancy]:
             if not jvs:
                 break
             records = data.get("numberRecords")
+            # Сколько страниц НУЖНО, площадка говорит сама — с первой же. Замер
+            # 07.08.2026: по «Golang» numberRecords=659, то есть 14 страниц, а
+            # умолчание в EURES_MAX_PAGES=10 забирало 500 и молчало про 159
+            # оставшихся. Серверного потолка у EURES нет вовсе (страница 11
+            # отдаёт полные 50, а 20-я пуста просто потому, что выдача кончилась),
+            # так что упираться в своё же число, зная настоящее, — чистая потеря.
+            if records:
+                need = -(-int(records) // EURES_PAGE)
+                max_pages = max(max_pages, min(need, EURES_RECORDS_CAP))
             tally.pages += 1
             hits_on_page = 0
             for j in jvs:
