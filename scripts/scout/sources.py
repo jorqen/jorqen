@@ -1280,9 +1280,17 @@ ATS_BOARDS: list[tuple[str, str]] = [
     ("greenhouse", "datadog"), ("greenhouse", "platacard"), ("greenhouse", "internalhiring"),
     ("lever", "jobgether"), ("lever", "binance"), ("lever", "appen"), ("lever", "weloglobal"),
     ("ashby", "ruby-labs"), ("ashby", "everai"), ("ashby", "oakslab"),
-    ("ashby", "poolside"), ("ashby", "synthflow"),
+    ("ashby", "poolside"),
     ("recruitee", "kodland"), ("recruitee", "nucsai"),
 ]
+
+# Доски, проверенные и признанные мёртвыми. Живут здесь, а не в чьей-то памяти:
+# иначе каждый следующий прогон снова тратит запрос на тот же 404, а строка
+# «досок опрошено 19/20» превращается в постоянный жёлтый флаг, который
+# перестают читать — и настоящая поломка двадцатой доски пройдёт незамеченной.
+ATS_DEAD: dict[str, str] = {
+    "ashby:synthflow": "HTTP 404 (проверено 07.08.2026): доска снята с Ashby",
+}
 
 
 def _ats_greenhouse(token: str) -> list[Vacancy]:
@@ -1477,8 +1485,21 @@ def src_ats(ctx: Ctx) -> list[Vacancy]:
     # штук занимали 47 секунд и делали прогон самым долгим местом всего сбора.
     from .net import parallel  # локальный импорт, чтобы не тянуть пул без нужды
 
+    # Время каждой доски меряется отдельно. Не украшение: `ats` — самый дорогой
+    # источник волны (замер прогона #10: 710 с, 17% всего сбора), а по одному
+    # общему числу не видно, двадцать ли досок медленные или одна тянет всех.
+    # Без этого следующая оптимизация пошла бы от догадки.
+    board_ms: dict[str, int] = {}
+
+    def timed(kind: str, token: str):
+        t0 = time.monotonic()
+        try:
+            return _ATS_IMPL[kind](token)
+        finally:
+            board_ms[f"{kind}:{token}"] = int((time.monotonic() - t0) * 1000)
+
     results = parallel(
-        {f"{kind}:{token}": (lambda k=kind, t=token: _ATS_IMPL[k](t))
+        {f"{kind}:{token}": (lambda k=kind, t=token: timed(k, t))
          for kind, token in ATS_BOARDS},
         workers=10,
     )
@@ -1513,6 +1534,13 @@ def src_ats(ctx: Ctx) -> list[Vacancy]:
     # а не восстанавливался по памяти. В выдачу и в счётчики она НЕ идёт
     # (store.query её исключает): это метаданные прогона, а не вакансия.
     tally.note(f"досок опрошено {len(ATS_BOARDS) - len(failed)}/{len(ATS_BOARDS)}")
+    # Три самых медленных поимённо: если источник дорожает, чинить надо их,
+    # а не «ats вообще». Пул на десять воркеров и двадцать досок — это два
+    # круга, и одна медленная доска задерживает весь круг.
+    slow = sorted(board_ms.items(), key=lambda kv: -kv[1])[:3]
+    if slow:
+        tally.note("самые медленные доски: "
+                   + ", ".join(f"{b} {ms / 1000:.0f} с" for b, ms in slow))
     if failed:
         # Упавшая доска — это не «у компании нет вакансий». Пишем поимённо:
         # молчаливый пропуск доски и есть та потеря, которую иначе не заметить.
