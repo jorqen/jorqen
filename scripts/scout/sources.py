@@ -88,6 +88,17 @@ PAGE_PAUSE = 0.7
 _LAST_PAUSE = threading.local()
 
 
+def skip_next_pause() -> None:
+    """Следующая пауза в этом потоке не нужна: ответ пришёл из кэша.
+
+    Пауза ограничивает частоту ОБРАЩЕНИЙ к площадке. Попадание в кэш — это
+    отсутствие обращения, и спать после него значит платить вежливостью за
+    запрос, которого не было. Замер 08.08.2026: переразбор источника из кэша
+    целиком состоял из сна.
+    """
+    _LAST_PAUSE.skip = True
+
+
 def reset_pace() -> None:
     """Забыть время прошлой паузы в ЭТОМ потоке — новый источник, новый счёт.
 
@@ -99,6 +110,7 @@ def reset_pace() -> None:
     в потоке. На 28 источниках и 8 потоках это около двадцати лишних пауз.
     """
     _LAST_PAUSE.at = None
+    _LAST_PAUSE.skip = False
 
 
 def _pause(seconds: float = PAGE_PAUSE, *, gate: bool = True) -> float:
@@ -122,6 +134,10 @@ def _pause(seconds: float = PAGE_PAUSE, *, gate: bool = True) -> float:
     запроса значит отступить меньше, чем решено.
     """
     if seconds <= 0:
+        return 0.0
+    if getattr(_LAST_PAUSE, "skip", False):
+        _LAST_PAUSE.skip = False
+        _LAST_PAUSE.at = time.monotonic()
         return 0.0
     if gate:
         last = getattr(_LAST_PAUSE, "at", None)

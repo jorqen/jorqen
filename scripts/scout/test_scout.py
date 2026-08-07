@@ -2155,6 +2155,36 @@ def test_card_files_layout_and_lint():
             eq("моё письмо" in f.read(), True, "скелет затёр дописанное письмо")
 
 
+def test_cache_hit_does_not_pay_for_politeness():
+    """Пауза не платится за запрос, которого не было.
+
+    Пауза ограничивает частоту ОБРАЩЕНИЙ к площадке. Попадание в кэш — это
+    отсутствие обращения, и спать после него значит платить вежливостью
+    впустую. Замер 08.08.2026: переразбор трёх источников из кэша занимал те же
+    десять секунд на каждый, целиком состоявшие из сна; после правки — 0.2 с."""
+    from . import sources as S
+
+    slept: list[float] = []
+    real_sleep, real_clock = time.sleep, time.monotonic
+    now = [1000.0]
+    try:
+        time.sleep = lambda s: (slept.append(s), now.__setitem__(0, now[0] + s))[0]
+        time.monotonic = lambda: now[0]
+        S.reset_pace()
+        S._pause(1.2)                     # первый — не спит по построению
+        S._pause(1.2)                     # второй — спит полный интервал
+        n_before = len(slept)
+        S.skip_next_pause()               # ответ пришёл из кэша
+        S._pause(1.2)
+        eq(len(slept), n_before, "после попадания в кэш всё равно спали")
+        # А следующая пауза возвращается: флаг снимает РОВНО одну.
+        S._pause(1.2)
+        eq(len(slept), n_before + 1, "вежливость не вернулась после кэша")
+    finally:
+        time.sleep, time.monotonic = real_sleep, real_clock
+        S.reset_pace()
+
+
 def test_raw_cache_prunes_stale_days_on_start():
     """Кэш сырых ответов ограничен сверху, а не растёт вечно.
 
@@ -6129,6 +6159,7 @@ def main() -> int:
                test_since_auto_never_narrows_below_a_day,
                test_connect_works_without_a_directory_in_the_path,
                test_card_files_layout_and_lint,
+               test_cache_hit_does_not_pay_for_politeness,
                test_raw_cache_prunes_stale_days_on_start,
                test_lint_letter_catches_the_generator_markers,
                test_wavedoc_slug_folds_legal_forms_and_transliterates,
