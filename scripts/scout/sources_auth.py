@@ -72,7 +72,7 @@ import urllib.parse
 from dataclasses import dataclass, field
 
 from .model import Vacancy, norm_period
-from .net import FetchError, fetch, fetch_json, qs
+from .net import FetchError, fetch, fetch_json, looks_truncated, qs
 from .sources import Ctx, expand_k, parse_salary, period_from_text
 from .sources import _pause as _rate_pause  # общий гейт частоты, см. _pause ниже
 # Окно свежести считается ровно теми же двумя функциями, что и у web-площадок.
@@ -337,6 +337,10 @@ SHADOWHINT_API = "https://api.shadowhint.com/api/v1"
 # а per_page=200 отдаёт ДВАДЦАТЬ (сервер отвечает perPage=20). То есть попросить
 # больше сотни здесь не «может быть, повезёт», а гарантированно хуже.
 SHADOWHINT_PAGE = 100
+# Нижняя граница порции. Ниже опускаться незачем: если и по 12 записей
+# ответ рвётся, дело не в размере, и это надо увидеть ошибкой, а не
+# бесконечным уполовиниванием.
+SHADOWHINT_MIN_PAGE = 12
 SHADOWHINT_MAX_PAGES = 40      # предохранитель от бесконечности: 39 тысяч целиком не нужны
 
 # Формулировки, проверенные по totalCount 30.07.2026 (архив площадки — 39 190):
@@ -564,9 +568,12 @@ def src_shadowhint(ctx: Ctx, *, cookies_from: str | None = None) -> list[Vacancy
     for query in queries:
         page, claimed, total_pages, rows_seen = 1, 0, 1, 0
         stopped_by_window = False
+        # Размер порции живёт ПО ЗАПРОСУ, а не константой: ответ с полными
+        # текстами телеграм-постов бывает так велик, что сервер не досылает тело.
+        per_page = SHADOWHINT_PAGE
         while page <= min(total_pages, SHADOWHINT_MAX_PAGES):
             url = qs(f"{SHADOWHINT_API}/tg-vacancies",
-                     {"page": page, "per_page": SHADOWHINT_PAGE,
+                     {"page": page, "per_page": per_page,
                       "search_query": query, "sort_by": "date"})
             if tally.requests:
                 _pause()
@@ -577,6 +584,22 @@ def src_shadowhint(ctx: Ctx, *, cookies_from: str | None = None) -> list[Vacancy
                     raise NeedsLogin(url, f"площадка ответила {e.status}: токен из "
                                           f"куки не принят. {SHADOWHINT_HOWTO}",
                                      e.status) from e
+                # Оборванный ответ лечится МЕНЬШЕЙ порцией, а не повтором того же
+                # запроса: net.fetch уже повторил трижды и получил то же самое.
+                # Прогон #10 (05.08.2026): per_page=100 → IncompleteRead на 185 КБ
+                # → площадка в отчёте «УПАЛ» и НОЛЬ вакансий. Ноль здесь дороже,
+                # чем где-либо: без входа сюда не отдаётся вообще ничего, то есть
+                # теряется весь источник целиком.
+                if looks_truncated(e) and per_page > SHADOWHINT_MIN_PAGE:
+                    per_page = max(SHADOWHINT_MIN_PAGE, per_page // 2)
+                    tally.note(f"ответ оборвался на per_page={per_page * 2} — "
+                               f"добираю порциями по {per_page}")
+                    # total_pages пересчитается на первой же удачной странице;
+                    # для остальных пересчитываем сами, иначе обход кончится
+                    # раньше времени по чужому, крупнопорционному числу.
+                    if claimed:
+                        total_pages = max(1, math.ceil(claimed / per_page))
+                    continue
                 raise
             tally.requests += 1
             rows = _rows(payload)
@@ -586,7 +609,10 @@ def src_shadowhint(ctx: Ctx, *, cookies_from: str | None = None) -> list[Vacancy
                 # на случай, если поле однажды пропадёт. max(1) — чтобы первая
                 # страница всё равно была прочитана.
                 total_pages = int(payload.get("totalPages") or 0) or (
-                    math.ceil(claimed / SHADOWHINT_PAGE) if claimed else 1)
+                    # По ФАКТИЧЕСКОЙ порции, а не по константе: после
+                    # уполовинивания на оборванном ответе расчёт по 100
+                    # недосчитал бы страниц вдвое и обрезал выдачу молча.
+                    math.ceil(claimed / per_page) if claimed else 1)
                 total_pages = max(1, total_pages)
                 tally.claimed += claimed
                 tally.per_query[query] = {"claimed": claimed, "got": 0, "old": 0,

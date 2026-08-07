@@ -855,6 +855,46 @@ def _shadowhint_fake(catalog: dict, per_page: int = sa.SHADOWHINT_PAGE):
     return fake, calls
 
 
+def test_shadowhint_truncated_answer_shrinks_the_page_instead_of_dying():
+    """Оборванный ответ лечится МЕНЬШЕЙ порцией, а не повтором того же запроса.
+
+    Живой прогон #10 (05.08.2026): при per_page=100 сервер отдал IncompleteRead
+    на 185 КБ, `net.fetch` повторил трижды и получил то же самое, площадка ушла
+    в отчёт как «УПАЛ» с НУЛЁМ вакансий. Ноль здесь дороже, чем где-либо: без
+    входа shadowhint не отдаёт вообще ничего, то есть теряется весь источник —
+    37 900+ телеграм-вакансий с полнотекстовым поиском."""
+    import http.client
+
+    rows = [{**_SHADOWHINT_ROW, "id": f"v{i}", "messageLink": f"https://t.me/c/{i}",
+             "messageDate": _ago(0.5)} for i in range(120)]
+    asked: list[int] = []
+
+    def fake(url, **kw):
+        q = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
+        per = int(q.get("per_page", ["100"])[0])
+        page = int(q.get("page", ["1"])[0])
+        asked.append(per)
+        # Сотня не долетает — ровно как у живого сервера с полными текстами.
+        if per > 50:
+            raise sa.FetchError(url, f"IncompleteRead: "
+                                     f"{http.client.IncompleteRead(b'x' * 10)}")
+        start = (page - 1) * per
+        return {"totalCount": len(rows), "perPage": per,
+                "totalPages": max(1, -(-len(rows) // per)), "page": page,
+                "vacancies": rows[start:start + per]}
+
+    with patched(auth, "session_token", lambda p, **kw: ("t", "жив")), \
+            patched(sa, "fetch_json", fake), patched(sa, "SHADOWHINT_QUERIES", ("Go",)):
+        got = sa.src_shadowhint(Ctx(query="Go", extra_queries=(), days=3))
+
+    body = [v for v in got if v.external_id != "_summary"]
+    eq(len(body), 120, "источник потерян целиком вместо уменьшения порции")
+    ok(max(asked) > min(asked), f"порция не уменьшалась: спрошено {sorted(set(asked))}")
+    raw = [v for v in got if v.external_id == "_summary"][0].raw
+    ok(any("оборвал" in n for n in raw["notes"]),
+       "уменьшение порции не названо в сводке — молча собрали не то, что просили")
+
+
 def test_shadowhint_walks_to_the_last_page():
     """Пагинация до конца по totalPages, а не «пока страница не опустела».
 
@@ -1755,6 +1795,7 @@ def main() -> int:
                test_shadowhint_nested_values_do_not_crash,
                test_shadowhint_link_points_at_the_telegram_post,
                test_shadowhint_walks_to_the_last_page,
+               test_shadowhint_truncated_answer_shrinks_the_page_instead_of_dying,
                test_shadowhint_merges_wordings_by_id,
                test_shadowhint_stops_at_the_edge_of_the_window,
                test_a_seen_record_does_not_block_the_early_stop,

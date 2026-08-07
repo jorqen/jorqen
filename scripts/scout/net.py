@@ -406,6 +406,26 @@ def fetch(
     raise last or FetchError(url, "unknown")
 
 
+# Ответ оборвался на середине. Это НЕ поломка парсера и не стена: сервер закрыл
+# соединение, не дослав тело. Повтор того же запроса тут почти не помогает —
+# помогает попросить МЕНЬШЕ за раз. Живой случай (прогон #10, 05.08.2026):
+# shadowhint при per_page=100 отдал IncompleteRead на 185 КБ и вернул ноль
+# вакансий — а это единственная площадка, где без входа нет вообще ничего.
+_TRUNCATED_MARKERS = ("incompleteread", "chunkedencoding", "content-length",
+                      "connection broken")
+
+
+def looks_truncated(err: BaseException) -> bool:
+    """Ответ оборван на середине? Тогда лечение — уменьшить порцию, а не повторять.
+
+    Смотрит на текст причины, потому что `FetchError` не носит исходный класс:
+    `http.client.IncompleteRead` не наследует ни URLError, ни ConnectionError и
+    приезжает через общий `except Exception`.
+    """
+    text = f"{type(err).__name__}: {getattr(err, 'reason', err)}".lower()
+    return any(m in text for m in _TRUNCATED_MARKERS)
+
+
 def fetch_json(url: str, **kw):
     # `headers=None`, переданный явно, — легальный вызов (так деталка careered
     # ходит анонимом без Bearer). Цепочка setdefault() на нём падала AttributeError
