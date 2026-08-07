@@ -746,6 +746,11 @@ def cmd_research(args) -> int:
     return 0
 
 
+def cmd_wavedoc(args) -> int:
+    from . import wavedoc
+    return wavedoc.cli(args)
+
+
 def cmd_budget(args) -> int:
     """Смета волны до её начала — механизм, которым держится потолок 500K."""
     from . import budget

@@ -1966,6 +1966,46 @@ def test_linkedin_asks_every_formulation():
        "не по одному запросу (с переспросом пустого) на пару «формулировка × регион»")
 
 
+def test_wavedoc_slug_folds_legal_forms_and_transliterates():
+    """«АО «Каргономика»» и «Каргономика» обязаны дать ОДИН каталог.
+
+    Требование SKILL.md, и до сих пор его выполняла модель глазами. Две папки
+    на одну компанию — не косметика: карточки разных ролей одного работодателя
+    расходятся, и «один работодатель — одна карточка» перестаёт выполняться.
+    Пустое имя — штатный случай (работодатель за заглушкой агрегатора), и такие
+    карточки обязаны лежать отдельно, а не смешиваться в каталоге с именем «»."""
+    from .wavedoc import slug
+
+    eq(slug("АО «Каргономика»"), slug("Каргономика"),
+       "организационно-правовая форма развела одну компанию по двум каталогам")
+    eq(slug("ООО \"Яндекс Технологии\""), "yandeks-tehnologii", "транслит поехал")
+    eq(slug("Ozon Bank"), "ozon-bank", "латиница не должна портиться")
+    eq(slug(""), "_hidden", "безымянный работодатель — отдельный каталог")
+    eq(slug(None), "_hidden", "отсутствие имени — не пустая строка каталога")
+
+
+def test_wavedoc_never_overwrites_a_document_with_judgement_in_it():
+    """Скелет не затирает уже написанное без явного --force.
+
+    Волну переигрывают, а в документе к этому моменту лежат разделы, которых
+    в базе нет и восстановить их нечем."""
+    import os
+    import tempfile
+
+    from . import wavedoc
+
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "2026-08-07.md")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("# Волна\n\nМоё суждение, которого нет в базе.\n")
+        got, why = wavedoc.write(":memory:", days=3, top=1, date="2026-08-07",
+                                 root=d, force=False)
+        eq(got, path, "путь документа посчитан неверно")
+        with open(path, encoding="utf-8") as f:
+            eq("Моё суждение" in f.read(), True,
+               f"скелет затёр дописанное суждение ({why})")
+
+
 def test_pause_charges_the_request_time_against_the_interval():
     """Пауза — ограничитель ЧАСТОТЫ: считает уже потраченное, а не спит сверху.
 
@@ -5813,6 +5853,8 @@ def main() -> int:
                test_linkedin_paginates_by_start_and_drops_other_professions,
                test_linkedin_stops_where_the_search_drifts_off_topic,
                test_linkedin_asks_every_formulation,
+               test_wavedoc_slug_folds_legal_forms_and_transliterates,
+               test_wavedoc_never_overwrites_a_document_with_judgement_in_it,
                test_pause_charges_the_request_time_against_the_interval,
                test_linkedin_empty_page_is_rechecked_before_calling_it_the_end,
                test_linkedin_throttling_is_a_pause_not_the_end_of_the_region,

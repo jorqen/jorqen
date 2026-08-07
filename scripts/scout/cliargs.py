@@ -29,7 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
         cmd_employer, cmd_enrich, cmd_habr_sync, cmd_hh_auth, cmd_hh_sync,
         cmd_mail_ingest, cmd_mail_read, cmd_mail_sync, cmd_mark, cmd_new,
         cmd_profile, cmd_raw, cmd_render, cmd_research, cmd_resolve, cmd_reveal,
-        cmd_scan, cmd_shortlist, cmd_status, cmd_tg, cmd_tg_auth, cmd_tg_dm,
+        cmd_scan, cmd_shortlist, cmd_status, cmd_wavedoc, cmd_tg, cmd_tg_auth, cmd_tg_dm,
         cmd_tg_fetch, cmd_tg_mirror, cmd_tg_reparse, cmd_tg_rollback, cmd_wave,
     )
 
@@ -305,6 +305,19 @@ def build_parser() -> argparse.ArgumentParser:
                    help="login: ждать входа СЕК секунд, опрашивая страницу, вместо "
                         "Enter (нужно, когда команду запускают не из терминала)")
     a.set_defaults(func=cmd_auth)
+
+    wd = sub.add_parser("wavedoc", parents=[common],
+                        help="скелет главного документа волны из базы: таблица "
+                             "отобранного, покрытие, отсев. Суждение НЕ пишет")
+    wd.add_argument("--days", type=int, default=3, help="окно волны")
+    wd.add_argument("--top", type=int, default=30, help="строк в таблице отобранного")
+    wd.add_argument("--date", help="дата волны (по умолчанию сегодня)")
+    wd.add_argument("--write", action="store_true",
+                    help="записать в .jobs/<дата>.md вместо печати")
+    wd.add_argument("--force", action="store_true",
+                    help="перезаписать существующий файл (по умолчанию НЕ трогает: "
+                         "там уже может лежать дописанное суждение)")
+    wd.set_defaults(func=cmd_wavedoc)
 
     m = sub.add_parser("mark", help="зафиксировать решение по вакансии", parents=[common])
     m.add_argument("source")
