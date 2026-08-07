@@ -48,7 +48,8 @@ from datetime import datetime, timedelta, timezone
 
 from .detail import html_to_text
 from .model import SUMMARY_ID, Vacancy, norm_period
-from .net import BlockedError, FetchError, fetch, fetch_json, looks_blocked, qs
+from .net import (BlockedError, FetchError, HostPacer, fetch, fetch_json,
+                  looks_blocked, parallel, qs)
 # Tally общий для всех адаптеров и живёт в `sources`: счёт «отдано → записано»
 # нужен каждому источнику одинаково, а два расходящихся счётчика в одном сборщике
 # — это два разных ответа на вопрос «сколько потеряли».
@@ -949,8 +950,17 @@ EURES_PAUSE = 1.5
 # шестьдесят карточек это две с половиной минуты. Отсюда собственный потолок,
 # и он НАЗВАН в сводке, когда срабатывает: вакансия без вилки из-за потолка
 # и вакансия без вилки у работодателя — разные вещи.
-EURES_DETAIL_CAP = 60
+# Потолок карточек. Стоял 60, когда они добирались ПО ОЧЕРЕДИ по 2.5 с — это
+# были две с половиной минуты. С параллельным добором под тем же пейсером хоста
+# цена карточки упала вчетверо, и держать прежний потолок значило бы платить
+# полнотой за ограничение, которого больше нет: у вакансий сверх него вилка,
+# работодатель и ссылка на отклик остаются ПУСТЫМИ.
+EURES_DETAIL_CAP = 200
 EURES_DETAIL_PAUSE = 0.25
+# Потоки добора карточек. Частоту к хосту держит HostPacer, потоки лишь
+# перекрывают ожидание ответа — четыре при задержке 2.5 с и слоте 0.25 с
+# упираются в пейсер, а не в сервер.
+EURES_DETAIL_WORKERS = 4
 
 
 def src_eures(ctx: Ctx) -> list[Vacancy]:
@@ -1088,20 +1098,39 @@ def src_eures(ctx: Ctx) -> list[Vacancy]:
 
     # Карточки добираются только для того, что реально оставили: это N запросов,
     # и делать их ради выброшенных строк незачем.
-    for i, v in enumerate(out):
-        if i >= EURES_DETAIL_CAP:
-            tally.note(f"карточки добраны только у первых {EURES_DETAIL_CAP} из "
-                       f"{len(out)}: у остальных вилка, работодатель и ссылка на "
-                       f"отклик ПУСТЫЕ — это потолок запросов, а не «нет данных»")
-            v.raw["detail_error"] = "карточка не запрашивалась: потолок деталок"
-            continue
-        if i:
-            nap(EURES_DETAIL_PAUSE)
-        try:
+    #
+    # Идут ПАРАЛЛЕЛЬНО под общим пейсером хоста, и это не разгон. Замер прогона
+    # #10 (05.08.2026): eures съел 419 с ради 28 вакансий — 10% времени волны за
+    # 0.7% результата, потому что каждая карточка отвечает 2.2–2.7 с, а ждали их
+    # по очереди. Частота к europa.eu при этом остаётся прежней: `HostPacer`
+    # выдаёт слоты по одному на EURES_DETAIL_PAUSE секунд и занимает слот под
+    # локом. Меняется только то, что ожидание ответа перекрывается ожиданием
+    # следующего слота, а не складывается с ним, — тот же приём, что в `enrich`.
+    todo = out[:EURES_DETAIL_CAP]
+    rest = out[EURES_DETAIL_CAP:]
+    for v in rest:
+        v.raw["detail_error"] = "карточка не запрашивалась: потолок деталок"
+    if rest:
+        tally.note(f"карточки добраны только у первых {EURES_DETAIL_CAP} из "
+                   f"{len(out)}: у остальных вилка, работодатель и ссылка на "
+                   f"отклик ПУСТЫЕ — это потолок запросов, а не «нет данных»")
+    if todo:
+        pacer = HostPacer(EURES_DETAIL_PAUSE)
+
+        def fetch_one(v=None):
+            pacer.wait(EURES_API)
             _eures_enrich(v)
-            tally.requests += 1
-        except FetchError as e:
-            v.raw["detail_error"] = str(e)
+            return True
+
+        got = parallel({str(i): (lambda v=v: fetch_one(v))
+                        for i, v in enumerate(todo)},
+                       workers=EURES_DETAIL_WORKERS)
+        for i, v in enumerate(todo):
+            ok, payload = got.get(str(i), (False, RuntimeError("не запускалась")))
+            if ok:
+                tally.requests += 1
+            else:
+                v.raw["detail_error"] = str(payload)
 
     tally.note(f"сортировка {EURES_SORT} и поиск по {EURES_SEARCH_CODE}: другие режимы "
                f"молча возвращают выдачу без учёта запроса")
