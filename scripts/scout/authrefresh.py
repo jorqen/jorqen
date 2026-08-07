@@ -412,9 +412,3 @@ def renew(platforms: list[str] | None = None, *, browser: str | None = None,
         print(f"\nбез твоего входа не поднять: {', '.join(left)}", file=sys.stderr)
         return 1
     return 0
-
-
-def cli(args) -> int:
-    return renew(list(getattr(args, "platforms", None) or []) or None,
-                 browser=getattr(args, "browser", None),
-                 cookies_from=getattr(args, "cookies_from", None))

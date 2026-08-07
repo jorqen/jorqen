@@ -46,7 +46,7 @@ def _run_scan(args) -> dict:
     return run_scan(args)
 
 
-def next_steps(res: dict, sl: dict) -> list[str]:
+def next_steps(res: dict, sl: dict, cookies_from: str | None = None) -> list[str]:
     """Блок «что делать дальше» — то, ради чего команда и существует.
 
     Не советы вообще, а конкретные команды с подставленными аргументами: модели
@@ -58,7 +58,7 @@ def next_steps(res: dict, sl: dict) -> list[str]:
     # деградация — это «нашлось меньше обычного», а разлогин — «не нашлось ничего,
     # и в следующей волне тоже не найдётся, пока не починишь».
     from . import authrefresh  # noqa: PLC0415
-    dead = [r for r in authrefresh.preflight()
+    dead = [r for r in authrefresh.preflight(cookies_from)
             if r["state"] == "anonymous" and r["critical"]]
     if dead:
         steps.append(
@@ -116,7 +116,8 @@ def next_steps(res: dict, sl: dict) -> list[str]:
     return steps
 
 
-def render_picture(res: dict, sl: dict, *, top: int) -> str:
+def render_picture(res: dict, sl: dict, *, top: int,
+                   cookies_from: str | None = None) -> str:
     """Единый экран: покрытие → шорт-лист → следующий шаг."""
     out: list[str] = []
     stages = res.get("stages") or {}
@@ -137,7 +138,7 @@ def render_picture(res: dict, sl: dict, *, top: int) -> str:
     # часть выдачи не собралась вовсе, то есть любой отбор ниже сделан по
     # неполной картине; прочитать это надо раньше, чем сами вакансии.
     from . import authrefresh  # noqa: PLC0415 — ленивый импорт, как и остальное
-    block = authrefresh.preflight_block()
+    block = authrefresh.preflight_block(cookies_from)
     if block:
         out.append("")
         out.append(block)
@@ -169,7 +170,7 @@ def render_picture(res: dict, sl: dict, *, top: int) -> str:
     out.append("## СЛЕДУЮЩИЙ ШАГ")
     # Нумеруем при печати: раньше номера были вшиты в текст, и пропуск любого
     # шага давал дыру в нумерации («1, 2, 4, 5») — читается как потерянный пункт.
-    for i, step in enumerate(next_steps(res, sl), 1):
+    for i, step in enumerate(next_steps(res, sl, cookies_from), 1):
         out.append(f"{i}. {step}")
     return "\n".join(out)
 
@@ -195,7 +196,12 @@ def cli(args) -> int:
     sl = shortlist.build(args.db, since=since, by="seen", sources=None,
                          limit=0)
 
-    print(render_picture(res, sl, top=args.top))
+    # `wave` объявляет --cookies-from (cliargs: add_cookie_args), и раньше он
+    # до пробы сессий не доезжал: `--cookies-from none` всё равно лез читать
+    # настоящие куки, а на macOS — Keychain, тогда как флагом просили
+    # обратного.
+    print(render_picture(res, sl, top=args.top,
+                         cookies_from=getattr(args, 'cookies_from', None)))
     print()
     print(f"_Отчёт скана: {res.get('report_path') or '—'} · "
           f"прогон занял {int(time.monotonic() - started)} с._")
