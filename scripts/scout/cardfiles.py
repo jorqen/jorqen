@@ -137,7 +137,13 @@ def lint(path: str) -> list[tuple[str, list[str]]]:
     if os.path.isfile(path):
         files = [path]
     else:
+        # Только то, что лежит в `companies/`. Индекс волн и главный документ —
+        # тоже .md, но карточками не являются и раздела «Отклик» иметь не
+        # обязаны: ругаться на них значит выдавать три ложных замечания в каждом
+        # прогоне, после чего линт перестают читать.
         for base, _dirs, names in os.walk(path):
+            if f"{os.sep}companies{os.sep}" not in base + os.sep:
+                continue
             files.extend(os.path.join(base, n) for n in sorted(names)
                          if n.endswith(".md"))
     out: list[tuple[str, list[str]]] = []

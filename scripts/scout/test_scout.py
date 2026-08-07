@@ -2122,6 +2122,7 @@ def test_card_files_layout_and_lint():
     import os
     import tempfile
 
+    from . import cardfiles
     from .cardfiles import card_path, check_card
 
     a = card_path(".jobs", "2026-08-08", "АО «Каргономика»", "Senior Go Developer")
@@ -2141,8 +2142,22 @@ def test_card_files_layout_and_lint():
     eq(len(check_card(ok_card.replace("письмо", "⚠️ проверь"))), 1,
        "оставшееся предупреждение не поймано")
 
+    # Линт смотрит ТОЛЬКО карточки: индекс волн и главный документ — тоже .md,
+    # но раздела «Отклик» иметь не обязаны, и ругань на них была бы тремя
+    # ложными замечаниями в каждом прогоне.
+    with tempfile.TemporaryDirectory() as d:
+        card = card_path(d, "2026-08-08", "Acme", "Go")
+        os.makedirs(os.path.dirname(card), exist_ok=True)
+        with open(card, "w", encoding="utf-8") as f:
+            f.write("## Роль\n\nhttps://x/1\n")
+        for stray in ("README.md", "2026-08-08.md"):
+            with open(os.path.join(d, stray), "w", encoding="utf-8") as f:
+                f.write("# Волны\n\n- 2026-08-08\n")
+        found, total = cardfiles.lint(d)
+        eq(total, 1, "линт посчитал карточками индекс и главный документ")
+        eq(len(found), 1, "карточка без «Отклика» не помечена")
+
     # Существующий файл не затирается: там уже может лежать фит и письмо.
-    from . import cardfiles
     with tempfile.TemporaryDirectory() as d:
         path = card_path(d, "2026-08-08", "Acme", "Go")
         os.makedirs(os.path.dirname(path), exist_ok=True)
