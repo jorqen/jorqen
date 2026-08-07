@@ -2140,17 +2140,27 @@ def test_linkedin_stops_where_the_search_drifts_off_topic():
                      "и второе зовёт поднять --limit там, где брать уже нечего")
 
 
-def test_linkedin_limit_counts_all_regions_together():
-    """`--limit 400` — это «принеси около четырёхсот», а не «по четыреста из
-    каждой из девяти стран»: последнее даёт 3 600 карточек и 360 запросов
-    к площадке, которая троттлит охотнее всех."""
-    from .sources import (Ctx, LINKEDIN_MAX_PAGES, LINKEDIN_PAGE, LINKEDIN_REGIONS,
-                          _page_budget)
-    per_run = LINKEDIN_PAGE * len(LINKEDIN_REGIONS)
-    eq(_page_budget(Ctx(limit=400), per_run, LINKEDIN_MAX_PAGES), LINKEDIN_MAX_PAGES,
-       "штатный лимит не углубляет обход каждого региона в разы")
-    eq(_page_budget(Ctx(limit=per_run * LINKEDIN_MAX_PAGES * 2), per_run, LINKEDIN_MAX_PAGES),
-       LINKEDIN_MAX_PAGES * 2, "осознанно большой лимит потолок всё-таки поднимает")
+def test_linkedin_depth_is_the_platform_ceiling_and_limit_cannot_move_it():
+    """Глубина LinkedIn равна потолку ПЛОЩАДКИ и не настраивается.
+
+    Раньше тест дёргал `_page_budget` напрямую и проверял, что большой лимит
+    поднимает потолок. Провалиться он не мог: ровно этот результат `src_linkedin`
+    выбрасывал следующей же строкой (`min(budget, LINKEDIN_MAX_PAGES)`), то есть
+    тест охранял поведение, которого в источнике нет. Проверять надо то, что
+    источник делает НА САМОМ ДЕЛЕ: сколько страниц он спрашивает при любом
+    лимите. Дальше start=1000 отдаёт HTTP 400, и поднимать потолок некуда."""
+    from .sources import Ctx, LINKEDIN_HARD_START, LINKEDIN_MAX_PAGES, src_linkedin
+
+    eq(LINKEDIN_MAX_PAGES * 10, LINKEDIN_HARD_START,
+       "потолок страниц разошёлся с измеренным потолком площадки")
+    for limit in (10, 400, 100000):
+        fake = _FakeFetch({"start=": "<ul></ul>"})
+        _with_fake_fetch(fake, lambda: src_linkedin(
+            Ctx(query="Golang", days=3, limit=limit)))
+        starts = {int(u.split("start=")[1].split("&")[0]) for u in fake.asked}
+        if max(starts) >= LINKEDIN_HARD_START:
+            FAILS.append(f"--limit {limit}: спросили start={max(starts)} — "
+                         f"площадка отвечает на это HTTP 400")
 
 
 def test_linkedin_ru_only_still_reports_itself():
@@ -5806,7 +5816,7 @@ def main() -> int:
                test_pause_charges_the_request_time_against_the_interval,
                test_linkedin_empty_page_is_rechecked_before_calling_it_the_end,
                test_linkedin_throttling_is_a_pause_not_the_end_of_the_region,
-               test_linkedin_limit_counts_all_regions_together,
+               test_linkedin_depth_is_the_platform_ceiling_and_limit_cannot_move_it,
                test_linkedin_ru_only_still_reports_itself,
                test_ats_role_filter_covers_the_audit_list,
                test_every_ats_engine_is_wired_into_the_run,
