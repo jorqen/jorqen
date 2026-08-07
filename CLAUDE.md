@@ -120,10 +120,10 @@ done
 - `scripts/generate_resume_outputs.py` — генератор страниц и выгрузок; `scripts/templates/` — Jinja2.
 - `assets/` — стили, `app.js`, медиа (`light/`, `dark/`, генерируемые варианты в `generated/`).
 - `index.html`, `en/`, `ru/` — **генерируемые**, в `.gitignore`; правишь источник, не их.
-- `scripts/scout/` — сборщик. Точки входа: `cli.py` (команды), `sources.py` (площадки),
-  `sources_web.py` / `sources_auth.py` (обход), `store.py` (база), `detail.py` (выжимки),
-  `salary.py` (разбор вилок), `webcommon.py` (общая механика обхода),
-  `auth.py` + `authrefresh.py` (сессии площадок и их продление).
+- `scripts/scout/` — сборщик. Точки входа: `cli.py` + `cliargs.py` (команды и их флаги),
+  `sources.py` (площадки), `sources_web.py` / `sources_auth.py` (обход), `store.py` (база),
+  `detail.py` + `clidetail.py` (выжимки), `salary.py` (разбор вилок),
+  `webcommon.py` (общая механика обхода), `auth.py` + `authrefresh.py` (сессии и продление).
 - `.claude/skills/jobs/` — скилл суждения: отбор, карточки, письма. Механику не дублирует.
 
 ## Где что записано (единый источник истины)
@@ -150,17 +150,26 @@ done
 
 | Файл | Строк | Как заходить |
 |---|---|---|
-| `scripts/scout/test_scout.py` | ~5800 | `grep -n 'def test_'` → читать нужный тест |
-| `scripts/scout/cli.py` | ~2750 | `grep -n 'def cmd_'` → нужная команда |
-| `scripts/scout/sources.py` | ~2120 | `grep -n 'def src_'` → нужная площадка |
+| `scripts/scout/test_scout.py` | ~5900 | `grep -n 'def test_'` → читать нужный тест |
+| `scripts/scout/sources.py` | ~2200 | `grep -n 'def src_'` → нужная площадка |
+| `scripts/scout/cli.py` | ~1975 | `grep -n 'def cmd_'` → нужная команда |
 | `scripts/scout/test_sources_auth.py`, `sources_web.py`, `test_sources_web.py`, `sources_auth.py` | 1500–1800 | то же |
-| `scripts/scout/README.md` | ~1250 строк | `grep -n '^###'` → нужный раздел |
+| `scripts/scout/README.md` | ~1300 строк | `grep -n '^###'` → нужный раздел |
 | `.claude/skills/jobs/references/oss-references.md` | ~100 КБ | справочник, читать по `grep` |
 
 Часть кода уже разъехалась по отдельным модулям — ищи там, прежде чем грепать
-гиганты: `salary.py` (разбор вилок), `webcommon.py` (общая механика обхода:
-стены, окно свежести, POST, вежливость), `sources_glassdoor.py` (единственная
-площадка за стеной), `reference_levels.py` (справочник зарплат, НЕ вакансии).
+гиганты:
+
+| Модуль | Что внутри |
+|---|---|
+| `salary.py` | разбор вилок |
+| `webcommon.py` | общая механика обхода: стены, окно свежести, POST, вежливость |
+| `sources_glassdoor.py` | единственная площадка за стеной |
+| `reference_levels.py` | справочник зарплат, **НЕ** вакансии |
+| `cliargs.py` | все подкоманды и флаги (сам разбор аргументов) |
+| `clidetail.py` | команды `detail` и `enrich` |
+| `authrefresh.py` | продление сессий и проба авторизации до прогона |
+
 Имена реэкспортируются из прежних модулей, поэтому старые импорты работают.
 
 Правило общее: **файл больше ~1500 строк — сначала `grep -n`, потом `Read` с

@@ -14,6 +14,7 @@ import json
 import random
 import re
 import ssl
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -449,3 +450,38 @@ def parallel(jobs: dict, workers: int = 8) -> dict:
             except Exception as e:  # noqa: BLE001
                 out[name] = (False, e)
     return out
+
+
+class HostPacer:
+    """Минимальный зазор между запросами К ОДНОМУ хосту.
+
+    Нужен там, где мы ходим не по разу за прогон, а сотнями — то есть в enrich.
+    Пул на восемь потоков без зазора выдаёт восемь одновременных запросов на один
+    домен, и это ровно тот шаблон, за который rabota.ru закрыла нам TLS после
+    ~25 запросов за 20 минут. Это была наша вина, а не её.
+
+    Считает по ХОСТУ, а не глобально: 300 вакансий jobgether и 50 вакансий hh
+    не должны стоять в одной очереди — они мешают разным серверам.
+    """
+
+    def __init__(self, gap: float = 0.7):
+        self.gap = gap
+        self._next: dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    def wait(self, url: str) -> float:
+        """Спит столько, сколько нужно этому хосту. Возвращает длительность сна."""
+        if self.gap <= 0:
+            return 0.0
+        host = (urllib.parse.urlsplit(url).hostname or "").lower()
+        with self._lock:
+            now = time.monotonic()
+            due = self._next.get(host, 0.0)
+            start = max(now, due)
+            # Слот занимается ДО сна и под тем же локом: иначе два потока увидят
+            # один и тот же «свободно сейчас» и уйдут на хост одновременно.
+            self._next[host] = start + self.gap
+        delay = start - now
+        if delay > 0:
+            time.sleep(delay)
+        return max(0.0, delay)
