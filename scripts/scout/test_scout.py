@@ -1517,7 +1517,11 @@ def _with_fake_fetch(pages: dict, fn, *, keep_pause: bool = False):
 
     S.src_habr_api = _no_api
     if not keep_pause:
-        S._pause = lambda seconds=S.PAGE_PAUSE: naps.append(seconds)
+        # `gate` подменённая пауза принимает и игнорирует: тест считает ВЫЗОВЫ
+        # (проверка вежливости), а не спит. Без параметра подмена падает
+        # TypeError на источниках, которые различают частоту и отступ.
+        S._pause = lambda seconds=S.PAGE_PAUSE, *, gate=True: (
+            naps.append(seconds), seconds)[1]
     try:
         result = fn()
     finally:
@@ -1926,7 +1930,11 @@ def test_linkedin_paginates_by_start_and_drops_other_professions():
        "конец выдачи объявлен без переспроса — молча обрежется троттлинг")
     if not any("start=10" in u for u in fake.asked):
         FAILS.append(f"вторая страница региона не спрошена: {fake.asked[:5]}")
-    if len(fake.naps) != len(fake.asked) - 1:
+    # Пауза зовётся перед КАЖДЫМ запросом, включая первый: она ограничитель
+    # частоты и обязана держать интервал в том числе между парами
+    # «формулировка × регион». Перед самым первым запросом она честно спит ноль —
+    # частоту нарушает второй запрос, а не первый.
+    if len(fake.naps) != len(fake.asked):
         FAILS.append(f"пауз {len(fake.naps)} на {len(fake.asked)} запросов — "
                      f"площадку, которая троттлит охотнее всех, долбим без передышки")
     api = jobs[0].raw.get("guest_description_api")
@@ -1958,41 +1966,46 @@ def test_linkedin_asks_every_formulation():
        "не по одному запросу (с переспросом пустого) на пару «формулировка × регион»")
 
 
-def test_rate_gate_charges_the_request_time_against_the_interval():
-    """Ограничитель считает уже потраченное время, а не спит сверху него.
+def test_pause_charges_the_request_time_against_the_interval():
+    """Пауза — ограничитель ЧАСТОТЫ: считает уже потраченное, а не спит сверху.
 
     Замер LinkedIn 07.08.2026: фиксированная пауза 1.2 с ПОСЛЕ ответа давала
     один запрос в 2.07 с при задуманной одной в 1.2 с. Площадка видела частоту
     вдвое ниже назначенной, а прогон платил за это временем — на ста страницах
-    это 86 лишних секунд из 206.
+    это 86 лишних секунд из 206, и та же переплата была у каждого страничного
+    источника, потому что механизм у всех общий.
     """
     from . import sources as S
 
     slept: list[float] = []
-    real_pause, real_clock = S._pause, time.monotonic
+    real_sleep, real_clock = time.sleep, time.monotonic
     now = [1000.0]
     try:
-        S._pause = lambda s=0.0: (slept.append(s), now.__setitem__(0, now[0] + s))[0]
+        time.sleep = lambda s: (slept.append(s), now.__setitem__(0, now[0] + s))[0]
         time.monotonic = lambda: now[0]
-        gate = S.RateGate(1.2)
-        gate.wait()                      # первый заход — ждать нечего
+        S._LAST_PAUSE.at = None
+        S._pause(1.2)                    # первый заход — ждать нечего
         now[0] += 0.87                   # столько занял сам запрос
-        gate.wait()                      # ждём ОСТАТОК интервала, а не весь
+        S._pause(1.2)                    # ждём ОСТАТОК интервала, а не весь
         now[0] += 0.87
-        gate.wait()
+        S._pause(1.2)
+        # Отступ после отказа считается ЦЕЛИКОМ: вычесть из выдержки время
+        # неудачного запроса значит отступить меньше, чем решено.
+        now[0] += 5.0
+        S._pause(20.0, gate=False)
     finally:
-        S._pause, time.monotonic = real_pause, real_clock
+        time.sleep, time.monotonic = real_sleep, real_clock
+        S._LAST_PAUSE.at = None
 
-    # Первый заход не спит вовсе, поэтому и вызова паузы у него нет: спим ровно
-    # два раза из трёх. Проверять надо именно это — «сна не было» и «сон нулевой»
-    # для площадки одно и то же, а для счётчика вежливости разное.
-    eq(len(slept), 2, "спали не столько раз, сколько ждали интервал")
-    for i, s in enumerate(slept, 1):
+    # Первый заход спит нулевое время, поэтому в списке его нет: гейт возвращает
+    # 0.0, не вызывая sleep. «Сна не было» и «сон нулевой» для площадки одно и
+    # то же, а вот 1.2 с вместо 0.33 с — уже переплата.
+    eq(len(slept), 3, "спали не столько раз, сколько ждали интервал")
+    for i, s in enumerate(slept[:2], 1):
         if abs(s - (1.2 - 0.87)) > 0.01:
             FAILS.append(f"пауза {i} = {s:.2f} с вместо остатка "
                          f"{1.2 - 0.87:.2f} с — время запроса не зачтено")
-    eq(round(now[0] - 1000.0, 2), round(1.2 * 2, 2),
-       "два интервала заняли не 2×1.2 с — частота разошлась с назначенной")
+    eq(slept[2], 20.0, "отступ после отказа урезан временем запроса")
 
 
 def test_linkedin_empty_page_is_rechecked_before_calling_it_the_end():
@@ -5790,7 +5803,7 @@ def main() -> int:
                test_linkedin_paginates_by_start_and_drops_other_professions,
                test_linkedin_stops_where_the_search_drifts_off_topic,
                test_linkedin_asks_every_formulation,
-               test_rate_gate_charges_the_request_time_against_the_interval,
+               test_pause_charges_the_request_time_against_the_interval,
                test_linkedin_empty_page_is_rechecked_before_calling_it_the_end,
                test_linkedin_throttling_is_a_pause_not_the_end_of_the_region,
                test_linkedin_limit_counts_all_regions_together,

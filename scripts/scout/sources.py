@@ -85,56 +85,47 @@ class Ctx:
 PAGE_PAUSE = 0.7
 
 
-def _pause(seconds: float = PAGE_PAUSE) -> None:
-    """Пауза между страницами одной площадки. Вежливость, а не осторожность."""
-    if seconds > 0:
-        time.sleep(seconds)
+_LAST_PAUSE = threading.local()
 
 
-class RateGate:
-    """Ограничитель ЧАСТОТЫ: не чаще одного обращения раз в `interval` секунд.
+def _pause(seconds: float = PAGE_PAUSE, *, gate: bool = True) -> float:
+    """Пауза между страницами одной площадки. Вежливость, а не осторожность.
 
-    Отличается от `_pause` тем, что считает уже потраченное время. `_pause`
-    спит фиксированные N секунд ПОСЛЕ ответа, то есть к паузе прибавляется время
-    самого запроса: замер LinkedIn 07.08.2026 — 1.2 с сна плюс 0.87 с ответа,
-    итого один запрос в 2.07 с при задуманной одной в 1.2 с. Площадка при этом
-    видела частоту вдвое ниже назначенной, а прогон платил за это временем.
+    `gate=True` (по умолчанию) — это ОГРАНИЧИТЕЛЬ ЧАСТОТЫ, а не сон на N секунд:
+    из паузы вычитается время, уже потраченное с прошлой паузы, то есть время
+    самого запроса. Без вычитания пауза складывается со временем ответа, и
+    площадка видит частоту НИЖЕ назначенной, а прогон платит за это временем:
+    замер LinkedIn 07.08.2026 — 1.2 с сна плюс 0.87 с ответа, один запрос
+    в 2.07 с вместо задуманной одной в 1.2 с. На ста страницах это 86 лишних
+    секунд из 206, и ровно та же переплата была у каждого страничного источника.
 
-    Здесь спится РОВНО остаток интервала. Для площадки частота та же, что была
-    задумана; для нас проход быстрее почти вдвое. Никакой конкурентности: у
-    LinkedIn признак перегрузки — молча пустой ответ (см. `_linkedin_retry_empty`),
-    и разгонять его несколькими соединениями значит менять время на тихо
-    потерянные вакансии.
+    Состояние потоко-локальное намеренно. Источники обходятся параллельно
+    (`net.parallel`, восемь потоков), каждый поток ведёт СВОЮ площадку, и общий
+    на всех счётчик заставлял бы независимые площадки ждать друг друга — при том
+    что частоту каждая считает по себе.
 
-    Не потокобезопасен намеренно: сборщик обходит площадку в один поток, и
-    блокировка здесь создала бы вид общей защиты, которой нет.
+    `gate=False` — честный сон на все N секунд. Нужен там, где пауза не про
+    частоту, а про отступ после отказа: вычесть из выдержки время неудачного
+    запроса значит отступить меньше, чем решено.
     """
-
-    __slots__ = ("interval", "_next")
-
-    def __init__(self, interval: float):
-        self.interval = max(0.0, interval)
-        self._next = 0.0
-
-    def wait(self) -> float:
-        """Спит столько, сколько осталось до следующего разрешённого обращения.
-
-        Возвращает фактически проспанное — это нужно сводке: «сколько прогон
-        стоял» и «сколько ждал площадку» отвечают на разные вопросы.
-        """
+    if seconds <= 0:
+        return 0.0
+    if gate:
+        last = getattr(_LAST_PAUSE, "at", None)
         now = time.monotonic()
-        slept = 0.0
-        if now < self._next:
-            slept = self._next - now
-            # Через `_pause`, а не через time.sleep напрямую: это единственная
-            # точка сна источников, её подменяют тесты, и они же СЧИТАЮТ вызовы —
-            # «пауз столько-то на столько-то запросов» и есть проверка вежливости.
-            # Собственный sleep сделал бы её слепой, а тесты — по-настоящему
-            # спящими (45 запросов × 1.2 с в одном прогоне).
-            _pause(slept)
-            now = self._next
-        self._next = now + self.interval
-        return slept
+        if last is None:
+            # Перед ПЕРВЫМ запросом ждать нечего: частоту нарушает второй, а не
+            # первый. Раньше это стояло условием по месту (`if tally.requests`),
+            # и каждый источник, забывший его, платил лишнюю паузу на старте.
+            _LAST_PAUSE.at = now
+            return 0.0
+        seconds -= now - last
+        if seconds <= 0:
+            _LAST_PAUSE.at = now
+            return 0.0
+    time.sleep(seconds)
+    _LAST_PAUSE.at = time.monotonic()
+    return seconds
 
 
 def _page_budget(ctx: Ctx, per_page: int, default_pages: int) -> int:
@@ -1061,17 +1052,17 @@ def src_linkedin(ctx: Ctx) -> list[Vacancy]:
     budget = min(budget, LINKEDIN_MAX_PAGES)  # дальше площадка отвечает HTTP 400
     pairs_done = 0
     queries = ctx.queries()
-    # Ограничитель ОДИН на весь источник, а не на пару: частоту площадка считает
-    # по себе, и обнулять её на каждой новой паре значило бы разгоняться ровно там,
-    # где пар больше всего. Он же снимает двойную оплату — см. RateGate.
-    gate = RateGate(LINKEDIN_PAUSE)
+    # Частота держится общим механизмом `_pause`: он вычитает время самого
+    # запроса, поэтому площадка видит ровно назначенную частоту, а не вдвое
+    # меньшую. Счётчик простоя один на весь источник — обнулять его на каждой
+    # новой паре значило бы разгоняться там, где пар больше всего.
     slept = 0.0
     for q in queries:
         for region in LINKEDIN_REGIONS:
             label = f"{region}/«{q}»"
             cards = dry = 0
             for page in range(budget):
-                slept += gate.wait()
+                slept += _pause(LINKEDIN_PAUSE)
                 url = qs("https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search", {
                     "keywords": q, "location": region,
                     "start": page * LINKEDIN_PAGE, "f_TPR": f"r{seconds}",
@@ -1153,7 +1144,7 @@ def _linkedin_retry_empty(url: str, tally) -> str | None:
     Цена доверчивости — молча обрезанный регион в отчёте о полном обходе.
     """
     for attempt in range(LINKEDIN_EMPTY_RETRIES):
-        _pause(LINKEDIN_BACKOFF / 2 * (attempt + 1))
+        _pause(LINKEDIN_BACKOFF / 2 * (attempt + 1), gate=False)
         text = _linkedin_fetch(url, tally)
         if text and '<div class="base-card' in text:
             tally.note("пустая страница оказалась временным отказом по IP, "
@@ -1182,7 +1173,7 @@ def _linkedin_fetch(url: str, tally) -> str | None:
             tally.requests += 1
             if attempt + 1 >= LINKEDIN_RETRIES:
                 return None
-            _pause(delay)
+            _pause(delay, gate=False)
             delay *= 2
     return None
 
