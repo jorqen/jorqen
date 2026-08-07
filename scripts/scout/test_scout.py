@@ -2170,6 +2170,28 @@ def test_card_files_layout_and_lint():
             eq("моё письмо" in f.read(), True, "скелет затёр дописанное письмо")
 
 
+def test_health_tells_a_dead_source_from_an_off_profile_one():
+    """Ноль от мёртвой площадки и ноль от чужой профессии — разные факты.
+
+    Живой случай 08.08.2026: trudvsem отдал ДЕВЯТЬ вакансий, все чужой
+    профессии, а здоровье источников написало «сейчас 0 … это не „вакансий
+    нет“, а поломка». Площадка была жива и ответила по существу; сломано было
+    только сообщение — и оно отправляло чинить парсер, которого не сломано."""
+    from .health import verdict
+
+    dead = verdict(0, [2, 2, 2], offered=0)
+    ok(dead and dead[0] == "АВАРИЯ", f"мёртвая площадка не помечена: {dead}")
+
+    off = verdict(0, [2, 2, 2], offered=9)
+    ok(off and off[0] == "ПУСТО ПО ПРОФИЛЮ",
+       f"живая площадка с чужой выдачей объявлена аварией: {off}")
+    ok("парсер" in off[1], "не сказано, где НЕ надо искать причину")
+
+    # Деградация считается по-прежнему: правка не должна её проглотить.
+    deg = verdict(3, [100, 100, 100], offered=120)
+    ok(deg and deg[0] == "ДЕГРАДАЦИЯ", f"деградация потеряна: {deg}")
+
+
 def test_cache_hit_does_not_pay_for_politeness():
     """Пауза не платится за запрос, которого не было.
 
@@ -6174,6 +6196,7 @@ def main() -> int:
                test_since_auto_never_narrows_below_a_day,
                test_connect_works_without_a_directory_in_the_path,
                test_card_files_layout_and_lint,
+               test_health_tells_a_dead_source_from_an_off_profile_one,
                test_cache_hit_does_not_pay_for_politeness,
                test_raw_cache_prunes_stale_days_on_start,
                test_lint_letter_catches_the_generator_markers,

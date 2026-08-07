@@ -248,7 +248,14 @@ def run_collect(ctx: Ctx, names: list[str], *, workers: int = 8,
         if ok:
             all_vacancies.extend(payload)
             found = sum(1 for v in payload if v.external_id != "_summary")
+            # Сколько площадка ОТДАЛА до нашего фильтра профессии. Нужно
+            # здоровью источников: без этого «ноль» одинаково читается у мёртвой
+            # площадки и у живой, чья выдача целиком чужой профессии, — и вторая
+            # получала ярлык «АВАРИЯ … это не „вакансий нет“, а поломка».
+            offered = next((int((v.raw or {}).get("offered") or 0)
+                            for v in payload if v.external_id == "_summary"), 0)
             report.append({"source": name, "status": "ok", "found": found,
+                           "offered": offered,
                            "elapsed_ms": timings.get(name, 0), "error": None,
                            "limit_hit": _limit_hit(payload, found, ctx.limit),
                            "note": source_note(name)})

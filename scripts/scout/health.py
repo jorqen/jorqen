@@ -64,8 +64,16 @@ def history(conn, run_id: int, *, window: int = WINDOW) -> dict[str, list[int]]:
     return out
 
 
-def verdict(found: int, past: list[int]) -> tuple[str, str] | None:
-    """(метка, пояснение) или None, если всё в норме или сравнивать не с чем."""
+def verdict(found: int, past: list[int],
+            offered: int | None = None) -> tuple[str, str] | None:
+    """(метка, пояснение) или None, если всё в норме или сравнивать не с чем.
+
+    `offered` — сколько строк отдала САМА площадка, до нашего фильтра профессии.
+    Без него ноль читается одинаково в двух совершенно разных случаях, и один из
+    них — ложная тревога: 08.08.2026 trudvsem отдал девять вакансий, все до
+    одной чужой профессии, а отчёт написал «это не „вакансий нет“, а поломка».
+    Площадка была жива и ответила по существу; сломано было только сообщение.
+    """
     if not past:
         return None
     base = median(past)
@@ -73,6 +81,12 @@ def verdict(found: int, past: list[int]) -> tuple[str, str] | None:
         return None
     seen = f"было {', '.join(str(p) for p in past[:WINDOW])} (медиана {base:.0f})"
     if found == 0:
+        if offered:
+            # Площадка ответила и отдала строки — просто ни одна не наша.
+            # Это не авария и чинится не кодом, а формулировкой запроса.
+            return ("ПУСТО ПО ПРОФИЛЮ",
+                    f"площадка отдала {offered}, под профиль ноль; {seen}. "
+                    f"Площадка жива — смотреть формулировки запроса, не парсер")
         return "АВАРИЯ", f"сейчас 0, {seen} — это не «вакансий нет», а поломка"
     if base >= MIN_BASE and found * DROP_FACTOR < base:
         return "ДЕГРАДАЦИЯ", f"сейчас {found}, {seen} — падение в {base / found:.1f}×"
@@ -95,12 +109,17 @@ def assess(conn, run_id: int, report: list[dict], *,
         name = r.get("source")
         if not name or r.get("status") != "ok":
             continue
-        v = verdict(int(r.get("found") or 0), past.get(name, []))
+        # `offered` берём из строки отчёта: сколько площадка ОТДАЛА до
+        # нашего фильтра профессии. Без него «ноль» одинаков у мёртвой
+        # площадки и у живой, чья выдача целиком чужой профессии.
+        v = verdict(int(r.get("found") or 0), past.get(name, []),
+                    offered=r.get("offered"))
         if v:
             out.append({"source": name, "label": v[0], "why": v[1],
                         "found": int(r.get("found") or 0)})
     # Сначала аварии: если их несколько, читать надо сверху.
-    order = {"АВАРИЯ": 0, "ДЕГРАДАЦИЯ": 1, "ВСПЛЕСК": 2}
+    order = {"АВАРИЯ": 0, "ДЕГРАДАЦИЯ": 1, "ВСПЛЕСК": 2,
+             "ПУСТО ПО ПРОФИЛЮ": 3}
     out.sort(key=lambda x: (order.get(x["label"], 9), x["source"]))
     return out
 
