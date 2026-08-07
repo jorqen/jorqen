@@ -182,7 +182,7 @@ def run_collect(ctx: Ctx, names: list[str], *, workers: int = 8,
     """Ядро collect, отделённое от печати: им пользуется и `collect`, и `scan`.
     Возвращает {report, vacancies, new, updated, elapsed}.
 
-    `raw_cache`: None — не кэшировать; 'write' — ходить в сеть и складывать
+    `raw_cache`: None или 'off' — не кэшировать; 'write' — ходить в сеть и складывать
     ответы; 'read' — брать из кэша всё, что там есть за сегодня. Режим 'read'
     существует для отладки парсеров: прогон по уже скачанному не стоит ни
     одного запроса к площадке.
@@ -190,7 +190,7 @@ def run_collect(ctx: Ctx, names: list[str], *, workers: int = 8,
     started = time.time()
     timings: dict[str, int] = {}
     cache = None
-    if raw_cache:
+    if raw_cache and raw_cache != "off":
         from . import net as _net, rawcache  # noqa: PLC0415
 
         cache = rawcache.Cache(db, read=(raw_cache == "read"), write=True)
@@ -321,7 +321,7 @@ def cmd_collect(args) -> int:
                       no_store=args.no_store,
                       no_browser=getattr(args, "no_browser", False),
                       args_dict=vars(args),
-                      raw_cache=getattr(args, "raw_cache", None))
+                      raw_cache=getattr(args, "raw_cache", "write"))
     report, all_vacancies = res["report"], res["vacancies"]
     total = res["total"]
 
@@ -1817,7 +1817,7 @@ def run_scan(args) -> dict:
                           no_browser=getattr(args, "no_browser", False),
                           args_dict={"cmd": "scan", "days": args.days,
                                      "limit": ctx.limit},
-                          raw_cache=getattr(args, "raw_cache", None))
+                          raw_cache=getattr(args, "raw_cache", "write"))
         _print_coverage(res["report"], res["total"], res["new"],
                         res["updated"], res["elapsed"], limit=ctx.limit,
                         health_rows=res.get("health"),

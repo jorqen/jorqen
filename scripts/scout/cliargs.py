@@ -76,10 +76,12 @@ def build_parser() -> argparse.ArgumentParser:
                         "(glassdoor, levels); в покрытии они будут «ПРОПУЩЕН», "
                         "а не пропадут")
     c.add_argument("--no-store", action="store_true", help="не писать в базу (для облака)")
-    c.add_argument("--raw-cache", choices=["write", "read"], default=None,
-                   help="кэш сырых ответов площадок за сутки: write — ходить в сеть "
-                        "и складывать; read — брать из кэша (переразбор после правки "
-                        "парсера без единого запроса к площадке)")
+    c.add_argument("--raw-cache", choices=["write", "read", "off"], default="write",
+                   help="кэш сырых ответов площадок: write (по умолчанию) — ходить "
+                        "в сеть и складывать; read — брать из кэша (переразбор после "
+                        "правки парсера без единого запроса к площадке); off — "
+                        "не трогать вовсе. Кэш ограничен сверху: строки старше двух "
+                        "дней чистятся на старте, читается только сегодняшний день")
     c.add_argument("--with-items", action="store_true", help="выгрузить вакансии в JSON")
     c.add_argument("--format", choices=["text", "json"], default="text")
     c.set_defaults(func=cmd_collect)

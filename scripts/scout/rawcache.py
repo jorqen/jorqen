@@ -52,6 +52,12 @@ class Cache:
     файла; выгода — отсутствие класса ошибок «recursive use of cursors».
     """
 
+    # Сколько дней держать. Читается ВСЕГДА только сегодняшний день (ключ
+    # `fetched_on`), поэтому вчерашние строки нужны ровно для одного: переразбор
+    # после правки парсера, когда прогон уже был. Два дня это покрывают, а
+    # дальше кэш — чистый мусор.
+    KEEP_DAYS = 2
+
     def __init__(self, db: str, *, read: bool = True, write: bool = True):
         self.db = db
         self.read = read
@@ -59,6 +65,25 @@ class Cache:
         self.hits = 0
         self.misses = 0
         self.stored = 0
+        self.pruned = self._prune()
+
+    def _prune(self) -> int:
+        """Выкинуть протухшие дни. Без этого кэш растёт БЕЗ ПРЕДЕЛА.
+
+        `store.raw_cache_clear` существовал с самого начала, но его не звал
+        никто — замер 08.08.2026: четыре источника кладут около трёх мегабайт,
+        то есть волна примерно шестнадцать, и это каждый день. Ровно поэтому
+        кэш и нельзя было включить по умолчанию. Чистка на старте делает его
+        ограниченным сверху и снимает возражение.
+        """
+        from datetime import date, timedelta  # noqa: PLC0415
+
+        edge = (date.today() - timedelta(days=self.KEEP_DAYS)).isoformat()
+        try:
+            with store.connect(self.db) as conn:
+                return store.raw_cache_clear(conn, before=edge)
+        except Exception:  # noqa: BLE001 — гигиена не имеет права ронять обход
+            return 0
 
     def get(self, url: str):
         if not self.read:
@@ -88,5 +113,6 @@ class Cache:
             pass
 
     def line(self) -> str:
+        tail = f", выкинуто протухших {self.pruned}" if self.pruned else ""
         return (f"кэш сырых ответов: попаданий {self.hits}, промахов {self.misses}, "
-                f"сохранено {self.stored}")
+                f"сохранено {self.stored}{tail}")

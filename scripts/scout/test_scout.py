@@ -1966,6 +1966,35 @@ def test_linkedin_asks_every_formulation():
        "не по одному запросу (с переспросом пустого) на пару «формулировка × регион»")
 
 
+def test_raw_cache_prunes_stale_days_on_start():
+    """Кэш сырых ответов ограничен сверху, а не растёт вечно.
+
+    `store.raw_cache_clear` существовал с самого начала, но его не звал НИКТО —
+    и ровно поэтому кэш нельзя было включить по умолчанию. Замер 08.08.2026:
+    четыре источника кладут около трёх мегабайт, то есть волна примерно
+    шестнадцать, и это каждый день. Читается при этом всегда только сегодняшний
+    день, так что всё старше — чистый мусор."""
+    import os
+    import tempfile
+    from datetime import date, timedelta
+
+    from . import rawcache, store
+
+    with tempfile.TemporaryDirectory() as d:
+        db = os.path.join(d, "t.db")
+        old = (date.today() - timedelta(days=30)).isoformat()
+        with store.connect(db) as conn:
+            store.raw_cache_put(conn, "hh", "https://x/1", "тело", on=old)
+            store.raw_cache_put(conn, "hh", "https://x/2", "тело")
+            eq(conn.execute("SELECT COUNT(*) FROM raw_cache").fetchone()[0], 2,
+               "фикстура не легла")
+        c = rawcache.Cache(db, read=False, write=True)
+        eq(c.pruned, 1, "протухший день не выкинут — кэш растёт без предела")
+        with store.connect(db) as conn:
+            eq(conn.execute("SELECT COUNT(*) FROM raw_cache").fetchone()[0], 1,
+               "выкинуто не то: сегодняшний день обязан остаться")
+
+
 def test_lint_letter_catches_the_generator_markers():
     """Линтер ловит формальную часть канона и молчит на живом письме.
 
@@ -5900,6 +5929,7 @@ def main() -> int:
                test_linkedin_paginates_by_start_and_drops_other_professions,
                test_linkedin_stops_where_the_search_drifts_off_topic,
                test_linkedin_asks_every_formulation,
+               test_raw_cache_prunes_stale_days_on_start,
                test_lint_letter_catches_the_generator_markers,
                test_wavedoc_slug_folds_legal_forms_and_transliterates,
                test_wavedoc_never_overwrites_a_document_with_judgement_in_it,
