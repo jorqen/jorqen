@@ -1323,6 +1323,34 @@ def test_hirehi_session_is_read_only_from_our_own_file():
     eq(called, [], "куки браузера для hirehi не читались ни разу")
 
 
+def test_unreadable_browser_does_not_hide_a_live_session_in_another():
+    """Залоченная база одного браузера не отменяет поиск в остальных.
+
+    Раньше здесь стоял ранний выход, и волна при открытом Chrome собирала
+    shadowhint анонимом — 401, ноль вакансий, и НИ СЛОВА в предупреждении:
+    состояние `unknown` в него не попадает по построению. Живая сессия в
+    Яндексе лежала рядом и не спрашивалась. Молчаливый ноль дороже любой
+    ложной тревоги."""
+    from . import cookiesrc
+
+    class Src:
+        cookies = [{"name": "auth_token", "value": "ЖИВОЙ"}]
+
+        def line(self):
+            return "тест"
+
+    def resolve(spec=None, domains=(), **kw):
+        if spec in (None, "", "auto", "yandex"):
+            raise sqlite3.OperationalError("database is locked")
+        return Src()
+
+    with patched(cookiesrc, "resolve", resolve), \
+            patched(cookiesrc, "BROWSER_NAMES", ("yandex", "chrome")):
+        token, why = auth.session_token("shadowhint")
+    eq(token, "ЖИВОЙ", f"живую сессию в другом браузере не нашли ({why})")
+    ok("chrome" in why, "источник не назван — непонятно, откуда взялась сессия")
+
+
 def test_unreadable_cookie_db_is_not_a_logout():
     """Не смог прочитать куки ≠ пользователь вышел.
 
@@ -1747,6 +1775,7 @@ def main() -> int:
                # ── продление сессий: точность предупреждения ───────────────
                test_hirehi_session_is_read_only_from_our_own_file,
                test_unreadable_cookie_db_is_not_a_logout,
+               test_unreadable_browser_does_not_hide_a_live_session_in_another,
                test_preflight_reports_only_what_it_knows,
                test_preflight_is_silent_about_platforms_that_lose_nothing,
                test_hirehi_is_not_promised_to_renew_itself_without_a_session,

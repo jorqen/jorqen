@@ -292,12 +292,25 @@ def session_token(platform: str, *, cookies_from: str | None = None) -> tuple[st
         # отличает «не смог прочитать» от «точно вышел». Свалить их в одно значит
         # объявлять разлогин каждый раз, когда браузер держит свою базу кук
         # залоченной, — и приучить не верить предупреждению вовсе.
-        return None, f"{UNREADABLE}: {domain}: {type(e).__name__}: {e}"
-    token, why = _token_in(src, platform, name, domain)
-    if token or cookies_from not in (None, "", "auto"):
-        # Явный источник спрашивали — его и отвечаем, не подменяя другим:
-        # `--cookies-from yandex` это вопрос про Яндекс, а не «найди хоть где».
-        return token, why
+        #
+        # Но НЕ выходим сразу: нечитаемым может быть один браузер, а сессия
+        # лежать в другом. Раньше здесь стоял return, и волна при открытом
+        # Chrome собирала shadowhint анонимом (401, ноль вакансий), молча — в
+        # предупреждение `unknown` не попадает по построению. Живая сессия в
+        # Яндексе при этом лежала рядом и не спрашивалась.
+        src, unreadable = None, f"{UNREADABLE}: {domain}: {type(e).__name__}: {e}"
+    else:
+        unreadable = None
+    if src is not None:
+        token, why = _token_in(src, platform, name, domain)
+        if token or cookies_from not in (None, "", "auto"):
+            # Явный источник спрашивали — его и отвечаем, не подменяя другим:
+            # `--cookies-from yandex` это вопрос про Яндекс, а не «найди хоть где».
+            return token, why
+    else:
+        token, why = None, unreadable
+        if cookies_from not in (None, "", "auto"):
+            return token, why
 
     # Живой сессии в выбранном браузере нет — спрашиваем остальные ПОИМЁННО.
     # `auto` выбирает один браузер по покрытию доменов и свежести БД, и про

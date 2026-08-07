@@ -267,9 +267,20 @@ def renew_hirehi(*, wait_ms: int = 6000) -> tuple[bool, str]:
         # HeadlessChrome hirehi отдаёт 403 в 48 байт, и это ложная стена.
         br = pw.chromium.launch(headless=True)
         try:
-            ctx = br.new_context(storage_state=state_file, locale="ru-RU",
-                                 user_agent=UA)
-            page = ctx.new_page()
+            try:
+                ctx = br.new_context(storage_state=state_file, locale="ru-RU",
+                                     user_agent=UA)
+                page = ctx.new_page()
+            except Exception as e:  # noqa: BLE001 — битый storage_state бывает
+                # Без этого перехвата обещание строкой ниже («вердикт обязан
+                # читаться») не выполнялось: у внешнего try есть только finally,
+                # и исключение улетало трейсбеком через `renew()` — то есть
+                # `scout auth refresh` падал вместо честного «не продлено,
+                # потому что …». Битый .auth/hirehi.json это ровно тот случай,
+                # когда человеку нужен совет, а не стек вызовов.
+                return False, (f"сессию не открыть ({type(e).__name__}: {e}) — "
+                               f"похоже, {state_file} испорчен. "
+                               f"Разовый вход: `scout auth login hirehi`")
             try:
                 page.goto(cfg["check_url"], wait_until="domcontentloaded",
                           timeout=60000)
