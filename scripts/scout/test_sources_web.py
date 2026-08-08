@@ -461,6 +461,49 @@ def test_glassdoor_wall_mid_pagination_keeps_what_was_collected():
     except W.BlockedError:
         pass
 
+    # 🔴 Тот же случай, но так, как он приходит ЖИВЬЁМ: стену видит и БРОСАЕТ
+    # сам рендерер, то есть исключение прилетает из строки `for ... in pages`,
+    # а не из тела цикла.
+    #
+    # Разница между «отдал разметку стены» и «бросил исключение» стоила
+    # источника целиком. Проверка стояла вокруг `check_wall` внутри тела цикла
+    # и на живом обходе не срабатывала НИКОГДА: 08.08.2026 glassdoor вернул
+    # ноль, выбросив разобранную первую страницу, — при зелёном тесте выше,
+    # потому что его подделка отдавала стену данными.
+    def run_raising(pages_before_wall):
+        from . import render as R
+        from .net import BlockedError
+        real_many, real_one = R.render_pages, R.render_page
+
+        def fake(urls, **kw):
+            for i, u in enumerate(urls):
+                if i >= len(pages_before_wall):
+                    raise BlockedError(u, "антибот-проверка (заголовок: один момент)")
+                yield u, pages_before_wall[i], u
+
+        R.render_pages = fake
+        R.render_page = lambda u, **kw: (pages_before_wall[0] if pages_before_wall
+                                         else walled, u)
+        try:
+            return W.src_glassdoor(Ctx(query="golang", days=30))
+        finally:
+            R.render_pages, R.render_page = real_many, real_one
+
+    rows = run_raising([good])
+    jobs = [v for v in rows if v.external_id != "_summary"]
+    eq(sorted(v.external_id for v in jobs), ["1", "2"],
+       "стена, БРОШЕННАЯ рендерером, выбросила разобранную первую страницу — "
+       "именно так источник и терялся живьём")
+    true(any("СТЕНА" in n for n in summary_of(rows).raw["notes"]),
+         "неполнота выдачи из-за брошенной стены не названа в сводке")
+
+    # Ничего не успели — по-прежнему честный АНТИБОТ.
+    try:
+        run_raising([])
+        FAILS.append("брошенная стена на первой же странице не дала BlockedError")
+    except W.BlockedError:
+        pass
+
 
 def test_glassdoor_broken_markup_is_a_failure_not_zero():
     """Стены нет, карточек нет — это сменившаяся разметка, а не пустая выдача."""
