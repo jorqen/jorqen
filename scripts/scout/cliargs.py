@@ -26,7 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
         DEFAULT_LIMIT, DEFAULT_MAX_ENRICH, RAW_SOURCES,
         cmd_ats, cmd_auth, cmd_brief, cmd_browse, cmd_budget, cmd_card,
         cmd_channel, cmd_check_links, cmd_collect, cmd_coverage, cmd_detail,
-        cmd_doctor, cmd_employer, cmd_funnel, cmd_tg_wave, cmd_enrich, cmd_habr_sync, cmd_hh_auth, cmd_hh_sync,
+        cmd_doctor, cmd_dups, cmd_employer, cmd_funnel, cmd_tg_wave, cmd_enrich, cmd_habr_sync, cmd_hh_auth, cmd_hh_sync,
         cmd_mail_ingest, cmd_mail_read, cmd_mail_sync, cmd_mark, cmd_new,
         cmd_profile, cmd_raw, cmd_render, cmd_research, cmd_resolve, cmd_reveal,
         cmd_lint_cards, cmd_lint_letter, cmd_scan, cmd_shortlist, cmd_status, cmd_wavedoc, cmd_tg, cmd_tg_auth, cmd_tg_dm,
@@ -355,6 +355,19 @@ def build_parser() -> argparse.ArgumentParser:
     tl.add_argument("--tail-days", type=int, default=None, metavar="ДН",
                     help="порог молчания в днях (по умолчанию 14)")
     tl.set_defaults(func=cmd_funnel, tails_only=True)
+
+    dp = sub.add_parser("dups", parents=[common],
+                        help="СОСТАВ схлопнутых групп: что именно склеил дедуп "
+                             "и где внутри группы разошлись компания, грейд или "
+                             "роль. Возвращает 1, когда есть что посмотреть")
+    dp.add_argument("--since", help="окно: дата, «3d» или auto")
+    dp.add_argument("--by", choices=("seen", "published"), default="seen",
+                    help="по какой дате брать окно")
+    dp.add_argument("--sample", type=int, default=12,
+                    help="сколько подозрительных групп распечатать составом")
+    dp.add_argument("--simhash-bits", type=int, default=None, metavar="N",
+                    help="порог слоя описаний: выше — разводит, -1 выключает")
+    dp.set_defaults(func=cmd_dups)
 
     doc = sub.add_parser("doctor", parents=[common],
                          help="что на этой машине сломано: окружение, база, "

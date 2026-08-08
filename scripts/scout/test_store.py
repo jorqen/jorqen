@@ -718,6 +718,35 @@ def test_simhash_dedup_never_merges_across_grades_or_companies():
     ])
     eq(grades, [], "разные грейды не склеиваются НИКОГДА — инцидент SumUp")
 
+    # РАЗНЫЕ РОЛИ одной компании — тоже разные вакансии. Улов аудита `dups`
+    # 08.08.2026 на живой базе: у Ebury «Senior Software Engineer (Payments)»
+    # и «(Money Flows)» описаны одним корпоративным текстом, совпали на 95%+ и
+    # слиплись; у Remitly так же слиплись «Software Development Engineer II
+    # AppX» и «…Global Money Movement». Грейд у них ОДИН, компания одна — то
+    # есть два прежних предохранителя тут не срабатывают вовсе. Это повтор
+    # инцидента SumUp другим слоем: младшая позиция исчезает из выдачи.
+    teams = similar_groups([
+        {"company": "Ebury", "description": text, "source": "linkedin",
+         "external_id": "1", "title": "Senior Software Engineer (Payments)"},
+        {"company": "Ebury", "description": text, "source": "linkedin",
+         "external_id": "2", "title": "Senior Software Engineer (Money Flows)"},
+    ])
+    eq(teams, [], "разные команды одной компании склеились — это потеря вакансии, "
+                  "а похожесть описаний тут ничего не доказывает: текст корпоративный")
+
+    # Обратная сторона правила: юридическая метка пола — это НЕ роль. TOPdesk
+    # шлёт «Senior Infrastructure Engineer (m/f/d)*» из Германии и «Senior
+    # Infrastructure Engineer» из Нидерландов — одна работа. Шаблон `m/f`
+    # оставлял от «m/f/d» хвост «d», и пара расходилась по нему.
+    marker = similar_groups([
+        {"company": "TOPdesk", "description": text, "source": "adzuna",
+         "external_id": "1", "title": "Senior Infrastructure Engineer (m/f/d)*"},
+        {"company": "TOPdesk", "description": text, "source": "linkedin",
+         "external_id": "2", "title": "Senior Infrastructure Engineer"},
+    ])
+    eq(len(marker), 1, "«(m/f/d)» — юридическая метка, а не название команды: "
+                       "по ней разводить вакансии нельзя")
+
     # Разные компании не склеиваются, даже при дословно совпадающем описании
     # (агрегаторы перепечатывают один текст под разными нанимателями).
     companies = similar_groups([

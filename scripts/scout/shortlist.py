@@ -153,11 +153,46 @@ _NORM_RE = re.compile(r"[^a-zа-я0-9]+")
 # позицию — самая дорогая ошибка этого проекта.
 _ROLE_NOISE = re.compile(
     r"\b(разработчик|developer|engineer|инженер|программист|backend|бэкенд|"
+    # Юридическая метка пола из немецких и австрийских объявлений. Пишется
+    # десятком способов, и снимать её надо ЦЕЛИКОМ: от «m/f/d» шаблон `m/f`
+    # оставлял хвост «d», из-за чего «Senior Infrastructure Engineer (m/f/d)*»
+    # и «Senior Infrastructure Engineer» получали разные роли. Это не
+    # придирка — на TOPdesk такая пара приезжает из трёх стран сразу.
+    r"[mwfd](?:/[mwfdx]){1,2}|"
     r"go|golang|специалист|remote|удал[её]нно|м/ж|m/f|f/m)\b", re.I)
 
 
 def norm(s: str | None) -> str:
     return _NORM_RE.sub(" ", (s or "").lower()).strip()
+
+
+def role_key(title: str | None, *, drop_grade: bool = False) -> str:
+    """Роль без языкового шума — то, что осталось от названия.
+
+    Единственное место, где роль вычисляется: по ней строится ключ склейки
+    (`dup_group`), её же сравнивает слой описаний, её же показывает аудит
+    `dups`. Три копии этой формулы разошлись бы, и разошлись бы молча — а цена
+    расхождения здесь ровно одна: потерянная открытая позиция.
+
+    🔴 `drop_grade` — не украшательство, и по умолчанию он ВЫКЛЮЧЕН.
+
+    В ключе склейки грейд обязан оставаться: «Backend Engineer - Cards» и
+    «Senior Backend Engineer - Cards» у SumUp — две разные открытые позиции,
+    и это правило оплачено потерянной вакансией.
+
+    В слое описаний грейд уже сравнён отдельно (`grade_of`), причём с учётом
+    языка: «Senior Backend Engineer» с hh и «Старший Backend Engineer» с Хабра
+    — одна вакансия на двух площадках. Оставь грейд в роли — и эта пара
+    разошлась бы по слову «senior» против «старший», то есть слой перестал бы
+    делать ровно то, ради чего заведён.
+    """
+    text = title or ""
+    if drop_grade:
+        from .model import GRADE_WORDS  # noqa: PLC0415 — один список на проект
+        text = re.sub(r"[a-zа-яё]+",
+                      lambda m: " " if m.group(0).lower() in GRADE_WORDS
+                      else m.group(0), text, flags=re.I)
+    return norm(_ROLE_NOISE.sub(" ", text))
 
 
 def dup_group(row: dict) -> str:
@@ -170,7 +205,7 @@ def dup_group(row: dict) -> str:
     у нераскрытых работодателей одинаковых заголовков много, а вакансии разные."""
     company = norm(row.get("company"))
     title = row.get("title") or ""
-    role = norm(_ROLE_NOISE.sub(" ", title))
+    role = role_key(title)
     if not company:
         return f"~{row.get('dup_key') or row.get('source')}:{row.get('external_id')}"
     if not role:
@@ -296,12 +331,31 @@ def similar_groups(groups: list[dict], *, max_dist: int = SIMHASH_MAX_DIST,
             text = g.get("_dup_text") or g.get("description") or ""
             if len(text) < SIMHASH_MIN_CHARS:
                 continue
-            prepared.append((g, grade_of(g.get("title") or ""), simhash(text)))
+            prepared.append((g, grade_of(g.get("title") or ""),
+                             role_key(g.get("title"), drop_grade=True),
+                             simhash(text)))
         for i in range(len(prepared)):
             for j in range(i + 1, len(prepared)):
-                (ga, grade_a, ha), (gb, grade_b, hb) = prepared[i], prepared[j]
+                (ga, grade_a, role_a, ha), (gb, grade_b, role_b, hb) = \
+                    prepared[i], prepared[j]
                 if grade_a != grade_b:
                     continue         # разные грейды — разные вакансии, точка
+                if role_a != role_b:
+                    # Разные РОЛИ одной компании — тоже разные вакансии, и
+                    # похожесть описаний тут ничего не доказывает. Живой улов
+                    # аудита 08.08.2026: у Ebury «Senior Software Engineer
+                    # (Payments)» и «(Money Flows)» описаны одним корпоративным
+                    # текстом и совпали на 95%+; у Remitly так же слиплись
+                    # «Software Development Engineer II AppX» и «…Global Money
+                    # Movement». Это повтор инцидента SumUp другим слоем:
+                    # младшая позиция исчезала из выдачи совсем.
+                    #
+                    # Цена правила — лишние строки там, где компания вписала
+                    # город в название («Staff Software Engineer, Product
+                    # (Campinas)» × 6 у LawnStarter). Инвариант 7 выбирает
+                    # именно эту сторону: показать дубль дешевле, чем потерять
+                    # открытую позицию.
+                    continue
                 ka, kb = _key(ga), _key(gb)
                 pair = (ka, kb) if ka <= kb else (kb, ka)
                 known = decisions.get(pair)
@@ -435,9 +489,19 @@ def merge(rows: list[dict]) -> list[dict]:
             g["_sources"] = []
             g["_urls"] = []
             g["_locations"] = []
+            g["_members"] = []
             groups[key] = g
         g["_sources"].append(r.get("source"))
         g["_urls"].append(r.get("url"))
+        # Состав группы — чтобы схлопывание можно было ОСПОРИТЬ. Инвариант 7
+        # требует ошибаться в сторону разделения, а проверить это по одному
+        # числу «схлопнуто N» нельзя: под ним одинаково выглядят «одна вакансия
+        # в 30 городах» и «две разные позиции слиплись». Хранится только то, по
+        # чему судят глазами; полные строки уже лежат в `rows` у вызывающего.
+        g["_members"].append({"source": r.get("source"),
+                              "external_id": r.get("external_id"),
+                              "title": r.get("title"), "company": r.get("company"),
+                              "url": r.get("url"), "location": r.get("location")})
         # Города группы. Собираются потому, что 82% всего, что прячет дедуп на
         # живой базе (1100 строк из 1329), — это ОДНА вакансия одной компании,
         # размещённая в разных городах: adesso SE даёт «Software Engineer
@@ -705,8 +769,16 @@ def _collapse_similar(groups: list[dict], db: str, *,
             continue
         # Схлопываем в уже добавленную группу, сохраняя ВСЕ источники и ссылки:
         # у схлопнутой группы человек должен видеть, из скольких мест она пришла.
-        base["_sources"] = list(base.get("_sources") or []) + list(g.get("_sources") or [])
-        base["_urls"] = list(base.get("_urls") or []) + list(g.get("_urls") or [])
+        #
+        # 🔴 Списки перечислены поимённо, и `_locations` с `_members` тут не
+        # для красоты. Города второй группы раньше терялись именно здесь: в
+        # `merge` их научили собирать (218f9ba), а этот путь остался прежним —
+        # и «одна вакансия в 30 городах» показывала город случайной выжившей
+        # строки. `_members` без переноса сделал бы то же с аудитом склеек:
+        # схлопнутое переставало бы быть видно ровно в том слое, который
+        # ошибается чаще всех.
+        for field in ("_sources", "_urls", "_locations", "_members"):
+            base[field] = list(base.get(field) or []) + list(g.get(field) or [])
         if not base.get("salary_from") and g.get("salary_from"):
             for k in ("salary_from", "salary_to", "currency", "salary_period",
                       "salary_gross"):

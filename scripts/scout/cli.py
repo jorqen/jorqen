@@ -752,6 +752,14 @@ def cmd_funnel(args) -> int:
     return funnel.cli(args)
 
 
+def cmd_dups(args) -> int:
+    """Состав схлопнутых групп. Инвариант 7 проверяется глазами, не числом."""
+    from . import dupaudit, shortlist
+    if getattr(args, "simhash_bits", None) is None:
+        args.simhash_bits = shortlist.SIMHASH_MAX_DIST
+    return dupaudit.cli(args)
+
+
 def cmd_doctor(args) -> int:
     """Что на этой машине сломано. Одна команда вместо четырёх и догадок."""
     from . import doctor
