@@ -1034,8 +1034,29 @@ def src_careered(ctx: Ctx) -> list[Vacancy]:
 # ──────────────────────────────────────────────────────────────────────────────
 
 # По региону «Россия» гостевой поиск отдаёт ноль — вся ценность в зарубежных.
+#
+# Список расширен 08.08.2026 по ЗАМЕРУ, а не по догадке: «Golang», окно 7 суток,
+# три страницы на регион, счёт профильных карточек. Взяты все, кто отдал ≥20:
+#
+#   Switzerland 29 · Czechia 29 · Israel 28 · Georgia 28 · Italy 28 · Romania 28
+#   Ireland 27 · United Arab Emirates 26 · Sweden 26 · Estonia 24 · Serbia 22
+#   Austria 20                     (для сравнения: Germany 28, Türkiye 25)
+#
+# Не взяты, и вот сколько они отдали: Armenia 1, Montenegro 2, Kyrgyzstan 6,
+# Bulgaria 13, Kazakhstan 13, Uzbekistan 14. Регион стоит до сотни запросов,
+# и платить их за шесть карточек нечем.
+#
+# «European Union» — не дубль Германии и Италии, а свой потолок: ограничение
+# в 1000 карточек действует на ПАРУ «формулировка × регион», поэтому союз
+# страны и союза стран даёт больше, чем любой из них по отдельности.
+#
+# Гео здесь не фильтр по желанию владельца, а способ спросить площадку: офис,
+# релокация и удалёнка для него равноценны, отсев по стране делает модель.
 LINKEDIN_REGIONS = ("Germany", "Netherlands", "Poland", "Cyprus", "Portugal", "Spain",
-                    "United Kingdom", "European Union", "Türkiye")
+                    "United Kingdom", "European Union", "Türkiye",
+                    "Switzerland", "Czechia", "Israel", "Georgia", "Italy",
+                    "Romania", "Ireland", "United Arab Emirates", "Sweden",
+                    "Estonia", "Serbia", "Austria")
 
 
 LINKEDIN_PAGE = 10        # гостевая выдача отдаёт ровно 10 карточек за запрос
@@ -1065,6 +1086,30 @@ LINKEDIN_DRY_STREAK = 3
 # LinkedIn троттлит охотнее всех остальных, а пагинация превращает 9 запросов
 # в сотню. Пауза здесь длиннее общей: дешевле подождать, чем потерять регион.
 LINKEDIN_PAUSE = 1.2
+
+
+def _linkedin_windows(days: int) -> tuple[int, ...]:
+    """Окна `f_TPR` в секундах: от самого узкого к запрошенному.
+
+    🔴 ЭТО НЕ ОПТИМИЗАЦИЯ, А ПОЛНОТА. Замер 08.08.2026, Germany/«Golang», оба
+    окна обойдены ДО КОНЦА выдачи (до трёх пустых страниц подряд):
+
+        окно 72 ч — 35 страниц, 280 профильных карточек, 142 с
+        окно 24 ч — 44 страницы, 300 профильных карточек, 121 с
+        профильных, которых 72-часовое окно не отдало ВООБЩЕ: 208 из 300
+
+    То есть узкое окно не подмножество широкого, а другая выборка: у каждой пары
+    свой потолок в 1000, и внутри окна LinkedIn отдаёт что придётся, а не самое
+    свежее. Первая версия этого замера сравнивала по 12 страниц и показала 65%
+    «новых» — числу нельзя было верить, потому что карточки могли лежать в широком
+    окне глубже. Обход до конца снимает вопрос: их там нет.
+
+    Больше двух окон не берём. Третье (48 ч) — ещё +50% ко времени источника,
+    который и так самый долгий в волне, а его выдача лежит между уже спрошенными.
+    """
+    day = 86400
+    wide = max(days, 1) * day
+    return (day,) if wide <= day else (day, wide)
 
 
 def src_linkedin(ctx: Ctx) -> list[Vacancy]:
@@ -1111,8 +1156,7 @@ def src_linkedin(ctx: Ctx) -> list[Vacancy]:
         tally.note("--ru-only: гостевой поиск по России отдаёт ноль, регионы не спрашивались")
         return [tally.row()]
     out, seen = [], set()
-    # 1 день ≈ r86400; берём с запасом окна.
-    seconds = max(ctx.days, 1) * 86400
+    windows = _linkedin_windows(ctx.days)
     lost_regions: list[str] = []
     truncated: list[str] = []
     drifted: list[str] = []
@@ -1135,8 +1179,10 @@ def src_linkedin(ctx: Ctx) -> list[Vacancy]:
     # новой паре значило бы разгоняться там, где пар больше всего.
     slept = 0.0
     for q in queries:
+      for seconds in windows:
         for region in LINKEDIN_REGIONS:
-            label = f"{region}/«{q}»"
+            label = (f"{region}/«{q}»" if len(windows) == 1
+                     else f"{region}/«{q}»/{seconds // 86400}д")
             cards = dry = 0
             for page in range(budget):
                 slept += _pause(LINKEDIN_PAUSE)
@@ -1175,11 +1221,16 @@ def src_linkedin(ctx: Ctx) -> list[Vacancy]:
                 truncated.append(f"{label} ({cards})")
             if cards:
                 pairs_done += 1
-    pairs = len(queries) * len(LINKEDIN_REGIONS)
-    tally.note(f"пар «формулировка × регион» с выдачей {pairs_done}/{pairs}, "
+    pairs = len(queries) * len(LINKEDIN_REGIONS) * len(windows)
+    tally.note(f"пар «формулировка × регион × окно» с выдачей {pairs_done}/{pairs}, "
                f"страниц {tally.pages}, запросов {tally.requests}, "
                f"из них простой {slept:.0f} с (частота — не чаще 1 запроса "
                f"в {LINKEDIN_PAUSE} с)")
+    if len(windows) > 1:
+        tally.note("окна вложенные ({}) — у каждого свой потолок в {} карточек, и "
+                   "выдачи они дают РАЗНЫЕ, а не вложенные".format(
+                       ", ".join(f"{s // 86400}д" for s in windows),
+                       LINKEDIN_HARD_START))
     # Формулировок несколько намеренно: потолок start<1000 действует на ПАРУ,
     # поэтому каждая новая формулировка приносит собственную тысячу карточек, а
     # не долистывает чужую. Замер 07.08.2026 показал, что глубина внутри одной

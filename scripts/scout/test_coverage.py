@@ -248,7 +248,11 @@ def test_linkedin_paginates_by_start_and_drops_other_professions():
     jobs = [v for v in got if v.external_id != "_summary"]
     summary = [v for v in got if v.external_id == "_summary"][0]
     S = __import__("scripts.scout.sources", fromlist=["x"])
-    regions, LINKEDIN_EMPTY_RETRIES = len(S.LINKEDIN_REGIONS), S.LINKEDIN_EMPTY_RETRIES
+    # Пар не «регионы», а «регионы × окна»: с 08.08.2026 узкое окно спрашивается
+    # отдельно от широкого, потому что выдачи у них РАЗНЫЕ (замер: 208 из 300
+    # профильных суточного окна широкое не отдало вообще).
+    regions = len(S.LINKEDIN_REGIONS) * len(S._linkedin_windows(3))
+    LINKEDIN_EMPTY_RETRIES = S.LINKEDIN_EMPTY_RETRIES
     eq(len(jobs), 2, "два региона не размножают карточки: id общий, повтор — это дубль")
     eq([v.external_id for v in jobs], ["1", "3"],
        "Head of Finance и HR/Payroll Manager отсеяны фильтром профессии")
@@ -294,8 +298,11 @@ def test_linkedin_asks_every_formulation():
     # На пару приходится запрос плюс повторы пустого: пустой ответ у гостевого
     # поиска неотличим от временного отказа по IP, и верить ему сразу нельзя.
     from .sources import LINKEDIN_EMPTY_RETRIES
-    eq(len(fake.asked), 3 * len(LINKEDIN_REGIONS) * (1 + LINKEDIN_EMPTY_RETRIES),
-       "не по одному запросу (с переспросом пустого) на пару «формулировка × регион»")
+    from .sources import _linkedin_windows
+    pairs = 3 * len(LINKEDIN_REGIONS) * len(_linkedin_windows(3))
+    eq(len(fake.asked), pairs * (1 + LINKEDIN_EMPTY_RETRIES),
+       "не по одному запросу (с переспросом пустого) на пару "
+       "«формулировка × регион × окно»")
 
 
 def test_card_write_flags_dead_ats_links_before_writing():
@@ -885,14 +892,70 @@ def test_linkedin_stops_where_the_search_drifts_off_topic():
     summary = [v for v in got if v.external_id == "_summary"][0]
     eq(sorted(v.external_id for v in jobs), ["1", "3"],
        "одна пустая по профилю страница обход не прекращает")
-    regions = len(S.LINKEDIN_REGIONS)
-    eq(len(fake.asked), 6 * regions,
+    pairs = len(S.LINKEDIN_REGIONS) * len(S._linkedin_windows(3))
+    eq(len(fake.asked), 6 * pairs,
        "три пустые подряд (стр. 4–6) — конец выдачи; седьмую уже не просим")
     if not any("уехала от запроса" in n for n in summary.raw["notes"]):
         FAILS.append(f"причина остановки не названа: {summary.raw['notes']}")
     if any("ОБРЕЗАНО" in n for n in summary.raw["notes"]):
         FAILS.append("уход выдачи вбок назван обрезанием — это разные вещи, "
                      "и второе зовёт поднять --limit там, где брать уже нечего")
+
+
+def test_linkedin_asks_nested_windows_because_they_return_different_jobs():
+    """Узкое окно `f_TPR` — не подмножество широкого, а ДРУГАЯ выборка.
+
+    Замер 08.08.2026, Germany/«Golang», оба окна обойдены до конца выдачи:
+    72 ч — 35 страниц и 280 профильных, 24 ч — 44 страницы и 300 профильных,
+    и 208 из этих 300 широкое окно не отдало вообще. Причина в потолке: он
+    действует на пару «формулировка × регион × окно», а внутри окна LinkedIn
+    отдаёт что придётся, а не самое свежее.
+
+    Тест держит именно это свойство: спрошены ОБА окна, и одинаковые id из них
+    склеиваются, а не задваиваются. Без него «лишний» проход по узкому окну —
+    первое, что захочется убрать ради времени."""
+    from . import sources as S
+    from .sources import Ctx, src_linkedin
+
+    # Регионы — тоже полнота, и у них та же арифметика: у каждой пары свой
+    # потолок. Замер 08.08.2026 («Golang», окно 7 суток, 3 страницы, счёт
+    # профильных): Switzerland 29, Czechia 29, Israel 28, Georgia 28, Italy 28,
+    # Romania 28, Ireland 27, UAE 26, Sweden 26, Estonia 24, Serbia 22,
+    # Austria 20. Порог здесь — не «красиво», а «столько замерено».
+    eq(len(S.LINKEDIN_REGIONS) >= 21, True,
+       f"регионов стало {len(S.LINKEDIN_REGIONS)} — список урезали, "
+       f"а каждый из двенадцати добавленных замерен на 20+ профильных карточек")
+    for measured in ("Switzerland", "Czechia", "Israel", "Georgia", "Italy",
+                     "Romania", "Ireland", "United Arab Emirates", "Sweden",
+                     "Estonia", "Serbia", "Austria"):
+        eq(measured in S.LINKEDIN_REGIONS, True,
+           f"регион {measured} убран, хотя замерен как дающий выдачу")
+
+    eq(S._linkedin_windows(1), (86400,), "однодневное окно дробить не на что")
+    eq(S._linkedin_windows(3), (86400, 259200), "трёхдневное окно не дало узкого")
+    eq(len(S._linkedin_windows(30)), 2,
+       "окон больше двух — третье лежит между спрошенными и стоит времени")
+
+    def card(vid, title):
+        return ('<div class="base-card foo" '
+                f'data-entity-urn="urn:li:jobPosting:{vid}">'
+                f'<span class="sr-only">{title}</span></div>')
+
+    # Одна и та же вакансия в обоих окнах: склейка по id обязана её удержать.
+    fake = _FakeFetch({"start=0&": "<ul>" + card(7, "Go Developer") + "</ul>",
+                       "start=": "<ul></ul>"})
+    got = _with_fake_fetch(fake, lambda: src_linkedin(Ctx(query="Golang", days=3)))
+    jobs = [v for v in got if v.external_id != "_summary"]
+    eq(len(jobs), 1,
+       "одна вакансия из двух окон и 21 региона приехала не один раз — склейка по id сломана")
+    eq(len(fake.asked) % 2, 0,
+       "запросов нечётное число — значит второе окно спрошено не везде")
+    asked = "\n".join(fake.asked)
+    for seconds in S._linkedin_windows(3):
+        eq(f"f_TPR=r{seconds}" in asked, True, f"окно r{seconds} не спрошено вовсе")
+    summary = [v for v in got if v.external_id == "_summary"][0]
+    if not any("окна вложенные" in n for n in summary.raw["notes"]):
+        FAILS.append(f"вложенные окна не названы в сводке: {summary.raw['notes']}")
 
 
 def test_linkedin_depth_is_the_platform_ceiling_and_limit_cannot_move_it():
@@ -1046,6 +1109,7 @@ def main() -> int:
             test_linkedin_empty_page_is_rechecked_before_calling_it_the_end,
             test_linkedin_throttling_is_a_pause_not_the_end_of_the_region,
             test_linkedin_stops_where_the_search_drifts_off_topic,
+            test_linkedin_asks_nested_windows_because_they_return_different_jobs,
             test_linkedin_depth_is_the_platform_ceiling_and_limit_cannot_move_it,
             test_linkedin_ru_only_still_reports_itself,
             test_ats_role_filter_covers_the_audit_list,
