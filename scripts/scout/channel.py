@@ -68,15 +68,31 @@ _HAS_JOBS = re.compile(
     r"join (?:our|the) team|мы ищем|we are hiring|we're hiring", re.I)
 
 
+# Как выглядит домен: метки через точку, latin/цифры/дефис, зона от двух букв.
+# Нужна потому, что `domain_of` зовут и от НАЗВАНИЯ КОМПАНИИ тоже, а название
+# доменом не является. Живой случай 08.08.2026: «P&P Solutions» проезжало через
+# urlsplit как netloc, `is_employer_domain` отвечал «нет», и пользователь читал
+# «p&p solutions — агрегатор, а не работодатель» — уверенный неверный вердикт
+# на самом ценном пути (поиск канала ближе к работодателю).
+_DOMAIN_RE = re.compile(r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$")
+
+
 def domain_of(url: str | None) -> str:
-    """Голый домен из URL. Пусто — если URL не разобрать."""
+    """Голый домен из URL. Пусто — если это не домен.
+
+    🔴 Пусто и для того, что доменом лишь притворяется: «P&P Solutions» или
+    «ООО Ромашка». Раньше такое возвращалось как есть и уезжало в проверку на
+    агрегатор, а та отвечала «не работодатель» — то есть догадка выдавалась за
+    факт. Здесь «не знаю» честнее: вызывающий тогда просит `--site`.
+    """
     if not url:
         return ""
     try:
         host = urllib.parse.urlsplit(url if "//" in url else f"//{url}").netloc
     except ValueError:
         return ""
-    return host.lower().removeprefix("www.").split(":")[0]
+    host = host.lower().removeprefix("www.").split(":")[0].strip().rstrip(".")
+    return host if _DOMAIN_RE.match(host) else ""
 
 
 # Домены агрегаторов: их careers-страница — это НЕ канал работодателя.

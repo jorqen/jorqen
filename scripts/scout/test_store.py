@@ -833,6 +833,33 @@ def test_other_language_penalty_reads_the_body_too():
     eq("преобладает Java" in java_why, True, "причина понижения названа словами")
 
 
+def test_company_name_is_not_a_domain():
+    """Название компании — НЕ домен, и выдавать его за домен нельзя.
+
+    Живой случай 08.08.2026: `scout channel "P&P Solutions"` собирал из имени
+    «домен» p&p solutions, проверка на агрегатор отвечала «нет», и человек
+    читал «p&p solutions — агрегатор, а не работодатель». Уверенный неверный
+    вердикт, и ровно на самом ценном пути: поиск контакта БЛИЖЕ к работодателю
+    — то, ради чего вообще заводились входы на площадки.
+
+    Правильный ответ здесь «не знаю, передай --site»: догадка о домене по
+    названию однажды приведёт письмо в чужую компанию.
+    """
+    from .channel import domain_of
+
+    for junk in ("P&P Solutions", "ООО Ромашка", "Sp. z o.o.", "tinkoff",
+                 "localhost", "", "  ", "Яндекс Технологии"):
+        eq(domain_of(junk), "",
+           f"{junk!r} принято за домен — дальше это уедет в вердикт о компании")
+
+    # Настоящие домены не пострадали: правило должно резать мусор, а не выдачу.
+    eq(domain_of("https://www.p-p.pl/careers"), "p-p.pl", "домен из URL потерян")
+    eq(domain_of("ozon.ru"), "ozon.ru", "голый домен потерян")
+    eq(domain_of("sub.ozon.ru:443"), "sub.ozon.ru", "поддомен с портом потерян")
+    eq(domain_of("careers.job-boards.greenhouse.io"),
+       "careers.job-boards.greenhouse.io", "домен с дефисами потерян")
+
+
 def test_channel_probe_cap_keeps_the_likeliest_candidates():
     """Потолок зондов не должен срезать самых вероятных кандидатов.
 
@@ -1660,7 +1687,8 @@ def main() -> int:
             test_simhash_dedup_never_merges_across_grades_or_companies,
             test_dup_decision_survives_and_respects_human,
             test_other_language_penalty_reads_the_body_too,
-            test_channel_probe_cap_keeps_the_likeliest_candidates,
+            test_company_name_is_not_a_domain,
+        test_channel_probe_cap_keeps_the_likeliest_candidates,
             test_detail_cascade_names_the_layer_it_used,
             test_apply_options_prefer_direct_and_are_stable,
             test_raw_cache_roundtrip_and_scoping,
