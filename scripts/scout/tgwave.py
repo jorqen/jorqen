@@ -84,8 +84,13 @@ def _target(env: dict) -> str | None:
 
 def run(db: str, *, days: int, date: str, top: int = 10, apply: bool = False,
         force: bool = False, out_dir: str = ".scout") -> int:
-    from .tgclient import ENV_PATH, read_env  # noqa: PLC0415 — telethon опционален
+    """Предпросмотр или отправка. Предпросмотр НИЧЕГО телеграмного не трогает.
 
+    Импорт `tgclient` стоит ПОСЛЕ выхода по `apply=False` намеренно: telethon
+    опционален (инвариант 3), и предпросмотр обязан работать на машине, где его
+    нет вовсе. Раньше импорт стоял в начале функции и это свойство держалось
+    случайно — только потому, что `tgclient` не тянет telethon на уровне модуля.
+    """
     text, table = build(db, days=days, date=date, top=top)
     path = os.path.join(out_dir, f"wave-{date}.md")
     os.makedirs(out_dir, exist_ok=True)
@@ -99,6 +104,8 @@ def run(db: str, *, days: int, date: str, top: int = 10, apply: bool = False,
     if not apply:
         print("\n(предпросмотр — не отправлено; `--apply`, чтобы отправить)")
         return 0
+
+    from .tgclient import ENV_PATH, read_env  # noqa: PLC0415 — telethon опционален
 
     env = read_env()
     chat = _target(env or {})

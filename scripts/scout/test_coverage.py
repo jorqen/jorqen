@@ -492,6 +492,22 @@ def test_card_files_layout_and_lint():
     eq(all("markdown" not in n for n in notes), True,
        "линт принял пояснение скелета за письмо")
 
+    # 🔴 Заголовок раздела письма — КОНТРАКТ между card.py (печатает) и
+    # cardfiles.py (ищет по нему). Разъедутся — `lint-cards` перестанет находить
+    # письмо и будет бодро отчитываться «замечаний нет», ни разу его не прочитав.
+    # Это худший вид молчаливого нуля: проверка выглядит пройденной.
+    with tempfile.TemporaryDirectory() as d:
+        from . import card, store
+        db = os.path.join(d, "c.db")
+        with store.connect(db) as conn:
+            store.upsert(conn, [Vacancy(source="hh", external_id="1",
+                                        url="https://hh.ru/v/1", title="Go dev",
+                                        company="Acme")])
+            skeleton_card = card.build(conn, "https://hh.ru/v/1", skills=[])
+    eq(cardfiles.LETTER_HEADING in skeleton_card, True,
+       f"card.build больше не печатает {cardfiles.LETTER_HEADING!r} — "
+       f"lint-cards перестанет видеть письмо и объявит карточку чистой")
+
     # Линт смотрит ТОЛЬКО карточки: индекс волн и главный документ — тоже .md,
     # но раздела «Отклик» иметь не обязаны, и ругань на них была бы тремя
     # ложными замечаниями в каждом прогоне.
@@ -851,6 +867,31 @@ def test_tg_wave_is_one_post_and_never_sends_by_default():
        "на тот же вопрос, он разойдётся с командой, которой пользуется владелец")
     eq("7 вакансий" in table, True, "в файл попали не все новые вакансии")
 
+    # Предпросмотр обязан работать на машине БЕЗ telethon: он опционален
+    # (инвариант 3), а отправки в предпросмотре нет. Свойство держалось
+    # случайно — импорт `tgclient` стоял до выхода по apply=False.
+    import builtins
+    real_import = builtins.__import__
+
+    def no_telethon(name, *a, **k):
+        if name.split(".")[0] == "telethon":
+            raise ImportError("telethon на этой машине нет")
+        return real_import(name, *a, **k)
+
+    with tempfile.TemporaryDirectory() as d:
+        db2 = os.path.join(d, "w2.db")
+        with store.connect(db2) as conn:
+            conn.execute("SELECT 1")
+        import contextlib
+        import io
+        with patched(builtins, "__import__", no_telethon), \
+                contextlib.redirect_stdout(io.StringIO()):
+            code = tgwave.run(db2, days=3, date="2026-08-08", top=2,
+                              apply=False, out_dir=d)
+        eq(code, 0, "предпросмотр упал там, где отправки нет вовсе")
+        eq(os.path.exists(os.path.join(d, "wave-2026-08-08.md")), True,
+           "предпросмотр не положил файл туда, куда просили (--out_dir мёртв)")
+
 
 def test_funnel_does_not_call_a_page_view_an_answer():
     """Воронка обязана считать честно — иначе она хуже, чем её отсутствие.
@@ -924,20 +965,56 @@ def test_doctor_diagnoses_without_touching_the_network():
     import socket
     import tempfile
 
-    from . import doctor, store
+    from . import auth, authrefresh, doctor, store
 
     def boom(*a, **k):
         raise AssertionError("doctor ушёл в сеть — он обязан читать только диск")
 
+    # 🔴 Состояние входов ПОДМЕНЯЕТСЯ. Без подмены тест зеленел только потому,
+    # что на машине автора владелец залогинен в shadowhint: разлогинься он —
+    # и «поломок 0» превращается в «поломок 1» на ровном месте. Тест обязан
+    # проверять отчёт `doctor`, а не то, в каком состоянии сегодня чужие куки.
+    alive = [{"platform": "hh", "state": "logged_in", "why": "", "loss": "",
+              "critical": False, "renewable": False}]
     with tempfile.TemporaryDirectory() as d:
         db = os.path.join(d, "d.db")
         with store.connect(db) as conn:
             conn.execute("SELECT 1")
         # Затыкается САМ сокет, а не наши обёртки: проверка должна ловить любой
         # поход наружу, включая тот, который добавят завтра в обход `net.fetch`.
-        with patched(socket, "create_connection", boom):
+        with patched(socket, "create_connection", boom), \
+                patched(authrefresh, "preflight", lambda *a, **k: alive):
             lines, bad = doctor.report(db)
+            # Пропавший вход в площадку, без которой выдачи нет, — настоящая
+            # поломка и обязана поднимать код возврата.
+            dead = [dict(alive[0], platform="shadowhint", state="anonymous",
+                         why="куки нет", loss="ВСЮ выдачу", critical=True)]
+            with patched(authrefresh, "preflight", lambda *a, **k: dead):
+                _, bad_dead = doctor.report(db)
+    eq(bad_dead, 1, "пропавший критичный вход не посчитан поломкой")
     text = "\n".join(lines)
+
+    # 🔴 Диагностика не имеет права ПЕРЕПИСЫВАТЬ файлы сессий. По умолчанию
+    # `secure_auth_dir` делает два дела: чинит права и вырезает чужие домены из
+    # `.auth/*.json`. Второе — правка чужих данных, и её просят явно (`auth
+    # secure`), а не получают побочным эффектом команды «покажи, что сломано».
+    calls: list[dict] = []
+    with patched(auth, "secure_auth_dir", lambda **kw: calls.append(kw) or []), \
+            patched(authrefresh, "preflight", lambda *a, **k: alive):
+        doctor.report(":memory:")
+    eq(calls and calls[0].get("prune_foreign"), False,
+       f"doctor зовёт secure_auth_dir с чисткой доменов: {calls}")
+
+    # Ошибка при опросе диска не имеет права УБИРАТЬ раздел из отчёта:
+    # «не смогли посмотреть» стало бы неотличимо от «всё хорошо».
+    def no_disk(_path):
+        raise OSError("файловая система не отвечает")
+
+    with patched(doctor.shutil, "disk_usage", no_disk), \
+            patched(authrefresh, "preflight", lambda *a, **k: alive):
+        broken, _ = doctor.report(":memory:")
+    eq("## Диск" in "\n".join(broken), True,
+       "раздел «Диск» исчез из отчёта вместо того, чтобы сказать о поломке")
 
     eq(bad, 0, f"на чистой машине поломок быть не должно, а насчитано {bad}")
     for section in ("Окружение", "База", "Браузер", "Ключи площадок",
