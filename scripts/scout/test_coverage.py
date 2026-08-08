@@ -984,6 +984,29 @@ def test_ats_role_filter_covers_the_audit_list():
             FAILS.append(f"ATS_ROLE_RE перестал быть фильтром, пускает: {title!r}")
 
 
+def test_trudvsem_asks_in_the_language_of_the_state_portal():
+    """На государственном портале нашу профессию называют не «Golang».
+
+    Замер 08.08.2026, профильные В ОКНЕ СВЕЖЕСТИ (общая глубина базы обманчива,
+    она забита позапрошлогодним): за трое суток один «Golang» даёт 0, весь
+    набор — 5; за тридцать суток 1 против 36. Треть приносит формулировка
+    «системный программист».
+
+    Проверяется не список слов, а три свойства: запрос пользователя остаётся
+    ГЛАВНЫМ (набор дополняет, а не заменяет), в наборе нет замеренно пустых
+    слов и нет несоразмерно дорогих."""
+    from .sources import TRUDVSEM_QUERIES, merge_queries
+
+    qs = merge_queries(["Rust"], TRUDVSEM_QUERIES)
+    eq(qs[0], "Rust", "запрос пользователя обязан идти первым, а не тонуть в наборе")
+    eq("системный программист" in qs, True,
+       "формулировка, дающая треть выдачи портала, пропала из набора")
+    for dead in ("программист", "инженер-программист", "PHP", "архитектор",
+                 "software engineer", "бэкенд"):
+        eq(dead in TRUDVSEM_QUERIES, False,
+           f"«{dead}» замерен как пустой или несоразмерно дорогой — его тут быть не должно")
+
+
 def test_every_ats_engine_is_wired_into_the_run():
     """Движок, разобранный в atsapi, но не подключённый к прогону, — это компания,
     которая не попадёт в обход, даже если найти её через `ats sniff`."""
@@ -1026,6 +1049,7 @@ def main() -> int:
             test_linkedin_depth_is_the_platform_ceiling_and_limit_cannot_move_it,
             test_linkedin_ru_only_still_reports_itself,
             test_ats_role_filter_covers_the_audit_list,
+            test_trudvsem_asks_in_the_language_of_the_state_portal,
             test_every_ats_engine_is_wired_into_the_run,
     ):
         fn()

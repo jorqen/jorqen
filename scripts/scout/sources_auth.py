@@ -102,40 +102,10 @@ def _pause() -> None:
     _rate_pause(PAGE_PAUSE)
 
 
-# Полнотекстовый поиск у hirehi и wantapply складывает слова через И и на
-# кириллицу не отвечает вовсе: hirehi «бэкенд» → 0 при 277 по «backend»,
-# wantapply «Go разработчик» → 0 при 330 по «Go». Поэтому запрос пользователя
-# разбирается на ЛАТИНСКИЕ слова, и каждое уходит отдельным проходом: объединение
-# по словам всегда шире, чем И-запрос из тех же слов («Backend Go» → 2 записи
-# против 277 + 180 по отдельности).
-_LATIN_TERM = re.compile(r"[A-Za-z][A-Za-z0-9+#.\-]*")
-
-
-def latin_terms(queries: list[str]) -> list[str]:
-    """Латинские слова из формулировок, без повторов и с сохранением порядка."""
-    seen, out = set(), []
-    for q in queries:
-        for term in _LATIN_TERM.findall(q or ""):
-            low = term.lower()
-            if low not in seen:
-                seen.add(low)
-                out.append(term)
-    return out
-
-
-def merge_queries(base: list[str], vetted: tuple[str, ...]) -> list[str]:
-    """Формулировки пользователя + проверенный набор площадки, без повторов.
-
-    Набор площадки НЕ заменяет запрос пользователя, а дополняет его: `--query`
-    остаётся главным, а константа закрывает то, чего одна формулировка не достаёт
-    (замеры — в комментарии к каждой константе)."""
-    seen, out = set(), []
-    for q in [*base, *vetted]:
-        low = (q or "").strip().lower()
-        if low and low not in seen:
-            seen.add(low)
-            out.append(q.strip())
-    return out
+# Разбор формулировок переехал в `sources`: там же живёт Ctx.queries(), а
+# наборы площадок понадобились и площадкам БЕЗ входа (trudvsem). Имена
+# реэкспортируются — прежние импорты из этого модуля работают.
+from .sources import latin_terms, merge_queries  # noqa: E402,F401
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Ошибки
