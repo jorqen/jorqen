@@ -82,6 +82,10 @@ def build_parser() -> argparse.ArgumentParser:
                         "правки парсера без единого запроса к площадке); off — "
                         "не трогать вовсе. Кэш ограничен сверху: строки старше двух "
                         "дней чистятся на старте, читается только сегодняшний день")
+    c.add_argument("--auth-wait", type=int, default=0, metavar="СЕК",
+                   help="площадке нужен вход — открыть окно и ждать СЕК секунд, "
+                        "НЕ останавливая обход остальных. Продлеваемые сессии "
+                        "поднимаются без окна. 0 (по умолчанию) — не открывать")
     c.add_argument("--with-items", action="store_true", help="выгрузить вакансии в JSON")
     c.add_argument("--format", choices=["text", "json"], default="text")
     c.set_defaults(func=cmd_collect)

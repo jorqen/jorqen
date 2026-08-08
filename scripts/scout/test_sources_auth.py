@@ -1742,6 +1742,69 @@ def test_dead_critical_session_is_the_first_next_step():
     ok("scout auth login shadowhint" in steps[0], "названа команда, а не намёк")
 
 
+def test_login_runs_beside_the_crawl_not_instead_of_it():
+    """Вход человека идёт ПАРАЛЛЕЛЬНО обходу, а площадки со входом — последними.
+
+    Требование владельца 08.08.2026: скрипт сам просит вход, ждёт его и при
+    этом не останавливает анализ; пропущенную площадку называет вслух.
+
+    Проверяется три свойства, и каждое стоит за конкретной ошибкой:
+
+    * окно открывается ТОЛЬКО тем, за кого никто, кроме человека, не войдёт —
+      живых и продлеваемых спрашивать незачем;
+    * входы идут ПО ОЧЕРЕДИ: постоянный профиль браузера один, два окна разом
+      дают ProfileBusy и ложный «УПАЛ» у площадки, которая не падала;
+    * результат каждого входа виден вызывающему — иначе «окно не открывали» и
+      «открыли, ты не успел» неотличимы, а чинятся по-разному.
+    """
+    import time as _time
+
+    from . import authrefresh
+
+    # Кого спрашивать. Живых и продлеваемых — нет.
+    rows = [{"platform": "wantapply", "state": "anonymous", "renewable": False,
+             "why": "", "loss": "", "critical": False},
+            {"platform": "shadowhint", "state": "anonymous", "renewable": True,
+             "why": "", "loss": "", "critical": True},
+            {"platform": "hirehi", "state": "logged_in", "renewable": False,
+             "why": "", "loss": "", "critical": False}]
+    with patched(authrefresh, "preflight", lambda *a, **k: rows):
+        eq(authrefresh.needs_human(["wantapply", "shadowhint", "hirehi", "jobicy"]),
+           ["wantapply"],
+           "окно открывается не тому: живых и продлеваемых спрашивать незачем")
+
+    # Очерёдность и результат.
+    order: list[str] = []
+
+    def fake_login(platform, *, wait=0, browser=None, force=False):
+        order.append(f"→{platform}")
+        _time.sleep(0.05)
+        order.append(f"←{platform}")
+        return 0 if platform != "wantapply" else 1
+
+    with patched(auth, "login", fake_login):
+        pend = authrefresh.Pending(["shadowhint", "wantapply"], wait=1,
+                                   browser=None).start()
+        pend.join(timeout=5)
+
+    eq(order, ["→shadowhint", "←shadowhint", "→wantapply", "←wantapply"],
+       "входы пошли внахлёст — второе окно получит ProfileBusy, и в покрытии "
+       "появится «УПАЛ» у площадки, которая не падала")
+    eq(pend.results, {"shadowhint": True, "wantapply": False},
+       "результат входа потерян: «не открывали» и «не успел» станут неотличимы")
+
+    # Упавший вход не рвёт прогон: обход к этому моменту уже отработал своё.
+    def boom(platform, **kw):
+        raise RuntimeError("браузер не поднялся")
+
+    import contextlib
+    import io
+    with patched(auth, "login", boom), contextlib.redirect_stderr(io.StringIO()):
+        pend = authrefresh.Pending(["wantapply"], wait=1, browser=None).start()
+        pend.join(timeout=5)
+    eq(pend.results, {"wantapply": False}, "падение входа не записано как отказ")
+
+
 def test_shadowhint_renewal_never_overwrites_a_good_snapshot():
     """Продление shadowhint: свежий токен пишем, протухший — НЕТ.
 
@@ -2054,6 +2117,7 @@ def main() -> int:
                test_private_endpoint_outranks_the_markup,
                test_live_session_is_found_in_another_browser,
                test_dead_critical_session_is_the_first_next_step,
+               test_login_runs_beside_the_crawl_not_instead_of_it,
                test_shadowhint_renewal_never_overwrites_a_good_snapshot,
                test_expired_token_is_dead_even_when_the_cookie_is_there,
                test_session_travels_to_the_cloud_only_through_the_environment,

@@ -178,7 +178,8 @@ def _limit_hit(vacancies: list, found: int, limit: int) -> str:
 def run_collect(ctx: Ctx, names: list[str], *, workers: int = 8,
                 db: str = store.DEFAULT_DB, no_store: bool = False,
                 no_browser: bool = False, args_dict: dict | None = None,
-                raw_cache: str | None = None) -> dict:
+                raw_cache: str | None = None, auth_wait: int = 0,
+                browser: str | None = None) -> dict:
     """Ядро collect, отделённое от печати: им пользуется и `collect`, и `scan`.
     Возвращает {report, vacancies, new, updated, elapsed}.
 
@@ -228,17 +229,69 @@ def run_collect(ctx: Ctx, names: list[str], *, workers: int = 8,
     # под локом: два параллельных захода дают ProfileBusy у второго, и в покрытии
     # появляется «УПАЛ» у площадки, которая не падала. Это ровно тот ложный статус,
     # из-за которого потом чинят работающее и не чинят сломанное.
-    browser = [n for n in names if n in NEEDS_BROWSER_SET]
+    browser_srcs = [n for n in names if n in NEEDS_BROWSER_SET]
     plain = [n for n in names if n not in NEEDS_BROWSER_SET]
 
+    # Вход человека — ПАРАЛЛЕЛЬНО обходу, а не до него. Окно открывается сразу,
+    # пул в это время обходит всё, что входа не требует, а площадки со входом
+    # собираются последними — к тому моменту человек уже вошёл.
+    #
+    # Что здесь делается ДО окна и почему. Сначала `renew`: продлить сессию без
+    # человека дешевле, чем показать ему форму, и три площадки из четырёх это
+    # умеют. Окно остаётся только тем, за кого никто, кроме него, не войдёт.
+    pending = None
+    if auth_wait > 0 and not no_store:
+        from . import authrefresh  # noqa: PLC0415 — тянет playwright лениво
+
+        authrefresh.forget()
+        renewable = [n for n in plain
+                     if n in authrefresh.RENEWERS and authrefresh.can_renew(n)]
+        if renewable:
+            authrefresh.renew(renewable, browser=browser)
+            authrefresh.forget()
+        ask = authrefresh.needs_human(plain)
+        if ask:
+            print(f"вход нужен: {', '.join(ask)} — открываю окно, обход идёт "
+                  f"дальше без остановки", file=sys.stderr)
+            pending = authrefresh.Pending(ask, wait=auth_wait,
+                                          browser=browser).start()
+            plain = [n for n in plain if n not in ask]
+
     results = parallel({n: wrap(n) for n in plain}, workers=workers)
+
+    if pending is not None:
+        # Ждём ДО браузерных источников: постоянный профиль один, и окно входа
+        # держит его лок. Запустить glassdoor поверх — получить ProfileBusy и
+        # ложный «УПАЛ» у площадки, которая не падала.
+        if pending.alive:
+            print("обход закончен, жду вход…", file=sys.stderr)
+        pending.join(timeout=auth_wait + 30)
+        deferred = list(pending.platforms)
+        # Итог ожидания говорится вслух и отдельно от таблицы покрытия. В ней
+        # видно «НУЖЕН ВХОД», но не видно, ПЫТАЛИСЬ ли мы: «окно не открывали»
+        # и «открыли, ты не успел» чинятся по-разному, а выглядят одинаково.
+        got = [n for n in deferred if pending.results.get(n)]
+        lost = [n for n in deferred if not pending.results.get(n)]
+        if got:
+            print(f"вход выполнен: {', '.join(got)} — собираю их сейчас",
+                  file=sys.stderr)
+        if lost:
+            print(f"вход НЕ завершён за {auth_wait} с: {', '.join(lost)}. "
+                  f"Площадка будет в покрытии как «НУЖЕН ВХОД» — это недобор, "
+                  f"а не пустая выдача", file=sys.stderr)
+        # Собираем их в любом случае: вошёл — принесут выдачу, не вошёл —
+        # честно скажут «НУЖЕН ВХОД». Молча пропустить нельзя, это и есть
+        # потерянная площадка.
+        results.update(parallel({n: wrap(n) for n in deferred},
+                                workers=min(workers, len(deferred))))
+
     if no_browser:
-        for name in browser:
+        for name in browser_srcs:
             results[name] = (False, _Skipped(
                 f"пропущен флагом --no-browser (нужен браузер: "
                 f"{NEEDS_BROWSER_SET.get(name)})"))
     else:
-        for name in browser:
+        for name in browser_srcs:
             results.update(parallel({name: wrap(name)}, workers=1))
 
     all_vacancies: list[Vacancy] = []
@@ -328,7 +381,9 @@ def cmd_collect(args) -> int:
                       no_store=args.no_store,
                       no_browser=getattr(args, "no_browser", False),
                       args_dict=vars(args),
-                      raw_cache=getattr(args, "raw_cache", "write"))
+                      raw_cache=getattr(args, "raw_cache", "write"),
+                      auth_wait=getattr(args, "auth_wait", 0),
+                      browser=getattr(args, "browser", None))
     report, all_vacancies = res["report"], res["vacancies"]
     total = res["total"]
 

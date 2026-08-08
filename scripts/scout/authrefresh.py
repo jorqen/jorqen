@@ -40,6 +40,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 
@@ -460,6 +461,85 @@ def renew_shadowhint(*, browser: str | None = None) -> tuple[bool, str]:
 
 RENEWERS = {"hirehi": renew_hirehi, "careered": renew_careered,
             "shadowhint": renew_shadowhint}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Вход ПАРАЛЛЕЛЬНО обходу
+# ──────────────────────────────────────────────────────────────────────────────
+
+class Pending:
+    """Входы, которые человек проходит, ПОКА идёт обход остальных площадок.
+
+    Требование владельца 08.08.2026: скрипт сам просит вход, ждёт его и при
+    этом не останавливает анализ; пропущенную площадку называет вслух.
+
+    Раньше выбор был из двух плохих: либо войти ДО прогона (человек сидит и
+    ждёт, пока ничего не происходит), либо не входить вовсе (площадка молча
+    выпадает). Здесь третье — окно открывается сразу, а пул в это время
+    обходит всё, что входа не требует.
+
+    🔴 Поток ровно один, и площадки в нём идут ПО ОЧЕРЕДИ. Два окна разом
+    делят один постоянный профиль браузера, второе получает ProfileBusy, и в
+    покрытии появляется «УПАЛ» у площадки, которая не падала, — тот самый
+    ложный статус, из-за которого чинят работающее.
+    """
+
+    def __init__(self, platforms: list[str], *, wait: int, browser: str | None):
+        self.platforms = list(platforms)
+        self.wait, self.browser = wait, browser
+        self.results: dict[str, bool] = {}
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> "Pending":
+        if not self.platforms:
+            return self
+        self._thread = threading.Thread(target=self._run, daemon=True,
+                                        name="scout-auth")
+        self._thread.start()
+        return self
+
+    def _run(self) -> None:
+        for name in self.platforms:
+            try:
+                code = auth.login(name, wait=self.wait, browser=self.browser,
+                                  force=True)
+            except Exception as e:  # noqa: BLE001 — вход не повод рвать обход
+                print(f"вход {name}: не вышло — {type(e).__name__}: {e}",
+                      file=sys.stderr)
+                code = 1
+            self.results[name] = code == 0
+
+    def join(self, timeout: float | None = None) -> None:
+        """Дождаться входов. Обход к этому моменту уже отработал своё."""
+        if self._thread is not None:
+            self._thread.join(timeout)
+            forget()          # состояние сессий изменилось — пробы устарели
+
+    @property
+    def alive(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
+
+def needs_human(names: list[str], *, cookies_from: str | None = None) -> list[str]:
+    """Из запрошенных источников — те, кому нужен вход человека ПРЯМО СЕЙЧАС.
+
+    Отсекаются трое, и каждый по своей причине:
+
+    * кто и так жив — окно ему открывать незачем;
+    * кто продлевается сам (`can_renew`) — это делается без человека и быстрее;
+    * кому вход не нужен вовсе.
+
+    Порядок сохраняется из `ORDER`: сначала те, без кого волна станет неполной.
+    """
+    want = set(names)
+    out = []
+    for row in preflight(cookies_from):
+        if row["platform"] not in want:
+            continue
+        if row["state"] != "anonymous" or row["renewable"]:
+            continue
+        out.append(row["platform"])
+    return out
 
 
 def renew(platforms: list[str] | None = None, *, browser: str | None = None,
