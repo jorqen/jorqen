@@ -893,6 +893,130 @@ def test_tg_wave_is_one_post_and_never_sends_by_default():
            "предпросмотр не положил файл туда, куда просили (--out_dir мёртв)")
 
 
+def test_tg_wave_bot_path_is_stdlib_and_never_leaks_the_token():
+    """Второй транспорт: бот. Одно сообщение, только stdlib, токен не в выводе.
+
+    Зачем он вообще. Сессия аккаунта — предъявительский доступ ко ВСЕЙ
+    переписке, `.auth/` с машины не уезжает (инвариант 4), значит облачная
+    рутина писать от аккаунта не может в принципе. Токен бота ограничен теми
+    чатами, куда бота позвали, и отзывается одной командой в @BotFather.
+
+    🔴 Токен лежит В URL запроса, а логи облачной сессии видны глазами. Поэтому
+    тест ЛОМАЕТ отправку тремя способами и на каждом требует, чтобы токена в
+    сообщении не оказалось. Проверка «редактор вызывается» была бы вхолостую:
+    важно не то, что функция есть, а что через неё проходит каждый выход.
+    """
+    import contextlib
+    import io
+    import os
+    import tempfile
+    import urllib.error
+    import urllib.request
+
+    from . import store, tgwave
+
+    TOKEN = "8123456:AAH-secret-do-not-print"
+
+    eq(TOKEN in tgwave._redact(f"URL /bot{TOKEN}/sendDocument", TOKEN), False,
+       "_redact не вычистил токен из текста")
+    eq(tgwave._redact("bot 8123456: упал", TOKEN), "bot <токен>: упал",
+       "числовая часть токена должна вычищаться отдельно — она приезжает "
+       "в ошибках Telegram без хвоста")
+
+    # Окружение процесса главнее файла: в облаке файла нет вовсе.
+    with patched(os, "environ", {"TG_BOT_TOKEN": TOKEN, "TG_BOT_CHAT": "-100777"}):
+        eq(tgwave.bot_creds({"TG_MIRROR_CHAT": "-100111"}), (TOKEN, "-100777"),
+           "TG_BOT_CHAT обязан бить TG_MIRROR_CHAT из файла")
+    with patched(os, "environ", {"TG_BOT_TOKEN": TOKEN}):
+        eq(tgwave.bot_creds({"TG_MIRROR_CHAT": "-100111"}), (TOKEN, "-100111"),
+           "без TG_BOT_CHAT адресом обязан стать канал из файла")
+    with patched(os, "environ", {}):
+        eq(tgwave.bot_creds({}), None, "без токена ботом слать нечем")
+
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "wave-2026-08-08.md")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("shortlist: 7 вакансий\n")
+
+        sent: list[tuple[str, bytes, str]] = []
+
+        class _Resp:
+            def __init__(self, blob): self.blob = blob
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self): return self.blob
+
+        def fake_open(req, timeout=None):
+            sent.append((req.full_url, req.data, req.headers.get("Content-type", "")))
+            return _Resp(b'{"ok":true,"result":{"message_id":4242}}')
+
+        with patched(urllib.request, "urlopen", fake_open):
+            got = tgwave.send_bot(TOKEN, "-100777", path, "Волна: 7 новых вакансий")
+        eq(got, 4242, "id сообщения разобран неверно")
+        eq(len(sent), 1, "пост о волне обязан уходить ОДНИМ запросом")
+        url, body, ctype = sent[0]
+        eq(url.endswith("/sendDocument"), True, f"ушло не в sendDocument: {url}")
+        eq(ctype.startswith("multipart/form-data; boundary="), True,
+           f"тело собрано не как multipart: {ctype!r}")
+        eq(b'name="chat_id"' in body and b"-100777" in body, True,
+           "в теле нет адреса канала")
+        eq(b"shortlist: 7" in body, True, "файл со списком в тело не попал")
+        eq(b"parse_mode" in body, False,
+           "разметка включена: названия вакансий — чужой текст, `_` и `*` "
+           "в них дают 400 на ровном месте")
+
+        # Поломка первая: Telegram ответил ошибкой HTTP с телом-объяснением.
+        def http_error(req, timeout=None):
+            raise urllib.error.HTTPError(
+                req.full_url, 400, "Bad Request", {},
+                io.BytesIO(b'{"ok":false,"description":"chat not found"}'))
+
+        with patched(urllib.request, "urlopen", http_error):
+            try:
+                tgwave.send_bot(TOKEN, "-100777", path, "подпись")
+                FAILS.append("отказ Telegram проглочен — рутина решит, что отправила")
+            except RuntimeError as e:
+                eq("chat not found" in str(e), True,
+                   f"причина отказа потеряна, чинить нечего: {e}")
+                eq(TOKEN in str(e), False, f"ТОКЕН УТЁК В ОШИБКУ: {e}")
+
+        # Поломка вторая: сети нет. `e.reason` часто несёт url целиком.
+        def no_net(req, timeout=None):
+            raise urllib.error.URLError(f"нет маршрута до {req.full_url}")
+
+        with patched(urllib.request, "urlopen", no_net):
+            try:
+                tgwave.send_bot(TOKEN, "-100777", path, "подпись")
+                FAILS.append("недоступность сети проглочена")
+            except RuntimeError as e:
+                eq(TOKEN in str(e), False, f"ТОКЕН УТЁК В ОШИБКУ СЕТИ: {e}")
+
+        # Поломка третья: HTTP 200, но ok=false — так Telegram отвечает чаще
+        # всего, и путь «успех по коду, отказ по телу» легко пропустить.
+        with patched(urllib.request, "urlopen",
+                     lambda req, timeout=None: _Resp(
+                         b'{"ok":false,"description":"bot was blocked"}')):
+            try:
+                tgwave.send_bot(TOKEN, "-100777", path, "подпись")
+                FAILS.append("ok=false при HTTP 200 проглочен")
+            except RuntimeError as e:
+                eq("bot was blocked" in str(e), True, f"причина потеряна: {e}")
+
+        # `--via bot` без токена обязан отказать, а не подменить транспорт
+        # молча: рутина с отвалившимся токеном иначе напишет от владельца.
+        db = os.path.join(d, "w.db")
+        with store.connect(db) as conn:
+            conn.execute("SELECT 1")
+        with patched(os, "environ", {}), \
+                patched(urllib.request, "urlopen", fake_open), \
+                contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()):
+            code = tgwave.run(db, days=3, date="2026-08-08", apply=True,
+                              out_dir=d, via="bot")
+        eq(code, 2, "--via bot без токена обязан вернуть отказ")
+        eq(len(sent), 1, "без токена в сеть не должно уйти ничего")
+
+
 def test_funnel_does_not_call_a_page_view_an_answer():
     """Воронка обязана считать честно — иначе она хуже, чем её отсутствие.
 
@@ -1407,6 +1531,7 @@ def main() -> int:
             test_card_gives_the_whole_contact_picture_and_names_the_barriers,
             test_tally_splits_the_gap_between_claimed_and_kept,
             test_tg_wave_is_one_post_and_never_sends_by_default,
+            test_tg_wave_bot_path_is_stdlib_and_never_leaks_the_token,
             test_funnel_does_not_call_a_page_view_an_answer,
             test_doctor_diagnoses_without_touching_the_network,
             test_pause_charges_the_request_time_against_the_interval,

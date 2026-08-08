@@ -336,6 +336,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="отправить (без него — только предпросмотр)")
     tw.add_argument("--force", action="store_true",
                     help="отправить повторно волну, которая уже уходила в канал")
+    tw.add_argument("--via", choices=("auto", "bot", "user"), default="auto",
+                    help="чем слать: bot — через TG_BOT_TOKEN (так работает "
+                         "облачная рутина), user — от своего аккаунта через "
+                         "telethon, auto — ботом, если есть токен")
     tw.set_defaults(func=cmd_tg_wave)
 
     fn = sub.add_parser("funnel", parents=[common],
