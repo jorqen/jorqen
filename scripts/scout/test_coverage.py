@@ -659,6 +659,46 @@ def test_wavedoc_never_overwrites_a_document_with_judgement_in_it():
                f"скелет затёр дописанное суждение ({why})")
 
 
+def test_doctor_diagnoses_without_touching_the_network():
+    """`doctor` обязан быть дешёвым и не врать про отсутствие как про поломку.
+
+    Дешёвым: команду запускают «на всякий случай» в начале сессии, и если она
+    иногда уходит в сеть на минуту, её перестают запускать. Проверяется не
+    обещанием в докстроке, а подменой всех четырёх выходов наружу на взрыв.
+
+    Не врать: нет ключа jooble — площадка выключена, это ⚠️. 🔴 остаётся за тем,
+    из-за чего волна упадёт или соврёт, и по числу 🔴 команда возвращает код."""
+    import os
+    import socket
+    import tempfile
+
+    from . import doctor, store
+
+    def boom(*a, **k):
+        raise AssertionError("doctor ушёл в сеть — он обязан читать только диск")
+
+    with tempfile.TemporaryDirectory() as d:
+        db = os.path.join(d, "d.db")
+        with store.connect(db) as conn:
+            conn.execute("SELECT 1")
+        # Затыкается САМ сокет, а не наши обёртки: проверка должна ловить любой
+        # поход наружу, включая тот, который добавят завтра в обход `net.fetch`.
+        with patched(socket, "create_connection", boom):
+            lines, bad = doctor.report(db)
+    text = "\n".join(lines)
+
+    eq(bad, 0, f"на чистой машине поломок быть не должно, а насчитано {bad}")
+    for section in ("Окружение", "База", "Браузер", "Ключи площадок",
+                    "Сессии", "Секреты", "Диск"):
+        eq(f"## {section}" in text, True, f"раздел «{section}» пропал из отчёта")
+    eq("прогонов ещё не было" in text, True,
+       "пустая база обязана сказать, что прогонов не было, а не молчать")
+    # Ни один ⚠️ не имеет права поднять код возврата: выключенная площадка —
+    # это состояние, а не авария, и `doctor` в рутине не должен падать из-за неё.
+    eq(doctor.WARN in text and bad == 0, True,
+       "выключенное посчитано поломкой — так команда падает на ровном месте")
+
+
 def test_pause_charges_the_request_time_against_the_interval():
     """Пауза — ограничитель ЧАСТОТЫ: считает уже потраченное, а не спит сверху.
 
@@ -948,6 +988,7 @@ def main() -> int:
             test_lint_letter_catches_the_generator_markers,
             test_wavedoc_slug_folds_legal_forms_and_transliterates,
             test_wavedoc_never_overwrites_a_document_with_judgement_in_it,
+            test_doctor_diagnoses_without_touching_the_network,
             test_pause_charges_the_request_time_against_the_interval,
             test_linkedin_empty_page_is_rechecked_before_calling_it_the_end,
             test_linkedin_throttling_is_a_pause_not_the_end_of_the_region,

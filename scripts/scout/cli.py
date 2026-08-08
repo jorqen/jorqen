@@ -735,6 +735,12 @@ def cmd_lint_cards(args) -> int:
     return cardfiles.cli_lint(args)
 
 
+def cmd_doctor(args) -> int:
+    """Что на этой машине сломано. Одна команда вместо четырёх и догадок."""
+    from . import doctor
+    return doctor.cli(args)
+
+
 def cmd_research(args) -> int:
     """Кэш вердиктов ресёрча: записать выясненное, чтобы не выяснять снова."""
     from . import store as _store
