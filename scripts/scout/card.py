@@ -25,6 +25,7 @@ import os
 import re
 
 from . import applyopt, payband, store, untrusted
+from . import contacts
 from .model import PLACEHOLDER_COMPANY, salary_str
 from .shortlist import _has, norm, own_text_payload, required_years, rtw_flags
 
@@ -250,6 +251,75 @@ _UNPAID = re.compile(r"без оплаты|неоплачиваем\w*|unpaid|з
                      r"за опыт|for exposure", re.I)
 
 
+# Формальные барьеры — то, что режет АВТОФИЛЬТР или скрининг, а не человек.
+# Помечаются, но никогда не прячут вакансию: решение остаётся за моделью.
+#
+# Лид-тайтл. Правило владельца 30.07.2026: управленческой практики у него меньше
+# года, и «Lead в названии ВМЕСТЕ с требуемым стажем заметно выше формального» —
+# это отсев («точно минус» про Ростелеком Senior/Lead). Порознь ни то ни другое
+# барьером не является: тимлид-вакансии он рассматривает, а стаж выше формального
+# закрывается глубиной. Поэтому проверяются оба условия сразу.
+#
+# Регулярки ДВЕ, и это не дубль. В НАЗВАНИИ голое «Lead» — тот самый случай
+# («Ростелеком Senior/Lead»). В ТЕКСТЕ голое «lead» встречается в «leading
+# projects» и «lead the migration», то есть не значит ничего.
+_LEAD_IN_TITLE = re.compile(r"\b(?:lead|лид|техлид|тимлид|head of|"
+                            r"engineering manager|руководител\w+)\b", re.I)
+_LEAD_TITLE = re.compile(r"\b(?:team\s*lead|teamlead|tech\s*lead|техлид|тимлид|"
+                         r"руководител\w+\s+(?:группы|команды|отдела|разработки)|"
+                         r"head of|engineering manager)\b", re.I)
+# Требование управленческого стажа числом. Мягкие формулировки («опыт лидерства»,
+# «готов расти в управление») сюда НЕ попадают намеренно — их владелец просил
+# показывать.
+_LEAD_YEARS = re.compile(
+    r"(?:опыт\w*\s+)?(?:управлени\w+|руководств\w+|лидерств\w+)[^.\n]{0,40}?"
+    r"(?:от\s+)?(\d+)\s*(?:лет|год)|"
+    r"(\d+)\+?\s*years?[^.\n]{0,30}?(?:managing|leading|management|leadership)", re.I)
+# Требование гражданства или локального трудоустройства. Отличается от гео-метки:
+# «Türkiye, Remote» — метка, «right to work in Türkiye» — барьер (так отпал
+# Acronis). У владельца турецкая виза временная, ВНЖ и гражданства нет.
+_HARD_RTW = re.compile(
+    r"right to work in|must be (?:a )?(?:citizen|resident)|"
+    r"(?:eu|us|uk|turkish|israeli)\s+(?:citizenship|passport|work permit)|"
+    r"local (?:employment )?contract required|"
+    r"гражданств\w+\s+(?:РФ|России|обязательн)|"
+    r"(?:внж|вид на жительство)\s+обязательн|только для граждан", re.I)
+
+
+def barriers(row: dict, payload: dict | None, years: int | None) -> list[str]:
+    """Формальные барьеры: то, обо что режет автофильтр или скрининг.
+
+    Здесь МЕХАНИКА, а не суждение: каждый пункт — проверяемый факт из текста
+    вакансии, а решение «идём или нет» остаётся модели. Скрипт помечает и
+    никогда не прячет — правило владельца.
+    """
+    out: list[str] = []
+    title = row.get("title") or ""
+    text = " ".join(str((payload or {}).get(k) or "")
+                    for k in ("description", "requirements", "apply_note", "title"))
+
+    lead = bool(_LEAD_IN_TITLE.search(title) or _LEAD_TITLE.search(text))
+    m = _LEAD_YEARS.search(text)
+    lead_years = next((int(g) for g in (m.groups() if m else ()) if g), None)
+    if lead and years is not None and years > FORMAL_YEARS:
+        out.append(f"🚧 ЛИД-ТАЙТЛ + стаж {years} лет при формальных {FORMAL_YEARS} — "
+                   f"по правилу владельца это отсев. Порознь ни то ни другое "
+                   f"барьером не является, вместе — да")
+    if lead_years is not None and lead_years >= 2:
+        out.append(f"🚧 требуют {lead_years} лет УПРАВЛЕНИЯ командой — "
+                   f"управленческой практики меньше года, это формальный барьер. "
+                   f"Мягкая формулировка была бы не барьером, эта — числом")
+    elif lead and not out:
+        out.append("🚧 лид-роль без числа лет управления — рассматривается: "
+                   "техлидство и ключевые решения есть, формальной должности нет")
+
+    if _HARD_RTW.search(text):
+        out.append("🚧 требуют ГРАЖДАНСТВО или локальный договор — это барьер, "
+                   "а не гео-метка: виза в Турцию временная, ВНЖ и гражданства "
+                   "нет (так отпал Acronis)")
+    return out
+
+
 def flags(row: dict, payload: dict | None, years: int | None,
           rtw: str) -> list[str]:
     """Красные и зелёные флаги. Каждый — проверяемое утверждение, не впечатление."""
@@ -364,19 +434,31 @@ def build(conn, url: str, *, skills: list[str] | None = None,
     opts = store.apply_options(conn, r["source"], r["external_id"]) \
         or applyopt.gather(dict(r, raw=raw_dict), payload)
     best = applyopt.best(opts)
-    if best:
-        out.append(f"- **Куда откликаться:** {best}")
+    res = store.research(conn, r["source"], r["external_id"])
     ch = conn.execute("SELECT channel, kind FROM employer_channel WHERE company_key=?",
                       (norm(r["company"]),)).fetchone() if r["company"] else None
-    if ch:
-        out.append(f"- **Канал найма (кэш):** {ch['kind'] or '—'} {ch['channel']}")
-    contact = (raw_dict or {}).get("contact")
-    if contact:
-        out.append(f"- **Контакт из поста:** {contact}")
 
-    res = store.research(conn, r["source"], r["external_id"])
+    # ── Связь: ВСЁ, что известно, одним разделом ─────────────────────────────
+    # Раньше здесь стояла одна строка «Куда откликаться» с лучшим маршрутом, а
+    # остальные пути (их собирает `applyopt.gather`) не печатались нигде. Правило
+    # владельца 08.08.2026: скрипт даёт максимально полную картину, модель просто
+    # выбирает — или не выбирает вовсе. Выбор за неё сделан и помечен ЛУЧШИЙ,
+    # но остальное видно: на одной площадке вакансия жива, на другой снята.
+    out.append("")
+    out.append("### Связь — всё известное, выбирать не обязательно")
+    out += applyopt.render(opts, best)
+    found = contacts.gather(dict(r), payload, raw_dict)
+    out += contacts.render(found)
+    if ch:
+        out.append(f"  · канал найма компании (кэш ресёрча): "
+                   f"{ch['kind'] or '—'} {ch['channel']}")
     if res and res.get("employer_revealed"):
-        out.append(f"- **Работодатель раскрыт ранее:** {res['employer_revealed']}")
+        out.append(f"  · работодатель раскрыт ранее: {res['employer_revealed']}")
+    if not (found["email"] or found["telegram"] or ch):
+        out.append("  прямого контакта не нашлось — остаётся форма на площадке; "
+                   "искать careers-страницу имеет смысл только для тех, "
+                   "куда правда пишешь")
+    out += contacts.apply_form(dict(r), payload, best)
 
     # Состояние страницы, если выжимка успела его записать. Снятая вакансия
     # разбирается площадкой в полноценную страницу и в карточке выглядит живой —
@@ -410,6 +492,16 @@ def build(conn, url: str, *, skills: list[str] | None = None,
         out += [f"- {line}" for line in untrusted.format_findings(found)]
     else:
         out.append("- ✅ обращений к ассистенту и подмены инструкций не найдено")
+
+    out.append("")
+    out.append("### Формальные барьеры")
+    br = barriers(r, payload, years)
+    if br:
+        out += [f"- {b}" for b in br]
+        out.append("_Барьер — это то, обо что режет автофильтр или скрининг, "
+                   "а не приговор вакансии. Скрипт помечает, решаешь ты._")
+    else:
+        out.append("- формальных барьеров не найдено")
 
     out.append("")
     out.append("### Флаги")

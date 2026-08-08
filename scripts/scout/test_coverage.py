@@ -688,6 +688,72 @@ def test_wavedoc_never_overwrites_a_document_with_judgement_in_it():
                f"скелет затёр дописанное суждение ({why})")
 
 
+def test_card_gives_the_whole_contact_picture_and_names_the_barriers():
+    """Три вещи, которые модель выясняла заново в каждой волне.
+
+    (1) КОНТАКТЫ. Правило владельца 08.08.2026: скрипт даёт максимально полную
+    картину, модель просто выбирает лучший вариант — или не выбирает вовсе.
+    Раньше в карточке стояла одна строка «Куда откликаться», а остальные
+    маршруты и вовсе не печатались; почта и телефон из реестра trudvsem
+    добывались ресёрчем на каждую компанию.
+
+    (2) ФОРМА ОТКЛИКА. «В анкете шесть вопросов — письмо туда не вставить» —
+    это данные, а не суждение. Текст письма остаётся модели.
+
+    (3) БАРЬЕРЫ. Правило владельца 30.07.2026: Lead-тайтл ВМЕСТЕ с завышенным
+    стажем — отсев, порознь — нет. Оно жило только в переписке."""
+    from . import contacts
+    from .card import barriers
+
+    # Контакт из ГОСУДАРСТВЕННОГО реестра и контакт из чужого текста — разные
+    # факты, и строка обязана говорить, который из них перед тобой.
+    found = contacts.gather(
+        {"title": "Go"},
+        {"description": "пишите на hr@acme.io или @acme_hr, тел. +7 495 123 45 67"},
+        {"contact": "ООО Ромашка, jobs@romashka.ru"})
+    eq([c["value"] for c in found["email"]], ["jobs@romashka.ru", "hr@acme.io"],
+       "почта из реестра площадки обязана идти ПЕРВОЙ — она не догадка")
+    eq(found["telegram"][0]["value"], "@acme_hr", "телеграм-ник не найден")
+    eq(len(found["phone"]), 1, "телефон не найден")
+    rendered = "\n".join(contacts.render(found))
+    eq("реестр площадки" in rendered and "описание вакансии" in rendered, True,
+       "не сказано, откуда взят каждый контакт — а это чужой текст")
+
+    # Отсеивается только то, что не читает ЧЕЛОВЕК, и артефакты вёрстки.
+    # `support@` остаётся намеренно: у маленькой компании это единственный живой
+    # адрес, а правило владельца требует полной картины — отсекать будет он.
+    junk = contacts.gather(
+        {}, {"description": "noreply@x.io logo@2x.png postmaster@x.io support@x.io"},
+        None)
+    eq([c["value"] for c in junk["email"]], ["support@x.io"],
+       f"отсев адресов разошёлся с задуманным: {junk['email']}")
+
+    # Форма отклика: анкета и «хватит резюме» — разные вердикты.
+    quiz = contacts.apply_form({}, {"questions": ["Почему мы?", "Ваш стек?"]}, None)
+    eq(any("АНКЕТА из 2" in s for s in quiz), True, "анкета не названа числом вопросов")
+    cv = contacts.apply_form({}, {"description": "достаточно резюме, "
+                                                 "сопроводительное не нужно"}, None)
+    eq(any("НЕ нужно" in s for s in cv), True,
+       "работодатель написал, что письмо не нужно, а карточка молчит")
+
+    # Барьеры. Каждый случай — реальное решение владельца, а не выдумка.
+    def one(title, text, years):
+        return " ".join(barriers({"title": title}, {"description": text}, years))
+
+    eq("ЛИД-ТАЙТЛ" in one("Senior/Lead Go Developer", "Go от 7 лет", 7), True,
+       "Lead вместе с завышенным стажем — отсев по правилу владельца, он не назван")
+    eq(one("Go Developer", "опыт лидерства приветствуется", 3), "",
+       "мягкая формулировка лидерства объявлена барьером — её просили показывать")
+    eq(one("Go Developer", "you will be leading projects", 3), "",
+       "«leading projects» в теле принято за лид-роль")
+    eq("УПРАВЛЕНИЯ" in one("Go Developer", "опыт управления командой от 3 лет", 4),
+       True, "требование лет управления числом — барьер, он не назван")
+    eq("ГРАЖДАНСТВО" in one("Go Dev", "You must have the right to work in Türkiye", 3),
+       True, "требование права на работу — барьер (так отпал Acronis)")
+    eq(one("Go Dev", "Türkiye, Remote. Visa support available", 3), "",
+       "гео-метка с визовой поддержкой принята за барьер")
+
+
 def test_doctor_diagnoses_without_touching_the_network():
     """`doctor` обязан быть дешёвым и не врать про отсутствие как про поломку.
 
@@ -1104,6 +1170,7 @@ def main() -> int:
             test_lint_letter_catches_the_generator_markers,
             test_wavedoc_slug_folds_legal_forms_and_transliterates,
             test_wavedoc_never_overwrites_a_document_with_judgement_in_it,
+            test_card_gives_the_whole_contact_picture_and_names_the_barriers,
             test_doctor_diagnoses_without_touching_the_network,
             test_pause_charges_the_request_time_against_the_interval,
             test_linkedin_empty_page_is_rechecked_before_calling_it_the_end,
