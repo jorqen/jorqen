@@ -1262,6 +1262,8 @@ K-суффиксом (а период он ДОГАДЫВАЕТСЯ по вел�
 .venv/bin/python -m scripts.scout.test_sources_auth   # сессионные парсеры, на фикстурах
 .venv/bin/python -m scripts.scout.test_atsapi         # ATS-семейства, на фикстурах
 .venv/bin/python -m scripts.scout.test_profile        # отбор технологии от канцелярита ATS
+.venv/bin/python -m scripts.scout.test_store          # состояние: усечение, заметки, миграции
+.venv/bin/python -m scripts.scout.test_coverage       # полнота обхода: пагинация, окно, фильтр
 .venv/bin/python -m scripts.scout.test_e2e            # СКВОЗНОЙ: с живым обходом площадок
 .venv/bin/python -m scripts.scout.test_e2e --offline  # он же без сети
 .venv/bin/python -m scripts.scout.test_e2e --fast     # без браузерных площадок

@@ -38,7 +38,7 @@ for m in test_scout test_store test_coverage test_sources_web \
          test_sources_auth test_atsapi test_profile; do
   .venv/bin/python -m scripts.scout.$m || break
 done
-.venv/bin/python -m scripts.scout.test_e2e --offline   # шестой, обязательно с --offline
+.venv/bin/python -m scripts.scout.test_e2e --offline   # восьмой, обязательно с --offline
 ```
 
 **`test_e2e` БЕЗ `--offline` делает живой обход всех площадок** — это десятки
