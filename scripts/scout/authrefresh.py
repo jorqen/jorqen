@@ -523,22 +523,31 @@ class Pending:
 def needs_human(names: list[str], *, cookies_from: str | None = None) -> list[str]:
     """Из запрошенных источников — те, кому нужен вход человека ПРЯМО СЕЙЧАС.
 
-    Отсекаются трое, и каждый по своей причине:
+    Отсекаются четверо, и каждый по своей причине:
 
     * кто и так жив — окно ему открывать незачем;
     * кто продлевается сам (`can_renew`) — это делается без человека и быстрее;
-    * кому вход не нужен вовсе.
+    * кому вход не нужен вовсе;
+    * кто за управляемым Cloudflare — 🔴 окно под управлением скрипта такая
+      площадка блокирует наглухо (замер на wantapply 08.08.2026, три попытки).
+      Вход туда делается в ПОВСЕДНЕВНОМ браузере, а сборщик читает куку оттуда.
+      Позвать сюда такую площадку значит открыть окно с отказом, получить от
+      `login` код 0 («инструкция напечатана») и записать это как выполненный
+      вход — то есть соврать в отчёте о полноте обхода.
 
     Порядок сохраняется из `ORDER`: сначала те, без кого волна станет неполной.
     """
     want = set(names)
     out = []
     for row in preflight(cookies_from):
-        if row["platform"] not in want:
+        name = row["platform"]
+        if name not in want:
             continue
         if row["state"] != "anonymous" or row["renewable"]:
             continue
-        out.append(row["platform"])
+        if (auth.PLATFORMS.get(name) or {}).get("cloudflare"):
+            continue
+        out.append(name)
     return out
 
 

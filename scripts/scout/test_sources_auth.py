@@ -1770,8 +1770,22 @@ def test_login_runs_beside_the_crawl_not_instead_of_it():
              "why": "", "loss": "", "critical": False}]
     with patched(authrefresh, "preflight", lambda *a, **k: rows):
         eq(authrefresh.needs_human(["wantapply", "shadowhint", "hirehi", "jobicy"]),
-           ["wantapply"],
-           "окно открывается не тому: живых и продлеваемых спрашивать незачем")
+           [],
+           "окно открывается не тому: живых, продлеваемых и тех, кто за "
+           "управляемым Cloudflare, спрашивать окном незачем")
+
+        # 🔴 wantapply отсекается ИМЕННО по метке cloudflare, а не потому, что
+        # его забыли. Замер 08.08.2026, три попытки подряд: окно под управлением
+        # скрипта площадка блокирует наглухо, `login` печатает инструкцию и
+        # возвращает 0, а `Pending` записал бы это как ВЫПОЛНЕННЫЙ вход — то
+        # есть соврал бы в отчёте о полноте обхода. Снимаем метку — площадка
+        # обязана снова попасть в список.
+        cfg = dict(auth.PLATFORMS["wantapply"])
+        cfg.pop("cloudflare", None)
+        with patched(auth, "PLATFORMS", {**auth.PLATFORMS, "wantapply": cfg}):
+            eq(authrefresh.needs_human(["wantapply", "shadowhint"]), ["wantapply"],
+               "без метки cloudflare площадка должна спрашиваться окном — "
+               "значит отсекается она именно меткой, а не случайно")
 
     # Очерёдность и результат.
     order: list[str] = []
