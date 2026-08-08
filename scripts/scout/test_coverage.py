@@ -451,6 +451,147 @@ def test_connect_works_without_a_directory_in_the_path():
             os.chdir(cwd)
 
 
+def test_liveness_reads_archive_markers_not_only_http_code():
+    """Живость: 200 OK у архивной вакансии — самый частый способ соврать.
+
+    🔴 Требование владельца 08.08.2026: живость проверяется скриптом, а не на
+    веру. `check-links` умел только ATS-доски и на всё остальное отвечал «не
+    ATS-ссылка, живость по API не проверить» — то есть по 40 карточкам волны из
+    50 ответа не было вовсе. При этом площадки архив помечают честно, просто
+    внутри страницы: hh отдаёт «Вакансия в архиве» с кодом 200, careered ставит
+    `archived`, а закрытый набор пишет «больше не принимает отклики».
+
+    Отдельно проверяется, что живая страница НЕ объявляется мёртвой: ложная
+    смерть выбрасывает годную вакансию, и это дороже лишней проверки глазами."""
+    from .card import liveness_from_page
+
+    dead = [
+        ("<h1>Вакансия в архиве</h1>", "hh: архив не распознан"),
+        ("<div>Эта вакансия больше не принимает отклики</div>", "закрытый набор не распознан"),
+        ('{"status":"archived","title":"Go dev"}', "archived в JSON не распознан"),
+        ("<p>This job is no longer accepting applications</p>", "английский архив не распознан"),
+        ("<h1>404</h1><p>Not Found</p>", "404 в теле не распознан"),
+    ]
+    for html, why in dead:
+        verdict, _ = liveness_from_page(html, 200)
+        if verdict != "МЕРТВА":
+            FAILS.append(f"{why}: получено {verdict!r}")
+
+    alive = ("<h1>Senior Go Developer</h1><p>Требования: опыт Go от 3 лет. "
+             "Откликнуться на вакансию.</p>")
+    v, _ = liveness_from_page(alive, 200)
+    eq(v, "ЖИВА", "живая вакансия объявлена мёртвой — это выброшенный отклик")
+
+    # Код важнее текста: 404 и 410 сомнений не оставляют.
+    eq(liveness_from_page("<h1>Go Developer</h1>", 404)[0], "МЕРТВА", "404 не учтён")
+    eq(liveness_from_page("<h1>Go Developer</h1>", 410)[0], "МЕРТВА", "410 не учтён")
+    # А 403 это стена, а не смерть: за ней вакансия обычно жива.
+    eq(liveness_from_page("", 403)[0], "НЕИЗВЕСТНО",
+       "антибот-стена принята за смерть вакансии")
+
+    # 🔴 Маркеры ищутся в ВИДИМОМ тексте, а не во всём HTML. Живой случай
+    # 08.08.2026, и он едва не стоил двенадцати вакансий: hh отдаёт страницу
+    # с кодом 200, внутри которой в JS-коде Sentry лежит «Method not found».
+    # Проверка объявила МЁРТВЫМИ все двенадцать hh-вакансий волны, включая
+    # опубликованные накануне. Ложная смерть выбрасывает годную вакансию
+    # целиком — это дороже любого пропущенного архива.
+    js_noise = ('<html><head><script>var e=["Error invoking post: Method not '
+                'found","promise rejection"]</script></head>'
+                '<body><h1>Senior Go Developer</h1>'
+                '<div>Требования: опыт Go от 3 лет</div></body></html>')
+    v, why = liveness_from_page(js_noise, 200)
+    eq(v, "ЖИВА", f"мусор из <script> принят за архив вакансии: {why}")
+
+    # 🔴 И то же самое во ВСТРОЕННОМ JSON. Живой случай того же дня, вторая
+    # ложная смерть за один прогон: hh кладёт в страницу словарь локализации,
+    # где среди тысяч строк лежит "applicant.negotiations.vacancyArchived":
+    # "Вакансия в архиве". Проверка приняла ключ словаря за состояние вакансии
+    # и объявила мёртвой живую позицию GS Labs, которую браузер тут же отдал
+    # с кнопкой «Откликнуться» и счётчиком «смотрят 4 человека».
+    i18n = ('<h1>Go developer (Middle)</h1><p>Требования: Go от 3 лет</p>'
+            '<div>&#34;applicant.negotiations.vacancyArchived&#34;:'
+            '&#34;Вакансия в архиве&#34;,&#34;applicant.negotiations.write&#34;:'
+            '&#34;Добавить сопроводительное письмо&#34;</div>')
+    v3, why3 = liveness_from_page(i18n, 200)
+    eq(v3, "ЖИВА", f"строка словаря локализации принята за архив: {why3}")
+    # А настоящая плашка архива, набранная как текст, ловиться обязана.
+    real = "<h1>Go developer</h1><div>Вакансия в архиве</div><p>Требования</p>"
+    eq(liveness_from_page(real, 200)[0], "МЕРТВА",
+       "настоящая плашка архива перестала ловиться")
+
+    # Антибот-страница — «площадка не ответила», а не «вакансии нет». careerjet
+    # отдаёт «Требуется подтверждение… Наши системы обнаружили необычный трафик»
+    # с кодом 200, и вердикт «не похоже на страницу вакансии» технически верен,
+    # но не говорит, что делать. Детектор общий с обходом (webcommon).
+    wallish = ('<html><head><title>Just a moment...</title></head>'
+               '<body><div class="cf_chl_opt">Проверка</div></body></html>')
+    vw, ww = liveness_from_page(wallish, 200)
+    eq(vw, "НЕИЗВЕСТНО", f"антибот-страница не опознана как стена: {ww}")
+    if "стена" not in ww:
+        FAILS.append(f"вердикт про стену не объясняет причину: {ww!r}")
+
+    # Редирект на страницу-проверку — это стена, а не смерть.
+    v2, _ = liveness_from_page("<h1>Проверка</h1>", 200,
+                               final_url="https://hh.ru/vpncheeck?backUrl=%2Fvacancy%2F1")
+    eq(v2, "НЕИЗВЕСТНО", "редирект на антибот-проверку принят за ответ о вакансии")
+
+
+def test_requirement_tier_separates_must_have_from_nice_to_have():
+    """«Обязательно» и «будет плюсом» — разные вещи, и путать их дорого.
+
+    🔴 Требование владельца 08.08.2026: отсев допустим только по НЕзакрытому
+    обязательному пункту; несоответствие желательному — не повод прятать
+    вакансию. Пока карточка печатала плоский список, это решение принималось на
+    глаз, и одна вакансия (SaltWort) уже была отсеяна по требованию, которое
+    стояло в разделе «желательно», а обязательным там был совсем другой пункт —
+    и он у него закрыт.
+
+    Разметка идёт двумя способами сразу: пометкой внутри самой строки
+    («обязательно!», «must have») и заголовком раздела, под которым строка
+    стоит («Будет плюсом:», «Nice to have»), — потому что вживую встречаются
+    оба, а чаще второй."""
+    from .card import requirement_tier
+
+    must = ("Опыт разработки облачных платформ – обязательно!",
+            "Коммерческий опыт работы с Matrix - обязательно",
+            "Go from 5 years, must have",
+            "Required: strong Kubernetes knowledge")
+    nice = ("Будет плюсом опыт в сфере AdTech",
+            "Опыт автоматизации инфраструктуры, желательно геораспределенной",
+            "Nice to have: GraphQL",
+            "Knowledge of Rust is a plus",
+            "Приветствуется опыт с ClickHouse")
+    for r in must:
+        eq(requirement_tier(r), "must", f"не распознано как обязательное: {r!r}")
+    for r in nice:
+        eq(requirement_tier(r), "nice", f"не распознано как желательное: {r!r}")
+    # Без пометки — «не сказано». Додумывать нельзя в обе стороны: назвать
+    # обязательным то, что таковым не помечено, значит отсеять вакансию зря.
+    eq(requirement_tier("Уверенное владение Docker, Kubernetes, CI/CD"), "",
+       "требование без пометки объявлено обязательным")
+
+    # Заголовок раздела распространяется на строки под ним, пока не сменится.
+    from .card import tier_by_section
+    block = ["Требования:", "Go от 3 лет", "PostgreSQL",
+             "Будет плюсом:", "опыт в финтехе", "Kafka"]
+    tiers = tier_by_section(block)
+    eq(tiers.get("Go от 3 лет"), "must", "строка под «Требования:» не помечена обязательной")
+    eq(tiers.get("опыт в финтехе"), "nice", "строка под «Будет плюсом:» не помечена желательной")
+    eq(tiers.get("Kafka"), "nice", "раздел «плюсом» не распространился до конца блока")
+
+    # 🔴 …но нейтральный заголовок раздел СБРАСЫВАЕТ. Живой случай Remoby: после
+    # блока «Будет плюсом» шли «Задачи», и обязанности уезжали в карточку
+    # помеченными как желательные — то есть таблица врала про то, что от
+    # человека реально требуют.
+    block2 = ["Требования:", "Go от 5 лет", "Будет плюсом:", "опыт в AdTech",
+              "Задачи:", "Разрабатывать высоконагруженные сервисы на Go"]
+    t2 = tier_by_section(block2)
+    eq(t2.get("Go от 5 лет"), "must", "требование под «Требования:» потеряло уровень")
+    eq(t2.get("опыт в AdTech"), "nice", "«плюсом» не проставлен")
+    eq(t2.get("Разрабатывать высоконагруженные сервисы на Go"), "",
+       "раздел «плюсом» протёк на задачи — обязанность помечена желательной")
+
+
 def test_card_files_layout_and_lint():
     """Раскладка карточек и их проверка — механика, а не работа глазами.
 
@@ -480,6 +621,19 @@ def test_card_files_layout_and_lint():
        "оставшаяся заглушка не поймана")
     eq(len(check_card(ok_card.replace("письмо", "⚠️ проверь"))), 1,
        "оставшееся предупреждение не поймано")
+    # 🔴 …но предупреждения, которые печатает САМ генератор, недоделкой не
+    # являются. Дисклеймер «это оценка, а не вилка работодателя» обязателен в
+    # блоке «Сколько просить», и требовать его стереть — значит требовать
+    # соврать про происхождение цифры. Пока правило ловило любой ⚠️,
+    # `lint-cards` ругался на собственный вывод `card --write`: три карточки
+    # волны 08.08.2026 объявлены недоделанными из-за строки самого scout.
+    generated = ok_card.replace(
+        "письмо", "письмо\n\n- ⚠️ **Это ОЦЕНКА, а не вилка работодателя.**")
+    eq(check_card(generated), [],
+       f"линт ругается на собственный вывод card: {check_card(generated)}")
+    both = generated.replace("письмо\n", "письмо ⚠️ спросить про стаж\n", 1)
+    eq(len(check_card(both)), 1,
+       "среди служебных предупреждений потерялось настоящее")
 
     # ── Линт КАРТОЧКИ проверяет и письмо внутри неё ──────────────────────────
     # Письмо лежит в карточке, а проверка у него была отдельной командой: чтобы
@@ -653,6 +807,16 @@ def test_lint_letter_catches_the_generator_markers():
        "тире не поймано, а это главный маркер генератора")
     eq("dash" in codes("I built it — it worked."), True, "тире в английском не поймано")
     eq("word" in codes("Являюсь ключевым специалистом."), True, "слова-метки не пойманы")
+    # 🔴 …но ТОЛЬКО с начала слова. «данный» сидит внутри «неожиданный», и линтер
+    # требовал переписать живую фразу «это дало неожиданный побочный эффект»
+    # (живой случай 08.08.2026). Команда, которая ругается на нормальный текст,
+    # быстро перестаёт вызываться — и тогда настоящие маркеры тоже не ловятся.
+    for ok in ("Это дало неожиданный побочный эффект.",
+               "Задача оказалась неключевой, но интересной."):
+        if "word" in codes(ok):
+            FAILS.append(f"ложная тревога слова-метки на живой фразе: {ok!r}")
+    eq("word" in codes("В данный момент занимаюсь платформой."), True,
+       "«данный» отдельным словом обязан ловиться")
     eq("word" in codes("I am passionate about robust systems."), True,
        "английские слова-метки не пойманы")
     eq("phrase" in codes("Я не просто разработчик."), True, "оборот не пойман")
@@ -1241,6 +1405,64 @@ def test_doctor_diagnoses_without_touching_the_network():
        "раздел «Диск» исчез из отчёта вместо того, чтобы сказать о поломке")
 
     eq(bad, 0, f"на чистой машине поломок быть не должно, а насчитано {bad}")
+
+    # 🔴 Каждый опциональный пакет обязан быть НАЗВАН в отчёте. Проверяется не
+    # текущий набор, а полнота: doctor существует ради ответа «что сломано», и
+    # молчание про отсутствующий пакет — это ложное «всё на месте». Живой счёт
+    # 08.08.2026: imap_tools не проверялся, doctor сказал «всё на месте»,
+    # mail-sync упал этапом, и почта — единственный канал статусов для
+    # компаний, которые не пишут в hh, — не читалась всю волну.
+    for mod, _why in doctor.OPTIONAL:
+        if mod not in text:
+            FAILS.append(f"doctor не проверяет {mod}: его отсутствие пройдёт "
+                         f"молча, а сломается это уже посреди волны")
+    if "imap" not in text:
+        FAILS.append("doctor молчит про imap-tools — без него mail-sync падает, "
+                     "а отчёт рапортует, что всё на месте")
+
+    # 🔴 Пакет playwright и САМ браузер ставятся отдельно. Проверка импорта про
+    # второй не говорит ничего: 08.08.2026 doctor писал «playwright на месте»
+    # при пустом каталоге сборок, и всё браузерное молча не работало — render,
+    # channel --render и живость страниц за антибот-стеной.
+    import tempfile as _tf
+    with _tf.TemporaryDirectory() as empty:
+        with patched(os, "environ", {**os.environ, "PLAYWRIGHT_BROWSERS_PATH": empty}):
+            rows = doctor._browsers()
+    joined = " ".join(w for _, w in rows)
+    if rows and "playwright install" not in joined:
+        FAILS.append(f"doctor не сказал, что браузеров нет: {joined!r}")
+
+    # 🔴 `chromium` и `chromium_headless_shell` — разные сборки, ставятся
+    # раздельно, и render запускает вторую. «Есть хоть какой-то chromium»
+    # пропускало ровно тот случай, что случился 08.08.2026: doctor писал
+    # «браузеры на месте: chromium-1234», а render падал с «Executable doesn't
+    # exist at …/chromium_headless_shell-1234/…».
+    with _tf.TemporaryDirectory() as half:
+        os.mkdir(os.path.join(half, "chromium-1234"))
+        with patched(os, "environ", {**os.environ, "PLAYWRIGHT_BROWSERS_PATH": half}):
+            rows2 = doctor._browsers()
+    j2 = " ".join(w for _, w in rows2)
+    if rows2 and "headless" not in j2.lower():
+        FAILS.append(f"doctor засчитал chromium без headless-shell: {j2!r}")
+
+    # 🔴 Ветка «кэш ответов площадок» живёт только при НЕПУСТОМ кэше, и потому
+    # её никто не выполнял: на чистой машине и в тесте кэша нет. Внутри лежал
+    # импорт несуществующего имени (`RawCache` вместо `Cache`), то есть doctor
+    # падал ImportError ровно после первой волны — когда его и запускают первым
+    # делом. Пустая база тут не проверка, а слепое пятно.
+    # База нужна НАСТОЯЩИМ файлом: `:memory:` не существует на диске, и `_db`
+    # выходит первой же строкой «базы нет», не дойдя до кэша вовсе.
+    with tempfile.TemporaryDirectory() as d2:
+        db2 = os.path.join(d2, "cached.db")
+        with store.connect(db2) as conn:
+            conn.execute("SELECT 1")
+        with patched(store, "raw_cache_stats",
+                     lambda _c: {"pages": 510, "bytes": 5 * 1024 ** 2}), \
+                patched(authrefresh, "preflight", lambda *a, **k: alive):
+            cached_lines, _ = doctor.report(db2)
+    if not any("кэш ответов площадок" in ln for ln in cached_lines):
+        FAILS.append("doctor не доложил про кэш ответов при непустом кэше — "
+                     "ветка либо упала, либо молчит")
     for section in ("Окружение", "База", "Браузер", "Ключи площадок",
                     "Сессии", "Секреты", "Диск"):
         eq(f"## {section}" in text, True, f"раздел «{section}» пропал из отчёта")
@@ -1379,6 +1601,79 @@ def test_linkedin_throttling_is_a_pause_not_the_end_of_the_region():
                      "просто просила подождать")
     if S.LINKEDIN_RETRIES < 2:
         FAILS.append("отступ без повторов отступом не является")
+
+
+def test_linkedin_network_failure_keeps_what_was_already_collected():
+    """Обрыв соединения — потеря СТРАНИЦЫ, а не всего источника.
+
+    Живой случай 08.08.2026: прогон шёл 20 минут, 510 ответов легло в кэш, а
+    linkedin вернул НОЛЬ и строку «УПАЛ: URLError: Connection reset by peer».
+    Причина: `URLError` приходит как `FetchError` БЕЗ статуса, а перехват стоял
+    только на 429/403 — всё остальное уходило `raise` мимо накопленного `out`.
+    Это повтор инцидента glassdoor («стену бросает сам рендерер, разобранная
+    первая страница выброшена вместе с исключением»), и цена та же: сотни
+    карточек, за которые уже заплачено временем и вежливостью к площадке.
+
+    Здесь подделка бросает отказ ТАК ЖЕ, как он приходит живьём, — броском без
+    статуса, а не данными. Ровно на этом прошлый тест и зеленел вхолостую."""
+    from .net import FetchError
+    from .sources import Ctx, src_linkedin
+
+    def card(vid):
+        return ('<div class="base-card" '
+                f'data-entity-urn="urn:li:jobPosting:{vid}">'
+                f'<span class="sr-only">Senior Golang Developer</span>'
+                f'<a class="hidden-nested-link" href="/c">Acme</a>'
+                f'<span class="job-search-card__location">Berlin</span>'
+                f'<time datetime="{_fresh()[:10]}">вчера</time></div>')
+
+    class Reset(_FakeFetch):
+        def __call__(self, url, **kw):
+            self.asked.append(url)
+            if "start=0&" in url:
+                return "<ul>" + card(42) + "</ul>", url
+            # Так это приходит из net.fetch: URLError → FetchError без status.
+            raise FetchError(url, "URLError: <urlopen error [Errno 54] "
+                                  "Connection reset by peer>")
+
+    fake = Reset({})
+    got = _with_fake_fetch(fake, lambda: src_linkedin(Ctx(query="Golang", days=3)))
+    jobs = [v for v in got if v.external_id != "_summary"]
+    eq([v.external_id for v in jobs], ["42"],
+       "обрыв соединения унёс уже разобранные карточки — источник вернул ноль")
+    summary = [v for v in got if v.external_id == "_summary"][0]
+    if not any("НЕ ОТДАЛИСЬ" in n or "ОБРЫВ СВЯЗИ" in n for n in summary.raw["notes"]):
+        FAILS.append("страница потеряна молча: в сводке нет строки о том, что "
+                     "выдача не спрошена, — это читается как полный обход")
+
+
+def test_linkedin_dead_network_gives_up_instead_of_grinding_every_pair():
+    """Сеть легла — прекращаем источник, а не перебираем 27 пар по три попытки.
+
+    Предохранитель к правке выше. Без него честный повтор превращается в свою
+    противоположность: при полном обрыве каждая пара платит LINKEDIN_RETRIES
+    отступов с удвоением, и прогон стоит десятки минут ради нуля карточек —
+    ровно то, что и вышло 08.08.2026 (1191 с на пустую выдачу)."""
+    from . import sources as S
+    from .net import FetchError
+    from .sources import Ctx, src_linkedin
+
+    class Dead(_FakeFetch):
+        def __call__(self, url, **kw):
+            self.asked.append(url)
+            raise FetchError(url, "URLError: <urlopen error [Errno 54] "
+                                  "Connection reset by peer>")
+
+    fake = Dead({})
+    got = _with_fake_fetch(fake, lambda: src_linkedin(Ctx(query="Golang", days=3)))
+    summary = [v for v in got if v.external_id == "_summary"][0]
+    pairs = len(S.LINKEDIN_REGIONS) * len(S.Ctx(query="Golang", days=3).queries())
+    # Сдаться надо заметно раньше, чем перебрать все пары: иначе предохранителя нет.
+    if len(fake.asked) >= pairs * S.LINKEDIN_RETRIES:
+        FAILS.append(f"при мёртвой сети опрошены все пары ({len(fake.asked)} "
+                     f"запросов) — предохранитель не сработал")
+    if not any("ОБРЫВ СВЯЗИ" in n for n in summary.raw["notes"]):
+        FAILS.append("источник сдался молча — в сводке нет причины остановки")
 
 
 def test_linkedin_stops_where_the_search_drifts_off_topic():
@@ -1621,6 +1916,8 @@ def main() -> int:
             test_brief_shows_other_roles_of_the_same_company,
             test_since_auto_never_narrows_below_a_day,
             test_connect_works_without_a_directory_in_the_path,
+            test_liveness_reads_archive_markers_not_only_http_code,
+            test_requirement_tier_separates_must_have_from_nice_to_have,
             test_card_files_layout_and_lint,
             test_health_tells_a_dead_source_from_an_off_profile_one,
             test_cache_hit_does_not_pay_for_politeness,
@@ -1639,6 +1936,8 @@ def main() -> int:
             test_pause_charges_the_request_time_against_the_interval,
             test_linkedin_empty_page_is_rechecked_before_calling_it_the_end,
             test_linkedin_throttling_is_a_pause_not_the_end_of_the_region,
+            test_linkedin_network_failure_keeps_what_was_already_collected,
+            test_linkedin_dead_network_gives_up_instead_of_grinding_every_pair,
             test_linkedin_stops_where_the_search_drifts_off_topic,
             test_linkedin_asks_nested_windows_because_they_return_different_jobs,
             test_linkedin_depth_is_the_platform_ceiling_and_limit_cannot_move_it,
