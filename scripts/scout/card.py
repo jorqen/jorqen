@@ -27,7 +27,8 @@ import re
 from . import applyopt, payband, store, untrusted
 from . import contacts
 from .model import PLACEHOLDER_COMPANY, salary_str
-from .shortlist import _has, norm, own_text_payload, required_years, rtw_flags
+from .shortlist import (_has, company_aliases, norm, own_text_payload,
+                        required_years, rtw_flags)
 
 RESUME_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -150,6 +151,225 @@ def requirements(text: str, *, limit: int = 14) -> list[str]:
                          if 12 <= len(s.strip()) <= 220]
                 break
     return lines[:limit]
+
+
+# ── Живость: 200 OK ничего не доказывает ─────────────────────────────────────
+#
+# 🔴 Живость проверяется скриптом, а не на веру (требование владельца
+# 08.08.2026). `check-links` умеет только ATS-доски и на все остальные ссылки
+# отвечает «живость по API не проверить» — то есть по большинству карточек
+# волны ответа не было вовсе. При этом площадки честно помечают архив, просто
+# ВНУТРИ страницы, отдавая её с кодом 200: «Вакансия в архиве» у hh,
+# `archived` в JSON у careered, «no longer accepting applications» у западных.
+#
+# Цена ошибки несимметрична, и пороги выставлены под это: пропущенный архив
+# стоит одного зря написанного письма, а ложная смерть выбрасывает годную
+# вакансию совсем. Поэтому «мертва» говорится только по явному маркеру, а
+# стена и таймаут — это «неизвестно», а не «мертва».
+_DEAD_MARK = re.compile(
+    r"вакансия\s+(?:в\s+архиве|закрыта|снята|не\s+активна|удалена)|"
+    r"в\s+архиве\b|архивная\s+вакансия|"
+    r"больше\s+не\s+принимает\s+отклик|набор\s+(?:закрыт|завершён|завершен)|"
+    r"no\s+longer\s+(?:accepting|available|open)|"
+    r"position\s+(?:has\s+been\s+)?(?:closed|filled)|"
+    r"this\s+job\s+(?:is\s+)?(?:closed|expired)|vacancy\s+(?:is\s+)?closed|"
+    # Только «404» рядом с фразой, а НЕ голое «not found»: в разметке страниц
+    # эта пара слов встречается в служебных строках сплошь и рядом.
+    r"\b404\b\s*(?:—|-|:)?\s*(?:not\s+found|страница не найдена)|"
+    r"страница не найдена",
+    re.I)
+# Признаки живой страницы вакансии: если их нет вовсе, страница, скорее всего,
+# не вакансия (редирект на каталог, заглушка) — но это тоже «неизвестно».
+_ALIVE_MARK = re.compile(
+    r"откликнут|отклик\b|требовани|обязанност|apply\b|responsibilit|requirement",
+    re.I)
+
+
+# Куда площадка уводит вместо вакансии, когда не хочет отвечать роботу. Это
+# стена, а не смерть: hh при подозрении на VPN редиректит на /vpncheeck и
+# отдаёт полноценные 200 с 228 КБ разметки, в которой вакансии нет.
+_WALL_PATH = re.compile(
+    r"/(?:vpncheeck|captcha|challenge|checkpoint|blocked|access-denied|"
+    r"login|signin|auth)\b", re.I)
+# Скрипты и стили выкидываем ДО поиска маркеров: в JS-коде страницы полно
+# служебных строк вроде «Method not found», и по ним живая вакансия
+# объявлялась архивной.
+_SCRIPTish = re.compile(r"(?is)<(script|style|noscript)[^>]*>.*?</\1>")
+_TAGS = re.compile(r"(?s)<[^>]+>")
+
+
+# Пары «"ключ":"значение"» из встроенных словарей и state-объектов. Их надо
+# вырезать вместе со значением: hh кладёт в страницу словарь локализации, где
+# лежит "applicant.negotiations.vacancyArchived":"Вакансия в архиве" — фраза,
+# по которой живая вакансия объявлялась мёртвой. Кавычки бывают и обычные, и
+# HTML-сущностями (&#34;, &quot;), поэтому сущности сначала приводятся к ".
+_ENT_QUOTE = re.compile(r"&#0*34;|&quot;|&#x22;", re.I)
+_JSON_PAIR = re.compile(r'"[^"]{1,80}"\s*:\s*"[^"]{0,300}"')
+
+
+def visible_text(html: str) -> str:
+    """Видимый текст страницы: без скриптов, стилей, разметки и JSON-словарей.
+
+    Три слоя мусора, и каждый однажды дал ложный вердикт: `<script>` (строка
+    Sentry «Method not found»), разметка, и встроенный JSON локализации
+    («Вакансия в архиве» как ЗНАЧЕНИЕ ключа словаря). Ложная смерть выбрасывает
+    годную вакансию целиком, поэтому чистим до поиска маркеров, а не после.
+    """
+    text = _TAGS.sub(" ", _SCRIPTish.sub(" ", html or ""))
+    return _JSON_PAIR.sub(" ", _ENT_QUOTE.sub('"', text))
+
+
+# Статус вакансии в ответе API. Ищется в СЫРОМ html: это машинное поле, а не
+# текст для человека, и чистка visible_text его бы вырезала вместе со
+# словарями локализации.
+_DEAD_JSON = re.compile(
+    r'"status"\s*:\s*"(?:archived|deleted|closed|expired)"|'
+    r'"(?:archived|isArchived|isClosed)"\s*:\s*true', re.I)
+
+
+def liveness_from_page(html: str, status: int, *,
+                       final_url: str = "") -> tuple[str, str]:
+    """('ЖИВА'|'МЕРТВА'|'НЕИЗВЕСТНО', почему) по телу страницы и коду ответа."""
+    if status in (404, 410):
+        return "МЕРТВА", f"HTTP {status}: страницы вакансии больше нет"
+    if status in (401, 403, 429) or status >= 500:
+        return "НЕИЗВЕСТНО", (f"HTTP {status}: стена или сбой площадки, "
+                              f"а не приговор вакансии — открой глазами")
+    if final_url and _WALL_PATH.search(final_url):
+        return "НЕИЗВЕСТНО", (f"площадка увела на проверку ({final_url[:60]}) — "
+                              f"о вакансии она ничего не сказала")
+    # Статус в JSON — единственный маркер, который читается в СЫРОМ ответе:
+    # это ответ API, а не текст для человека, и чистка его бы съела. Всё
+    # остальное ищется в видимом тексте, иначе словари локализации выдают себя
+    # за состояние вакансии (см. visible_text).
+    js = _DEAD_JSON.search(html or "")
+    if js:
+        return "МЕРТВА", f"в ответе площадки: {js.group(0)[:50]}"
+    # Антибот-стена — это «площадка не ответила», а не «вакансии нет». Детектор
+    # общий с обходом (`webcommon.wall_marker`): держать второй список маркеров
+    # значило бы, что однажды они разойдутся. careerjet за витриной careerjet
+    # отдаёт «Требуется подтверждение… не робот», и без этой ветки вердикт был
+    # «не похоже на страницу вакансии» — формально верно, а по сути непонятно.
+    from .webcommon import wall_marker  # noqa: PLC0415 — ленивый, как везде
+    wall = wall_marker(html or "", status)
+    if wall:
+        return "НЕИЗВЕСТНО", (f"антибот-стена ({wall}): страница есть, но её "
+                              f"отдают только браузеру — `scout render <url>`")
+    text = visible_text(html)
+    m = _DEAD_MARK.search(text)
+    if m:
+        return "МЕРТВА", f"на странице сказано: «{m.group(0)[:60].strip()}»"
+    if _ALIVE_MARK.search(text):
+        return "ЖИВА", "страница отдаёт вакансию, маркеров архива нет"
+    return "НЕИЗВЕСТНО", "не похоже на страницу вакансии — проверь глазами"
+
+
+# ── Обязательное против желательного ─────────────────────────────────────────
+#
+# 🔴 Требование владельца 08.08.2026: отсеивать вакансию можно ТОЛЬКО по
+# незакрытому обязательному пункту. Несоответствие желательному («будет плюсом»,
+# «nice to have») — не повод её прятать, потому что на такие берут постоянно.
+#
+# Пока карточка печатала плоский список требований, эта разница считывалась на
+# глаз и терялась: вакансия SaltWort была отсеяна по пункту из раздела
+# «желательно», хотя единственное «обязательно!» у неё — опыт облачных платформ,
+# и он закрыт. Одна потерянная вакансия на волну ровно из-за форматирования.
+#
+# Пометка живёт в двух местах сразу, и ловить надо оба: внутри самой строки
+# («…– обязательно!») и в заголовке раздела, под которым строка стоит
+# («Будет плюсом:»). Второе встречается чаще.
+_MUST_MARK = re.compile(
+    r"обязательн\w*|\bдолжен\b|\bдолжны\b|\bтребуется\b|"
+    r"must[\s-]?have|\brequired\b|\bmandatory\b|\bessential\b", re.I)
+_NICE_MARK = re.compile(
+    r"будет плюсом|как плюс|\bплюсом\b|желательн\w*|приветствуе\w*|"
+    r"не обязательн\w*|nice[\s-]?to[\s-]?have|\bis a plus\b|\ba plus\b|"
+    r"\bpreferred\b|\bbonus\b|would be great", re.I)
+# Заголовки разделов: под ними идут строки одного уровня обязательности.
+_SEC_MUST = re.compile(
+    r"^(?:наши\s+)?(?:требовани|ожидани|мы ожидаем|что мы ждём|что мы ждем|"
+    r"обязательн|requirements|what we expect|you (?:will )?have|must)\w*\b", re.I)
+_SEC_NICE = re.compile(
+    r"^(?:будет плюсом|плюсом|желательн|приветствуется|дополнительн|"
+    r"nice to have|bonus|preferred|would be)\w*\b", re.I)
+# Нейтральные заголовки СБРАСЫВАЮТ раздел. Без них «Будет плюсом: …» протекал
+# на всё, что идёт ниже: в живой вакансии Remoby после блока «плюсом» шли
+# «Задачи», и обязанности уезжали в карточку с пометкой «желательно».
+_SEC_NEUTRAL = re.compile(
+    r"^(?:задачи|обязанности|чем предстоит|что предстоит|условия|мы предлагаем|"
+    r"о компании|о нас|о проекте|стек|наш стек|tech stack|responsibilities|"
+    r"about|we offer|what you.ll do|benefits|the role)\w*\b", re.I)
+
+
+def requirement_tier(req: str) -> str:
+    """`must` | `nice` | `''` для одной строки требования.
+
+    Пустая строка означает «уровень не назван» — и это НЕ синоним обязательного.
+    Додумывать здесь нельзя в обе стороны: назвать обязательным то, что таковым
+    не помечено, значит отсеять вакансию зря, а это дороже лишней строки.
+    """
+    text = req or ""
+    # «Желательно» проверяется первым: в строке «опыт X — обязательно, Y
+    # желательно» решает та пометка, что стоит при последнем требовании, но
+    # такие строки редки, а вот «не обязательно» ловится _MUST_MARK по ошибке.
+    if _NICE_MARK.search(text):
+        return "nice"
+    if _MUST_MARK.search(text):
+        return "must"
+    return ""
+
+
+def tiers_for(reqs: list[str], text: str) -> dict[str, str]:
+    """Уровень для КАЖДОГО требования, считанный по исходному тексту вакансии.
+
+    Заголовки разделов («Требования:», «Будет плюсом:») до таблицы не доезжают:
+    `requirements()` отбирает только сами пункты. Поэтому раздел ищется в полном
+    описании, где заголовок ещё на месте, и уже оттуда переносится на пункт.
+    Без этого колонка уровня оставалась пустой у вакансий, размеченных именно
+    заголовками, — а это самый частый способ разметки.
+    """
+    by_line = tier_by_section(re.split(r"[\n•·▪—]+|(?<=[.;:])\s{2,}", text or ""))
+    # Ключи из текста и строки требований совпадают редко (пункт мог быть
+    # обрезан или склеен), поэтому сопоставляем по вхождению начала пункта.
+    out: dict[str, str] = {}
+    for q in reqs:
+        key = q.strip()
+        own = requirement_tier(key)
+        if own:
+            out[key] = own
+            continue
+        head = key[:40].lower()
+        out[key] = next((t for ln, t in by_line.items()
+                         if t and head and head in ln.lower()), "")
+    return out
+
+
+def tier_by_section(lines: list[str]) -> dict[str, str]:
+    """{строка: уровень} с учётом заголовка раздела, под которым она стоит.
+
+    Заголовок действует до следующего заголовка. Строка со своей собственной
+    пометкой сильнее раздела: «в разделе требований, но с оговоркой «желательно»»
+    — это желательное.
+    """
+    out: dict[str, str] = {}
+    section = ""
+    for raw in lines:
+        line = (raw or "").strip()
+        if not line:
+            continue
+        head = line.rstrip(":").strip().lstrip("#").strip()
+        if len(head) <= 40:
+            if _SEC_NICE.match(head):
+                section = "nice"
+                continue
+            if _SEC_MUST.match(head):
+                section = "must"
+                continue
+            if _SEC_NEUTRAL.match(head):
+                section = ""
+                continue
+        out[line] = requirement_tier(line) or section
+    return out
 
 
 def match_row(req: str, skills: list[str]) -> tuple[str, str]:
@@ -435,8 +655,13 @@ def build(conn, url: str, *, skills: list[str] | None = None,
         or applyopt.gather(dict(r, raw=raw_dict), payload)
     best = applyopt.best(opts)
     res = store.research(conn, r["source"], r["external_id"])
-    ch = conn.execute("SELECT channel, kind FROM employer_channel WHERE company_key=?",
-                      (norm(r["company"]),)).fetchone() if r["company"] else None
+    # Кэш мог лечь под «<Компания> Careers»: хвост живёт на стороне ЗАПИСИ, а
+    # не запроса, поэтому сверяем множества алиасов одной функцией с brief —
+    # второй копии этой логики быть не должно (см. shortlist.company_aliases).
+    _keys = set(company_aliases(r["company"]))
+    ch = next((row for row in conn.execute(
+        "SELECT channel, kind, company_key FROM employer_channel")
+        if _keys & set(company_aliases(row[2]))), None) if _keys else None
 
     # ── Связь: ВСЁ, что известно, одним разделом ─────────────────────────────
     # Раньше здесь стояла одна строка «Куда откликаться» с лучшим маршрутом, а
@@ -518,11 +743,29 @@ def build(conn, url: str, *, skills: list[str] | None = None,
         out.append(f"_{skills_note}_")
         out += [f"- {q}" for q in reqs]
     else:
-        out.append("| требование | что у тебя | |")
-        out.append("|---|---|---|")
+        # Колонка «уровень» — не украшение: отсеивать вакансию можно только по
+        # НЕзакрытому обязательному пункту (правило владельца 08.08.2026), и
+        # решение принимается по этой колонке, а не на глаз.
+        tiers = tiers_for(reqs, text)
+        label = {"must": "🔴 обяз.", "nice": "плюсом", "": "—"}
+        out.append("| требование | уровень | что у тебя | |")
+        out.append("|---|---|---|---|")
+        gaps: list[str] = []
         for q in reqs:
             got, mark = match_row(q, skills or [])
-            out.append(f"| {q[:96].replace('|', '/')} | {got[:60]} | {mark} |")
+            tier = tiers.get(q.strip(), "")
+            if tier == "must" and mark == "?":
+                gaps.append(q.strip())
+            out.append(f"| {q[:88].replace('|', '/')} | {label[tier]} | "
+                       f"{got[:50]} | {mark} |")
+        if gaps:
+            out.append("")
+            out.append(f"🔴 **Обязательных пунктов без совпадения: {len(gaps)}.** "
+                       f"Это единственное основание отсеять вакансию; всё "
+                       f"остальное несовпадение идёт в карточку гэпом, а не в "
+                       f"отсев. Проверь каждый глазами — совпадение считается "
+                       f"по словам резюме и может не увидеть синоним:")
+            out += [f"- {g[:150]}" for g in gaps[:6]]
 
     out.append("")
     out.append("### Фит — пишет модель")

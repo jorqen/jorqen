@@ -20,7 +20,8 @@ import json
 import sys
 
 from . import store
-from .shortlist import norm, own_text_payload, required_years, rtw_flags
+from .shortlist import (company_aliases, norm, own_text_payload, required_years,
+                        rtw_flags)
 
 
 def _trim(text: str | None, limit: int) -> str:
@@ -75,9 +76,22 @@ def one(conn, url: str, *, desc_chars: int = 900) -> str:
                f" · право на работу: {rtw_flags(payload) or 'маркеров нет'}")
 
     # Прямой канал найма из кэша — то, что дороже всего искать заново.
+    # 🔴 Ключей у компании два (`company_aliases`): письма приходят от «<Компания>
+    # Careers» и «<Компания> HR», и по одному ключу история с каналом не
+    # находились. В карточке это дороже, чем где-либо: SKILL.md требует читать
+    # историю ДО того, как предложить отклик, а `brief` — единственное место,
+    # где она печатается. Живой случай 08.08.2026: отказ от «Infomediji Careers»
+    # не находился по вакансии «Infomediji».
+    keys = set(company_aliases(company))
     key = norm(company)
-    ch = conn.execute("SELECT channel, kind, evidence FROM employer_channel "
-                      "WHERE company_key = ?", (key,)).fetchone() if key else None
+    # Сверяем МНОЖЕСТВА алиасов, а не ключ с ключом. Хвост живёт на стороне
+    # ЗАПИСИ («Infomediji Careers» в письме против «Infomediji» в вакансии), и
+    # подставлять алиасы в WHERE бесполезно: искать надо среди того, что
+    # записано. LIKE здесь нельзя — на живой базе «ALTEN» так получал историю
+    # «Altenar», 26 коллизий; строки берём целиком и сводим одной функцией.
+    ch = next((row for row in conn.execute(
+        "SELECT channel, kind, evidence, company_key FROM employer_channel")
+        if keys & set(company_aliases(row[3]))), None) if keys else None
     if ch:
         out.append(f"  🎯 канал найма (из кэша): {ch[1] or '—'} {ch[0]}")
         if ch[2]:
@@ -90,13 +104,13 @@ def one(conn, url: str, *, desc_chars: int = 900) -> str:
         # Точное совпадение, а не LIKE-подстрока: на живой базе «ALTEN»
         # (инженерный консалтинг) получал историю «Altenar» (беттинг-софт)
         # просто потому, что одно имя — подстрока другого. 26 таких коллизий.
-        hist = conn.execute(
-            "SELECT status, title, event_at, source FROM negotiation "
-            "WHERE company_key = ? AND status != 'other' "
-            "ORDER BY event_at DESC LIMIT 5", (key,)).fetchall()
+        hist = [row for row in conn.execute(
+            "SELECT status, title, event_at, source, company_key FROM negotiation "
+            "WHERE status != 'other' ORDER BY event_at DESC")
+            if keys & set(company_aliases(row[4]))][:5]
         if hist:
             out.append("  история с компанией:")
-            for st, t, at, src in hist:
+            for st, t, at, src, _ck in hist:
                 out.append(f"    · [{st}] {_trim(t, 54)} ({(at or '')[:10]}, {src})")
         else:
             out.append("  история с компанией: пусто — контакт холодный")

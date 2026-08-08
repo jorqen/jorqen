@@ -1347,6 +1347,58 @@ def test_source_health_catches_silent_degradation():
                "норма отклонением не считается")
 
 
+def test_channel_render_fires_on_shells_not_only_on_emptiness():
+    """`--render` обязан срабатывать ИМЕННО на каркасе SPA и стене.
+
+    Флаг для того и заведён («добрать браузером, если stdlib увидел каркас»), а
+    условие пускало рендер только при ПОЛНОСТЬЮ пустом списке находок. Каркас и
+    антибот при этом кладутся в находки — с пометкой «добери --render». Итог
+    08.08.2026: `channel --render` для polydev, Авито и Joom честно печатал
+    совет добрать рендером ровно там, где рендер и был запрошен, и не делал
+    ничего. Три канала найма остались ненайденными при работающем браузере."""
+    from . import channel as C
+
+    calls: list[list[str]] = []
+
+    def fake_probe(url, *, timeout=12):
+        # stdlib везде видит только каркас — как на живых SPA-сайтах.
+        return {"url": url, "status": "КАРКАС SPA", "ats": None, "mails": [],
+                "has_jobs": None, "contact_page": False, "why": "каркас"}
+
+    def fake_rendered_many(urls, *, wait=3.0):
+        calls.append(list(urls))
+        return [{"url": urls[0], "status": "ok", "ats": None, "mails": [],
+                 "has_jobs": True, "why": "есть признаки вакансий"}]
+
+    old_probe, old_render = C.probe, C.probe_rendered_many
+    C.probe, C.probe_rendered_many = fake_probe, fake_rendered_many
+    try:
+        res = C.find("Acme", domain="acme.com", render=True)
+    finally:
+        C.probe, C.probe_rendered_many = old_probe, old_render
+
+    if not calls:
+        FAILS.append("--render не дошёл до браузера: находки-каркасы приняты "
+                     "за результат, хотя каждая просит добрать рендером")
+    if not any(h.get("status") == "ok" for h in res.get("hits", [])):
+        FAILS.append("рендер отработал, но настоящая находка не попала в hits")
+
+    # Обратная сторона: рендер сходил и НИЧЕГО не добавил (живой случай — Авито
+    # за Cloudflare не отдаётся и браузеру). Сказать «найдено рендером» поверх
+    # ненайденного — соврать в отчёте о полноте обхода.
+    def empty_rendered(urls, *, wait=3.0):
+        return [None for _ in urls]
+
+    C.probe, C.probe_rendered_many = fake_probe, empty_rendered
+    try:
+        res2 = C.find("Acme", domain="acme.com", render=True)
+    finally:
+        C.probe, C.probe_rendered_many = old_probe, old_render
+    if "найдено рендером" in (res2.get("note") or ""):
+        FAILS.append("рендер ничего не добавил, а в отчёте стоит «найдено "
+                     "рендером» — это ложный успех")
+
+
 def test_channel_probe_logic():
     """Зондирование канала найма: агрегатор — не работодатель, каркас SPA —
     не «раздела нет», ATS важнее страницы с почтой."""
@@ -1357,6 +1409,12 @@ def test_channel_probe_logic():
     eq(is_employer_domain("selectel.ru"), True, "домен работодателя")
     eq(is_employer_domain("hh.ru"), False, "агрегатор каналом не считается")
     eq(is_employer_domain("spb.hh.ru"), False, "поддомен агрегатора тоже")
+    # Мессенджеры и соцсети: у них есть каналы вакансий, и площадки отдают такую
+    # ссылку в employer_url. Правило есть в field-notes, а в коде его не было —
+    # и «max.ru/vacancies» лёг в кэш каналом найма Teleport (08.08.2026).
+    for dom in ("max.ru", "vk.com", "ok.ru"):
+        eq(is_employer_domain(dom), False,
+           f"{dom} — витрина с каналами вакансий, а не сайт работодателя")
 
     cands = candidates("example.com")
     eq(bool("https://career.example.com/" in cands), True, "поддомен career проверяется")
@@ -1498,6 +1556,181 @@ def test_shortlist_match_score():
     old_score, old_why = match_score({"title": "Senior Go Developer"}, old)
     eq(old_score < go_score, True, "стаж выше формальных 5 лет понижает балл")
     eq("8 лет" in old_why, True, "и это сказано в пояснении")
+
+
+def test_company_field_survives_a_post_without_line_breaks():
+    """«Компания: Сбер» посреди сплошного текста — это Сбер, а не весь пост.
+
+    dreamoffer отдаёт пост ОДНОЙ строкой: переносы схлопнуты, разделы помечены
+    только `**жирным**` и эмодзи. Поле-анкета читалось построчно, поэтому в
+    значение уезжал весь оставшийся текст — и `extract_company` честно
+    отбрасывала такое как мусор. Итог 08.08.2026: 7601 вакансия dreamoffer без
+    работодателя, включая Сбер и Авито в топе шорт-листа, при том что компания
+    названа прямым текстом. Раскрытие работодателя — самая дорогая проверка
+    волны, и здесь она была бесплатной и потерянной."""
+    from .tgvacancy import extract_company
+
+    sber = ("**Senior Golang / TechLead GО (Platform V Synapse Service Mesh)** "
+            "#гибрид #senior Москва **Компания**: Сбер ☑️**Обязанности** "
+            "-Развитие инженерных практик в команде, лидирование процессов")
+    avito = ("**Go-разработчик в команду коммуникаций** #удаленка #гибрид "
+             "**Компания**: Авито **🔹Какие задачи вас ждут:** -проектировать")
+    eq(extract_company(sber), "Сбер", "компания из сплошного текста не вытащилась")
+    eq(extract_company(avito), "Авито", "компания из сплошного текста не вытащилась")
+    # Двоеточие ВНУТРИ разметки: «**Компания:** Americor». Значение начинается
+    # с `**`, то есть граница раздела стоит нулевой позицией — и обрезка по ней
+    # молча не срабатывала, отдавая назад весь пост под видом работодателя.
+    # Мусор в поле компании хуже пустоты: по нему строится ключ дедупа и сверка
+    # истории откликов, и склеиваться такая строка не будет ни с чем.
+    americor = ("#вакансия #remote **Компания:** Americor **Вакансия**: "
+                "Системный аналитик **Локация: **** **Европейская тайм зона")
+    eq(extract_company(americor), "Americor",
+       "значение, начатое разметкой, не обрезано по границе раздела")
+    # Название компании длиннее строки не бывает — это уже пересказ вакансии.
+    long_tail = "**Компания:** " + "Очень Длинное Название " * 8
+    got = extract_company(long_tail) or ""
+    if len(got) > 80:
+        FAILS.append(f"в компанию уехало {len(got)} символов — это не название")
+    # Обычный многострочный пост читаться не перестал.
+    eq(extract_company("Позиция: Go dev\nКомпания: Ozon\nЗП: 300k"), "Ozon",
+       "сломан разбор обычной анкеты с переносами")
+    # И выдумывать по-прежнему нечего: скрытый работодатель остаётся скрытым.
+    eq(extract_company("**Компания**: NDA ☑️**Обязанности** -писать код"), None,
+       "NDA принят за название компании")
+
+
+def test_brief_shows_history_written_under_the_mailbox_name():
+    """`brief` обязан найти отказ, записанный от «<Компания> Careers».
+
+    Вторая копия того же бага, найденная ревью собственного диффа: сверку по
+    двум ключам я сначала починил только в `shortlist`, а история компании
+    печатается в `brief` — и именно её SKILL.md требует прочитать ДО того, как
+    предложить отклик. То есть в самом дорогом месте проверка осталась слепой:
+    шорт-лист вакансию бы понизил, а карточка всё равно показала бы «пусто —
+    контакт холодный» и предложила написать туда, откуда пришёл отказ."""
+    import os
+    import tempfile
+
+    from . import brief, store
+    from .model import Vacancy
+
+    with tempfile.TemporaryDirectory() as d:
+        db = os.path.join(d, "b.db")
+        with store.connect(db) as conn:
+            store.upsert(conn, [Vacancy(
+                source="wantapply", external_id="1", url="https://x/1",
+                title="Backend Tech Lead", company="Infomediji")])
+            store.upsert_negotiation(
+                conn, title="Thank you for your interest",
+                company="Infomediji Careers", status="rejection", source="mail",
+                event_at="2026-08-03T01:08:31+00:00")
+            text = brief.one(conn, "https://x/1")
+    if "rejection" not in text:
+        FAILS.append("brief не показал отказ, записанный от имени почтового "
+                     "ящика «Infomediji Careers» — карточка предложит "
+                     "откликнуться туда, откуда развернули")
+    if "контакт холодный" in text:
+        FAILS.append("brief объявил компанию с отказом холодным контактом")
+
+
+def test_resume_of_a_jobseeker_is_not_a_vacancy():
+    """Резюме соискателя — не вакансия, даже если площадка зовёт его job.
+
+    🔴 Живой случай 08.08.2026, и он дошёл до готовой карточки: careered отдал
+    запись с `kind: job`, а внутри «Всем привет! Сейчас нахожусь в поиске новых
+    возможностей… 8+ лет коммерческого опыта… Немного обо мне». По ней была
+    написана карточка с фитом и сопроводительным письмом — то есть предлагалось
+    откликнуться на резюме другого разработчика.
+
+    Детектор был, но жил в `tg` и ловил только телеграмные формы (#резюме, «ищу
+    работу»). Теперь он общий и применяется ко всем источникам.
+
+    Порог намеренно консервативный: срабатываем на явных признаках первого лица.
+    Ложное срабатывание выбрасывает настоящую вакансию, а это дороже (инвариант
+    «лишняя вакансия лучше потерянной»)."""
+    from .model import looks_like_resume
+
+    resumes = (
+        "Всем привет! Сейчас нахожусь в поиске новых возможностей в качестве "
+        "Backend Engineer. Немного обо мне: 8+ лет коммерческого опыта.",
+        "#резюме Golang developer, 5 лет опыта",
+        "Ищу работу Go-разработчиком, рассмотрю удалёнку",
+        "Open to work: Senior Go Engineer, 7 years of experience",
+        "Обо мне: Python с 2018 года, Go — production опыт. Рассматриваю предложения.",
+    )
+    for t in resumes:
+        if not looks_like_resume(t):
+            FAILS.append(f"резюме принято за вакансию: {t[:60]!r}")
+
+    vacancies = (
+        "Мы ищем Go-разработчика в команду платформы. Требования: Go от 3 лет.",
+        "Senior Backend Engineer (Golang). Обязанности: разработка сервисов. "
+        "Мы предлагаем: ДМС, удалёнку.",
+        "Компания ищет backend-разработчика. Опыт от 5 лет обязателен.",
+        # Опасная форма: вакансия рассказывает о команде от первого лица «мы».
+        "О нас: мы строим платформу. Что мы ждём от кандидата: опыт Go.",
+    )
+    for t in vacancies:
+        if looks_like_resume(t):
+            FAILS.append(f"настоящая вакансия принята за резюме: {t[:60]!r}")
+
+
+def test_go_to_market_is_sales_not_the_language():
+    """«Go-to-Market» — это продажи, и в списке Go-вакансий ему не место.
+
+    Корень `go` ловится в обороте, которым называют коммерческую функцию, и в
+    выдачу приезжают рекрутёры с директорами по развитию: «Lead Recruiter, Go to
+    Market», «Senior Director, Go-To-Market Strategy», «Founding Recruiter GTM».
+    Четыре штуки в топ-400 одной волны 08.08.2026. Прямой потери вакансий тут
+    нет, но список, где среди Go-инженеров стоит рекрутёр, читают с недоверием
+    целиком."""
+    from .shortlist import on_profile
+
+    for junk in ("Lead Recruiter, Go to Market",
+                 "Senior Director, Go-To-Market Strategy & Commercialization",
+                 "Founding Recruiter Go-To-Market (GTM) Recruiting"):
+        if on_profile(junk):
+            FAILS.append(f"продажник принят за Go-вакансию: {junk!r}")
+    # И обратная сторона: настоящие Go-роли фильтр не задел.
+    for real in ("Senior Go Developer", "Golang-разработчик",
+                 "Software Engineer, Infrastructure (Go)"):
+        if not on_profile(real):
+            FAILS.append(f"настоящая Go-вакансия отсеяна: {real!r}")
+
+
+def test_worked_index_finds_the_company_behind_the_mailbox_name():
+    """Отказ от «Infomediji Careers» обязан найтись по компании «Infomediji».
+
+    🔴 Самая дорогая ошибка скилла в живом виде (08.08.2026). Письмо приходит от
+    отображаемого имени ящика — «Infomediji Careers», «Ozon HR», «VK Recruiting»,
+    — и ключом истории становилось ОНО. Вакансия той же компании называется
+    просто «Infomediji», ключи не совпадали, колонка «История» оставалась пустой,
+    и вакансия шла в шорт-лист как нетронутая. То есть карточка предлагала
+    откликнуться туда, откуда пять дней назад пришёл отказ.
+
+    Сверка истории — не дедуп: инвариант «ошибаться в сторону разделения» здесь
+    не действует. Пропущенный отказ виден человеку сразу и стоит ему лица перед
+    работодателем."""
+    from .shortlist import worked_index
+
+    idx = worked_index([
+        {"company": "Infomediji Careers", "status": "rejection",
+         "event_at": "2026-08-03T01:08:31+00:00"},
+        {"company": "Ozon HR", "status": "invitation", "event_at": "2026-08-01"},
+        {"company": "VK Recruiting Team", "status": "rejection", "event_at": "2026-07-30"},
+    ])
+    for asked, why in (("Infomediji", "отказ по почте не нашёлся по имени компании"),
+                       ("Ozon", "приглашение потеряно из-за хвоста «HR» в имени ящика"),
+                       ("VK", "отказ потерян из-за хвоста «Recruiting Team»")):
+        from .shortlist import norm
+        if not idx.get(norm(asked)):
+            FAILS.append(f"{why}: {asked!r} не найден в индексе истории")
+    # Обратная сторона: срезать хвост нельзя настолько, чтобы разные компании
+    # слиплись. «HR Cloud» — это название продукта, а не отдел кадров облака.
+    idx2 = worked_index([{"company": "HR Cloud", "status": "rejection"}])
+    from .shortlist import norm as _n
+    if idx2.get(_n("Cloud")):
+        FAILS.append("«HR Cloud» схлопнулась с «Cloud» — срезано лишнее")
 
 
 def test_shortlist_dedup_stable_canon():
@@ -1701,12 +1934,18 @@ def main() -> int:
             test_hh_negotiations_from_api_match_html_shape,
             test_budget_estimates_and_refuses_to_understate,
             test_source_health_catches_silent_degradation,
+            test_channel_render_fires_on_shells_not_only_on_emptiness,
             test_channel_probe_logic,
             test_wall_challenge_state,
             test_wave_next_steps,
             test_shortlist_required_years,
             test_shortlist_match_score,
             test_shortlist_dedup_stable_canon,
+            test_worked_index_finds_the_company_behind_the_mailbox_name,
+            test_resume_of_a_jobseeker_is_not_a_vacancy,
+            test_go_to_market_is_sales_not_the_language,
+            test_brief_shows_history_written_under_the_mailbox_name,
+            test_company_field_survives_a_post_without_line_breaks,
             test_shortlist_dedup_and_profile,
             test_cookiepush_encrypt_roundtrip,
             test_cookiepush_refuses_foreign_domains,

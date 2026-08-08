@@ -31,7 +31,7 @@ import sys
 import urllib.parse
 
 from . import store
-from .sources import ATS_ROLE_RE
+from .sources import ATS_ROLE_RE, role_text
 
 # ── Требуемый стаж ────────────────────────────────────────────────────────────
 # Все формы, встреченные живьём на 22 площадках. Порядок важен: сначала более
@@ -140,7 +140,9 @@ def on_profile(title: str) -> bool:
     t = title or ""
     if _OFF_PROFILE.search(t) and not re.search(r"\b(go|golang|бэкенд|backend)\b", t, re.I):
         return False
-    return bool(ATS_ROLE_RE.search(t))
+    # Через role_text: «Go-to-Market» это продажи, и совпадением по `go`
+    # быть не должно (см. sources._GTM).
+    return bool(ATS_ROLE_RE.search(role_text(t)))
 
 
 # ── Схлопывание дублей ────────────────────────────────────────────────────────
@@ -668,20 +670,48 @@ def match_score(row: dict, payload: dict | None) -> tuple[int | None, str]:
 _WORKED = {"applied", "rejection", "invitation", "interview", "viewed", "not_viewed"}
 
 
+# Хвост отображаемого имени почтового ящика, а не часть названия компании:
+# письма приходят от «Infomediji Careers», «Ozon HR», «VK Recruiting Team».
+# Срезается ТОЛЬКО с конца и ТОЛЬКО когда впереди что-то остаётся: «HR Cloud»
+# — это название продукта, и превращать его в «Cloud» нельзя.
+_MAILBOX_TAIL = re.compile(
+    r"(?:\s+(?:careers?|hr|recruiting|recruitment|recruiters?|talent|talents|"
+    r"jobs?|hiring|people|team))+$", re.I)
+
+
+def company_aliases(name: str | None) -> list[str]:
+    """Ключи, под которыми компания может встретиться: как есть и без хвоста ящика.
+
+    Возвращает список, а не один канонический ключ, намеренно. Срезать хвост
+    всегда — значит однажды схлопнуть две разные компании; не срезать никогда —
+    значит терять историю откликов, что уже случилось. Регистрация под обоими
+    ключами даёт совпадение там, где оно есть, и не создаёт нового.
+    """
+    base = norm(name)
+    if not base:
+        return []
+    short = norm(_MAILBOX_TAIL.sub("", base))
+    return [base] if not short or short == base else [base, short]
+
+
 def worked_index(negotiations: list[dict]) -> dict[str, list[str]]:
     """{нормализованная компания: [статусы]} — по чему сверяем «уже отработано».
 
     Статус `other` не участвует: среди них рекламные рассылки, и по ним вакансию
-    объявляли отработанной ошибочно."""
+    объявляли отработанной ошибочно.
+
+    🔴 Ключей у одной записи бывает два (`company_aliases`): отказ приходит по
+    почте от «Infomediji Careers», а вакансия называется «Infomediji». Пока ключ
+    был один, такая пара не сходилась, история оставалась пустой и вакансия
+    попадала в шорт-лист как нетронутая — то есть скилл предлагал откликнуться
+    туда, откуда уже развернули (живой случай 08.08.2026)."""
     idx: dict[str, list[str]] = {}
     for n in negotiations:
         if n.get("status") not in _WORKED:
             continue
-        key = norm(n.get("company") or n.get("company_key"))
-        if not key:
-            continue
-        idx.setdefault(key, []).append(
-            f"{n.get('status')} {(n.get('event_at') or '')[:10]}".strip())
+        mark = f"{n.get('status')} {(n.get('event_at') or '')[:10]}".strip()
+        for key in company_aliases(n.get("company") or n.get("company_key")):
+            idx.setdefault(key, []).append(mark)
     return idx
 
 
@@ -808,6 +838,18 @@ def build(db: str, *, since: str | None, by: str = "seen",
                    for d in _details(conn)}
         channels = _channels(conn)
 
+    # Резюме соискателей отсеиваются ДО фильтра профессии и считаются отдельно.
+    # По названию они неотличимы от вакансии («Backend Engineer / Go Developer»),
+    # а площадки их путают сами: careered отдал резюме с `kind: job`, и по нему
+    # была написана карточка с сопроводительным письмом (08.08.2026). Отдельный
+    # счётчик, а не тихий выброс: «резюме 12» и «профессия не та 5591» — разные
+    # ответы на вопрос, куда делись строки.
+    from .model import looks_like_resume  # noqa: PLC0415 — общий детектор
+    resumes = [r for r in rows
+               if looks_like_resume(f"{r.get('title') or ''}\n{r.get('description') or ''}")]
+    resume_ids = {(r.get("source"), r.get("external_id")) for r in resumes}
+    rows = [r for r in rows if (r.get("source"), r.get("external_id")) not in resume_ids]
+
     kept = [r for r in rows if on_profile(r.get("title") or "")]
     off = len(rows) - len(kept)
     off_examples = [r.get("title") for r in rows
@@ -832,8 +874,12 @@ def build(db: str, *, since: str | None, by: str = "seen",
         g["_score"], g["_score_why"] = match_score(g, payload)
         g["_rtw"] = rtw_flags(payload)
         g["_enriched"] = bool(payload)
-        g["_worked"] = worked.get(norm(g.get("company")), [])
-        g["_channel"] = channels.get(norm(g.get("company")), "")
+        # Оба ключа и с этой стороны: вакансия тоже приезжает подписанной
+        # «<Компания> Careers» (так её печатает часть агрегаторов), и тогда
+        # искать надо по срезанному имени.
+        keys = company_aliases(g.get("company"))
+        g["_worked"] = next((worked[k] for k in keys if worked.get(k)), [])
+        g["_channel"] = next((channels[k] for k in keys if channels.get(k)), "")
         # Текст для сравнения описаний берём тот же, по которому судим о фите:
         # два разных текста на два решения об одной вакансии разошлись бы.
         g["_dup_text"] = (payload or {}).get("description") or ""
@@ -853,6 +899,7 @@ def build(db: str, *, since: str | None, by: str = "seen",
     ))
     stats = {"delta": total, "groups": len(merged),
              "off_profile": off, "off_examples": off_examples,
+             "resumes": len(resumes),
              "collapsed": len(kept) - len(merged),
              "near_dup": near,
              "with_years": sum(1 for g in merged if g["_years"] is not None),
@@ -904,7 +951,8 @@ def render(res: dict, *, fmt: str = "table") -> str:
     out = [
         f"# shortlist: {st['groups']} вакансий "
         f"(дельта {st['delta']}, чужая профессия {st['off_profile']}, "
-        f"схлопнуто дублей {st['collapsed']}"
+        + (f"резюме соискателей {st['resumes']}, " if st.get("resumes") else "")
+        + f"схлопнуто дублей {st['collapsed']}"
         + (f" + {st['near_dup']} по описанию" if st.get("near_dup") else "")
         + f", стаж распознан у {st['with_years']}, "
         f"с историей по компании {st['worked']})",
