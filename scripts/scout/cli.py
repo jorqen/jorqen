@@ -664,14 +664,16 @@ def _auth_export(auth, args) -> int:
         return 2
     got = 0
     for name in names:
-        value = auth.export_state(name)
-        if value is None:
+        found = auth.export_state(name)
+        if found is None:
             # Отсутствие входа — штатный случай, а не отказ: половина площадок
             # работает анонимно. Но сказать надо, иначе «экспортировал всё» и
             # «экспортировал ничего» выглядят одинаково.
             print(f"# {name}: входа нет, экспортировать нечего "
                   f"(`scout auth login {name}`)", file=sys.stderr)
             continue
+        value, where = found
+        print(f"# {name} — из: {where}", file=sys.stderr)
         print(f"{auth.env_var(name)}={value}")
         got += 1
     if not got:
@@ -701,7 +703,8 @@ def cmd_auth(args) -> int:
         # встроенный chromium, то есть человек входил в одно окно, а сессия
         # ложилась разовым слепком вместо постоянного профиля.
         return auth.login(args.platform, wait=args.wait,
-                          browser=getattr(args, "browser", None))
+                          browser=getattr(args, "browser", None),
+                          force=getattr(args, "force", False))
     if args.action == "export":
         return _auth_export(auth, args)
     if args.action == "check":

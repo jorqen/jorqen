@@ -137,6 +137,21 @@ def token_from_cookie(platform: str, value: str) -> tuple[str | None, str]:
     if not raw:
         return None, "кука пустая"
     if not raw.startswith("{"):
+        # 🔴 Срок проверяется и у ГОЛОГО токена, а не только у JSON-обёртки
+        # wantapply. Токен shadowhint — обычный JWT, и `exp` в нём читается без
+        # единого запроса и без единого секрета.
+        #
+        # Пока проверки не было, «токен есть» означало «токен годится», и
+        # session_token возвращал ПЕРВЫЙ НАЙДЕННЫЙ вместо первого живого:
+        # 08.08.2026 он брал из Яндекса JWT, истёкший накануне, при свежем
+        # входе, лежащем рядом в `.auth/shadowhint.json`. Площадка отвечала 401,
+        # покрытие показывало «НУЖЕН ВХОД», а вход был — просто не тот.
+        exp = _jwt_exp(raw)
+        if exp is not None:
+            when = datetime.fromtimestamp(exp, tz=timezone.utc).astimezone()
+            if exp < datetime.now(timezone.utc).timestamp():
+                return None, f"токен истёк {when:%d.%m.%Y %H:%M} — нужен новый вход"
+            return raw, f"токен жив до {when:%d.%m.%Y %H:%M}"
         return raw, "токен из куки"
     try:
         data = json.loads(raw)
@@ -152,6 +167,23 @@ def token_from_cookie(platform: str, value: str) -> tuple[str | None, str]:
             return None, f"токен истёк {when:%d.%m.%Y %H:%M} — нужен новый вход"
         return token, f"токен жив до {when:%d.%m.%Y %H:%M}"
     return token, "токен из куки (срок не указан)"
+
+
+def _jwt_exp(token: str) -> float | None:
+    """`exp` из JWT или None, если это не JWT. Ни запросов, ни секретов.
+
+    Подпись НЕ проверяется намеренно: нам не надо доверять токену, надо лишь
+    понять, стоит ли его отправлять. Решает всё равно сервер.
+    """
+    parts = token.split(".")
+    if len(parts) != 3:
+        return None
+    try:
+        pad = parts[1] + "=" * (-len(parts[1]) % 4)
+        exp = json.loads(base64.urlsafe_b64decode(pad)).get("exp")
+        return float(exp) if exp is not None else None
+    except Exception:  # noqa: BLE001 — не JWT, не наш формат, битая база64
+        return None
 
 
 def bearer_from_state(platform: str) -> tuple[str | None, str]:
@@ -328,7 +360,36 @@ def session_token(platform: str, *, cookies_from: str | None = None) -> tuple[st
         alt_token, alt_why = _token_in(alt, platform, name, domain)
         if alt_token:
             return alt_token, f"{alt_why} — источник {other}, а не выбранный auto"
+
+    # ПОСЛЕДНИМ — сохранённая сессия из `.auth/<площадка>.json`. Порядок именно
+    # такой и переставлять его нельзя: живая кука в браузере всегда свежее
+    # снимка, а снимок мог быть снят до разлогина.
+    #
+    # Зато в облаке браузеров нет вообще, и до этой ветки доходит каждый раз:
+    # именно сюда `hydrate_from_env` кладёт то, что приехало секретом. Пока
+    # ветки не было, облачный вход был невозможен по построению — файл ложился,
+    # а читатель смотрел только в браузеры и честно отвечал «нет куки».
+    saved = _token_in_state(platform, name)
+    if saved:
+        return token_from_cookie(platform, saved)[0], \
+            f"кука {name} из сохранённой сессии {os.path.basename(state_path(platform))}"
     return token, why
+
+
+def _token_in_state(platform: str, name: str) -> str | None:
+    """Значение куки `name` в сохранённом storage_state площадки."""
+    path = state_path(platform)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            state = json.load(f)
+    except (OSError, ValueError):
+        return None
+    for c in state.get("cookies") or []:
+        if c.get("name") == name and c.get("value"):
+            return str(c["value"])
+    return None
 
 
 def _token_in(src, platform: str, name: str, domain: str) -> tuple[str | None, str]:
@@ -601,17 +662,116 @@ def env_var(platform: str) -> str:
     return _ENV_PREFIX + platform.upper().replace("-", "_")
 
 
-def export_state(platform: str) -> str | None:
-    """Значение для секрета окружения (base64 сохранённой сессии) или None.
+def _drop_expired(cookies: list[dict]) -> list[dict]:
+    """Куки с заведомо мёртвым JWT — вон. Остальные как есть.
+
+    Проверяем только то, что читается без сети: `exp` внутри JWT. Непрозрачная
+    строка остаётся — «не смогли прочесть срок» это не «просрочено».
+    """
+    import time  # noqa: PLC0415
+
+    now = time.time()
+    out = []
+    for c in cookies:
+        exp = _jwt_exp(str(c.get("value") or ""))
+        if exp is not None and exp < now:
+            continue
+        out.append(c)
+    return out
+
+
+def _token_origins(platform: str, origins: list[dict]) -> list[dict]:
+    """localStorage, урезанный до ключа, который несёт вход. Остальное — вон.
+
+    Замер на живой машине: у hh в localStorage лежит 660 КБ аналитики и
+    настроек интерфейса, и секрет окружения из-за них раздувался до 880 тысяч
+    символов при полезных семидесяти куках. Площадка сама объявляет свой ключ
+    (`localstorage_token` в PLATFORMS) — всё, что не он, к входу отношения не
+    имеет и в облако ехать не должно: лишний объём это ещё и лишние данные о
+    владельце в чужом хранилище.
+
+    Ключ не объявлен — значит вход у площадки в куках, и localStorage ей не
+    нужен вовсе.
+    """
+    want = (PLATFORMS.get(platform) or {}).get("localstorage_token")
+    if not want:
+        return []
+    origin_url, key = want
+    out = []
+    for o in origins:
+        items = [i for i in (o.get("localStorage") or []) if i.get("name") == key]
+        if items and (o.get("origin") or "").rstrip("/") == origin_url.rstrip("/"):
+            out.append({"origin": o["origin"], "localStorage": items})
+    return out
+
+
+def export_state(platform: str) -> tuple[str, str] | None:
+    """(значение для секрета, откуда взято) или None, если брать нечего.
+
+    🔴 Собирает вход ИЗ ТЕХ ЖЕ ИСТОЧНИКОВ, что и сборщик, а не из одного файла.
+    Первая версия читала только `.auth/<площадка>.json` — и не видела ничего,
+    потому что живые сессии лежат в куках повседневного браузера: `auth status`
+    показывал «ВХОД ЖИВ» для shadowhint, а экспорт возвращал пусто. Экспорт,
+    который не видит того, чем работает сборщик, бесполезен по построению.
+
+    Склеиваются оба слоя, и оба нужны: куки дают вход большинству площадок,
+    а `origins` (localStorage) — тем, кто держит там Bearer, как careered.
 
     base64, а не сырой JSON: значение уезжает в поле веб-формы и в оболочку,
     а в куках встречаются кавычки, переводы строк и знаки доллара.
     """
+    from . import cookieimport as ci, cookiesrc  # noqa: PLC0415 — тянут браузеры
+
+    cookies: list[dict] = []
+    origins: list[dict] = []
+    where: list[str] = []
+
     path = state_path(platform)
-    if not os.path.exists(path):
+    if os.path.exists(path):
+        saved = ci.load_state(path)
+        cookies = ci.merge_cookies(cookies, _drop_expired(saved.get("cookies") or []))
+        origins = ci.merge_origins(origins, saved.get("origins") or [])
+        where.append(os.path.basename(path))
+
+    try:
+        # use_cache=False намеренно: кэш `.auth/browser.json` покрывает домены
+        # и потому ПОБЕЖДАЕТ живое чтение, а ему бывает трое суток. На живой
+        # машине из-за этого в экспорт shadowhint не попал `auth_token` — тот
+        # самый ключ, ради которого экспорт и делается. Секрет уезжает в облако
+        # на недели, свежесть тут важнее скорости.
+        src = cookiesrc.resolve("auto", cookiesrc.domains_for_platform(platform),
+                                use_cache=False)
+        live = _drop_expired(src.state.get("cookies") or [])
+        if live:
+            # Живое чтение браузера идёт ВТОРЫМ и побеждает: `merge_cookies`
+            # накрывает совпадающие по (имя, домен, путь). Обычно это верно —
+            # вкладка в браузере свежее слепка.
+            #
+            # 🔴 Но «живое» не значит «непросроченное», и оба слоя проходят
+            # через `_drop_expired` именно поэтому. Живой случай 08.08.2026:
+            # в Яндексе лежал auth_token shadowhint, истёкший накануне, а
+            # свежий вход — в `.auth/shadowhint.json`. Merge накрывал свежий
+            # мёртвым по совпадению (имя, домен, путь), и экспорт увозил в
+            # облако заведомо нерабочую сессию. Локально при этом всё
+            # работало: там `session_token` умеет перебирать источники.
+            cookies = ci.merge_cookies(cookies, live)
+            origins = ci.merge_origins(origins, src.state.get("origins") or [])
+            where.append(src.origin)
+    except Exception as e:  # noqa: BLE001 — браузера может не быть вовсе
+        where.append(f"браузер не прочитан ({type(e).__name__})")
+
+    # 🔴 Режем по доменам ЭТОЙ площадки, и это не оптимизация размера.
+    # Кэш `.auth/browser.json` общий: в нём куки всех площадок сразу. Без
+    # фильтра каждый секрет нёс бы вход во все семь — то есть один утёкший
+    # секрет отдавал бы все аккаунты, а не один. Заодно значение падает с
+    # 50 КБ до килобайта, а у hh — с 900 КБ.
+    doms = cookiesrc.domains_for_platform(platform)
+    state = ci.filter_state({"cookies": cookies, "origins": origins}, doms)
+    state["origins"] = _token_origins(platform, state.get("origins") or [])
+    if not state["cookies"] and not state["origins"]:
         return None
-    with open(path, "rb") as f:
-        return base64.b64encode(f.read()).decode("ascii")
+    blob = json.dumps(state, ensure_ascii=False).encode("utf-8")
+    return base64.b64encode(blob).decode("ascii"), ", ".join(where)
 
 
 def hydrate_from_env() -> list[str]:
@@ -826,7 +986,8 @@ def _snapshot_localstorage(page, platform: str, cfg: dict) -> bool:
     return True
 
 
-def login(platform: str, *, browser: str | None = None, wait: int = 0) -> int:
+def login(platform: str, *, browser: str | None = None, wait: int = 0,
+          force: bool = False) -> int:
     """Открывает НАСТОЯЩИЙ браузер пользователя на странице площадки.
 
     Порядок именно такой и он важен:
@@ -859,8 +1020,16 @@ def login(platform: str, *, browser: str | None = None, wait: int = 0) -> int:
     # `state_cookie` она видит лишь наличие токена: срок внутрь куки не положен,
     # а мёртвый вход hirehi отдаёт кодом 200 и анонимной вёрсткой. Выйти здесь
     # значило бы отказать человеку во входе ровно тогда, когда вход и нужен.
-    if state == "logged_in" and not cfg.get("state_cookie"):
+    if state == "logged_in" and not cfg.get("state_cookie") and not force:
+        # `--force` нужен не для удобства. Проба видит НАЛИЧИЕ куки, а не то,
+        # принимают ли её: 08.08.2026 shadowhint отдавал 401 на живую с виду
+        # сессию, `auth status` показывал «ВХОД ЖИВ», а `auth login` отказывался
+        # открыть окно — то есть войти было нельзя ровно тогда, когда вход и
+        # требовался. Пока проба не умеет доказывать живость для этой площадки
+        # (нет `alive_api`), последнее слово остаётся за человеком.
         print(f"{platform}: уже залогинен — делать ничего не надо ({why}).")
+        print("  Площадка при этом может отвечать 401: проба видит наличие куки, "
+              "а не то, принимают ли её. Тогда `--force` откроет окно.")
         return 0
 
     from .render import (BUNDLED, ProfileBusy, RenderUnavailable,  # noqa: PLC0415

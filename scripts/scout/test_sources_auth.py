@@ -1390,7 +1390,14 @@ def test_unreadable_cookie_db_is_not_a_logout():
     def locked(*a, **kw):
         raise sqlite3.OperationalError("database is locked")
 
-    with patched(cookiesrc, "resolve", locked):
+    # AUTH_DIR уводится в пустой каталог намеренно. Иначе тест зависит от того,
+    # входил ли разработчик на площадку на СВОЕЙ машине: сохранённая сессия —
+    # законный запасной источник (в облаке единственный), и с ней ответ был бы
+    # «logged_in», а не «unknown». Проверяем-то мы другое: нечитаемая база не
+    # должна превращаться в «пользователь вышел».
+    with tempfile.TemporaryDirectory() as empty, \
+            patched(auth, "AUTH_DIR", empty), \
+            patched(cookiesrc, "resolve", locked):
         state, why = auth.session_probe("shadowhint")
     eq(state, "unknown", "залоченная база — неизвестность, а не разлогин")
     ok(auth.UNREADABLE in why, "пояснение названо тем же признаком, по которому решали")
@@ -1735,6 +1742,47 @@ def test_dead_critical_session_is_the_first_next_step():
     ok("scout auth login shadowhint" in steps[0], "названа команда, а не намёк")
 
 
+def test_expired_token_is_dead_even_when_the_cookie_is_there():
+    """Истёкший JWT — это НЕ вход. «Кука есть» и «токен годится» — разные вещи.
+
+    Живой случай 08.08.2026: в Яндексе лежал auth_token shadowhint, истёкший
+    накануне, а свежий вход — рядом, в `.auth/shadowhint.json`. `session_token`
+    возвращал ПЕРВЫЙ НАЙДЕННЫЙ, площадка отвечала 401, покрытие показывало
+    «НУЖЕН ВХОД» — при живом входе. Ту же ошибку до этого уже ловили на
+    wantapply, но чинили только для его JSON-обёртки; голый JWT остался.
+
+    Подпись здесь не проверяется и не должна: решает сервер. Нам надо лишь не
+    отправлять заведомо мёртвое вместо живого, лежащего рядом.
+    """
+    import base64 as b64
+    import time
+
+    from . import auth
+
+    def jwt(exp: float) -> str:
+        head = b64.urlsafe_b64encode(b'{"alg":"HS256","typ":"JWT"}').rstrip(b"=")
+        body = b64.urlsafe_b64encode(
+            json.dumps({"exp": exp, "useruuid": "x"}).encode()).rstrip(b"=")
+        return f"{head.decode()}.{body.decode()}.подпись"
+
+    dead = jwt(time.time() - 86400)
+    live = jwt(time.time() + 86400)
+
+    tok, why = auth.token_from_cookie("shadowhint", dead)
+    eq(tok, None, f"истёкший токен признан живым — уйдёт вместо свежего: {why}")
+    ok("истёк" in why, f"причина не названа словом «истёк»: {why!r}")
+
+    tok, why = auth.token_from_cookie("shadowhint", live)
+    eq(tok, live, "живой токен потерян")
+    ok("жив до" in why, f"срок живого токена не назван: {why!r}")
+
+    # Непрозрачная строка — не JWT: срока внутри нет, отвергать её нельзя.
+    tok, why = auth.token_from_cookie("shadowhint", "просто-строка-без-точек")
+    eq(tok, "просто-строка-без-точек",
+       "токен без формата JWT отвергнут — так теряется вход на площадке, "
+       "которая не выдаёт JWT вовсе")
+
+
 def test_session_travels_to_the_cloud_only_through_the_environment():
     """Сессия площадки едет в облако переменной окружения — и только так.
 
@@ -1761,7 +1809,15 @@ def test_session_travels_to_the_cloud_only_through_the_environment():
         env = {auth.env_var("shadowhint"): base64.b64encode(blob).decode(),
                auth.env_var("hirehi"): "это-не-base64!!!"}
 
-        with patched(auth, "AUTH_DIR", d), patched(os, "environ", dict(env)):
+        # 🔴 Живые браузеры в тесте НЕ читаем. Дважды не читаем: во-первых, это
+        # секунды и запрос к Keychain, во-вторых — при первом прогоне настоящая
+        # кука площадки уехала в вывод теста. Тест, печатающий чужой креденшл в
+        # лог, опаснее той ошибки, которую он ловит.
+        from . import cookiesrc
+        empty = type("S", (), {"state": {"cookies": [], "origins": []},
+                               "origin": "тест: браузеры не читаются"})()
+        with patched(auth, "AUTH_DIR", d), patched(os, "environ", dict(env)), \
+                patched(cookiesrc, "resolve", lambda *a, **k: empty):
             err = io.StringIO()
             with contextlib.redirect_stderr(err):
                 laid = auth.hydrate_from_env()
@@ -1781,9 +1837,14 @@ def test_session_travels_to_the_cloud_only_through_the_environment():
                f"о битом секрете не сказано ни слова: {err.getvalue()!r}")
 
             # Обратимость: то, что печатает `auth export`, обязано читаться
-            # обратно. Иначе владелец скопирует значение, а вход не поднимется.
-            eq(auth.export_state("shadowhint"), env[auth.env_var("shadowhint")],
-               "export и hydrate разошлись форматом")
+            # обратно тем же `hydrate_from_env`. Сравниваем РАЗОБРАННОЕ, а не
+            # строку: экспорт склеивает файл с живым браузером и режет по
+            # доменам, поэтому побайтового равенства с исходным секретом не
+            # бывает — важно, что кука доехала.
+            value, where = auth.export_state("shadowhint")
+            back = json.loads(base64.b64decode(value))
+            eq([(c["name"], c["value"]) for c in back["cookies"]],
+               [("s", "x")], f"export и hydrate разошлись форматом ({where})")
 
             # Живой локальный файл НЕ перезаписывается старым слепком.
             with open(auth.state_path("shadowhint"), "w", encoding="utf-8") as f:
@@ -1939,6 +2000,7 @@ def main() -> int:
                test_private_endpoint_outranks_the_markup,
                test_live_session_is_found_in_another_browser,
                test_dead_critical_session_is_the_first_next_step,
+               test_expired_token_is_dead_even_when_the_cookie_is_there,
                test_session_travels_to_the_cloud_only_through_the_environment,
                test_wave_post_tells_a_quiet_day_from_a_broken_crawl):
         fn()
