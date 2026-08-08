@@ -644,6 +644,46 @@ def cmd_raw(args) -> int:
     return 0
 
 
+def _auth_export(auth, args) -> int:
+    """Сессия площадки в виде строки для секретов окружения.
+
+    🔴 Печатает ПРЕДЪЯВИТЕЛЬСКИЙ ДОСТУП К АККАУНТУ. Кто получил это значение,
+    тот вошёл как владелец. Поэтому команда ничего никуда не отправляет, не
+    пишет в файл и не логируется: она печатает один раз в твой терминал, а
+    дальше значение копируешь ты сам — в секреты окружения, не в промпт
+    рутины и не в репозиторий.
+
+    Вывод не показывать никому, включая агента: агенту сессия для работы не
+    нужна, а всё, что попало в переписку, живёт в ней дальше.
+    """
+    names = [args.platform] if args.platform else sorted(auth.PLATFORMS)
+    missing = [n for n in names if n not in auth.PLATFORMS]
+    if missing:
+        print(f"нет такой площадки: {', '.join(missing)}. Есть: "
+              f"{', '.join(sorted(auth.PLATFORMS))}", file=sys.stderr)
+        return 2
+    got = 0
+    for name in names:
+        value = auth.export_state(name)
+        if value is None:
+            # Отсутствие входа — штатный случай, а не отказ: половина площадок
+            # работает анонимно. Но сказать надо, иначе «экспортировал всё» и
+            # «экспортировал ничего» выглядят одинаково.
+            print(f"# {name}: входа нет, экспортировать нечего "
+                  f"(`scout auth login {name}`)", file=sys.stderr)
+            continue
+        print(f"{auth.env_var(name)}={value}")
+        got += 1
+    if not got:
+        return 1
+    print("\n# ↑ Секреты ОКРУЖЕНИЯ облачной рутины, не промпт и не git.",
+          file=sys.stderr)
+    print("# Сессия смертна и в облаке не продлевается (нужен браузер). Когда "
+          "умрёт —\n# площадка станет «НУЖЕН ВХОД» в строке обхода поста; "
+          "тогда выполни это снова.", file=sys.stderr)
+    return 0
+
+
 def cmd_auth(args) -> int:
     from . import auth
     if args.action == "import":
@@ -662,6 +702,8 @@ def cmd_auth(args) -> int:
         # ложилась разовым слепком вместо постоянного профиля.
         return auth.login(args.platform, wait=args.wait,
                           browser=getattr(args, "browser", None))
+    if args.action == "export":
+        return _auth_export(auth, args)
     if args.action == "check":
         return auth.check([args.platform] if args.platform else None)
     if args.action == "refresh":
@@ -2029,6 +2071,16 @@ from .cliargs import build_parser  # noqa: F401,E402 — реэкспорт
 
 
 def main(argv=None) -> int:
+    # Сессии из окружения раскладываются ДО разбора команды и один раз на
+    # процесс. Место выбрано так, чтобы читателям `.auth/` ничего не знать про
+    # окружение: их восемь, и восемь развилок «файл или переменная» разъехались
+    # бы. Импорт ленивый — `auth` тянет за собой список площадок, а половине
+    # команд он не нужен вовсе.
+    from . import auth as _auth  # noqa: PLC0415
+
+    laid = _auth.hydrate_from_env()
+    if laid:
+        print(f"сессии из окружения: {', '.join(laid)}", file=sys.stderr)
     args = build_parser().parse_args(argv)
     return args.func(args)
 

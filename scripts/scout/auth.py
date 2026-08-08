@@ -31,6 +31,7 @@ Playwright нужен ТОЛЬКО для входа, рендера и пров
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import sys
@@ -574,6 +575,79 @@ def state_path(platform: str) -> str:
 
 def have(platform: str) -> bool:
     return os.path.exists(state_path(platform))
+
+
+# ── Сессии из окружения: единственный способ дать вход облачной рутине ───────
+#
+# В облаке чекаут публичного репозитория и больше ничего. `.auth/` туда не
+# уезжает и не уедет (инвариант 4 — про git), поэтому авторизованные площадки
+# были там выключены по построению.
+#
+# 🔴 Это НЕ то же самое, что ключ площадки. Ключ даёт чтение публичного
+# каталога; сохранённая сессия — ПРЕДЪЯВИТЕЛЬСКИЙ ДОСТУП К АККАУНТУ. Кто
+# получил файл, тот вошёл как владелец. Поэтому:
+#
+#   * значение кладётся в секреты окружения, а НЕ в промпт рутины и не в git;
+#   * `auth export` печатает его РОВНО ОДИН РАЗ в терминал владельца — команда
+#     существует, чтобы человек скопировал вывод сам, не показывая его никому;
+#   * сессия смертна. Продлить её в облаке нечем: `authrefresh` поднимает
+#     браузер, а playwright там нет. Когда сессия умрёт, площадка честно
+#     станет «НУЖЕН ВХОД» в строке обхода поста — за этим и нужна та строка.
+_ENV_PREFIX = "SCOUT_AUTH_"
+
+
+def env_var(platform: str) -> str:
+    """Имя переменной окружения для сессии площадки."""
+    return _ENV_PREFIX + platform.upper().replace("-", "_")
+
+
+def export_state(platform: str) -> str | None:
+    """Значение для секрета окружения (base64 сохранённой сессии) или None.
+
+    base64, а не сырой JSON: значение уезжает в поле веб-формы и в оболочку,
+    а в куках встречаются кавычки, переводы строк и знаки доллара.
+    """
+    path = state_path(platform)
+    if not os.path.exists(path):
+        return None
+    with open(path, "rb") as f:
+        return base64.b64encode(f.read()).decode("ascii")
+
+
+def hydrate_from_env() -> list[str]:
+    """Разложить сессии из окружения в AUTH_DIR. Возвращает, какие площадки легли.
+
+    Материализуем в файлы, а не учим каждого читателя смотреть в окружение:
+    `state_path` открывают восемь мест, и восемь развилок «файл или переменная»
+    разъехались бы. Здесь одна точка входа и один формат на диске.
+
+    Существующий файл НЕ перезаписывается: локально живая сессия свежее любого
+    слепка, который когда-то положили в секреты.
+    """
+    laid: list[str] = []
+    for platform in PLATFORMS:
+        raw = os.environ.get(env_var(platform))
+        if not raw or have(platform):
+            continue
+        try:
+            blob = base64.b64decode(raw, validate=True)
+            json.loads(blob.decode("utf-8"))      # мусор в AUTH_DIR не кладём
+        except Exception as e:  # noqa: BLE001
+            # Молчать нельзя: битый секрет неотличим от «входа нет», и площадка
+            # молча выпала бы из обхода с пометкой, которая уводит не туда.
+            print(f"{env_var(platform)}: не разобрался ({type(e).__name__}) — "
+                  f"ожидается base64 от {platform}.json, площадка останется без "
+                  f"входа", file=sys.stderr)
+            continue
+        os.makedirs(AUTH_DIR, exist_ok=True)
+        path = state_path(platform)
+        # Права ставятся ДО записи: между open() и chmod() файл существовал бы
+        # с правами по умолчанию, а в нём сессия аккаунта.
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(blob)
+        laid.append(platform)
+    return laid
 
 
 def _require_playwright():

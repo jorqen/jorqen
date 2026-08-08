@@ -1735,6 +1735,119 @@ def test_dead_critical_session_is_the_first_next_step():
     ok("scout auth login shadowhint" in steps[0], "названа команда, а не намёк")
 
 
+def test_session_travels_to_the_cloud_only_through_the_environment():
+    """Сессия площадки едет в облако переменной окружения — и только так.
+
+    Зачем вообще. В облаке чекаут публичного репозитория и больше ничего:
+    `.auth/` туда не уезжает и не уедет (инвариант 4 — про git). Пока сессия
+    жила только файлом, авторизованные площадки были в облаке выключены
+    по построению.
+
+    🔴 Это НЕ ключ площадки. Ключ даёт чтение публичного каталога, сессия —
+    ПРЕДЪЯВИТЕЛЬСКИЙ ДОСТУП К АККАУНТУ. Отсюда всё, что проверяется ниже:
+    права 0600, никакой перезаписи живого файла и обязательный крик на битое
+    значение.
+    """
+    import base64
+    import contextlib
+    import io
+
+    from . import auth
+
+    with tempfile.TemporaryDirectory() as d:
+        state = {"cookies": [{"name": "s", "value": "x", "domain": "shadowhint.com"}],
+                 "origins": []}
+        blob = json.dumps(state).encode("utf-8")
+        env = {auth.env_var("shadowhint"): base64.b64encode(blob).decode(),
+               auth.env_var("hirehi"): "это-не-base64!!!"}
+
+        with patched(auth, "AUTH_DIR", d), patched(os, "environ", dict(env)):
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                laid = auth.hydrate_from_env()
+            eq(laid, ["shadowhint"], "сессия из окружения не легла в AUTH_DIR")
+            eq(auth.have("shadowhint"), True, "площадка осталась без входа")
+
+            # Права ставятся ДО записи: между open() и chmod() файл существовал
+            # бы с правами по умолчанию, а в нём доступ к аккаунту.
+            mode = os.stat(auth.state_path("shadowhint")).st_mode & 0o777
+            eq(mode, 0o600, f"сессия легла с правами {mode:04o} — её прочитает "
+                            f"любой пользователь машины")
+
+            # Битое значение обязано КРИЧАТЬ: молча оно неотличимо от «входа
+            # нет», и площадка выпала бы из обхода с пометкой, уводящей не туда.
+            eq(auth.have("hirehi"), False, "мусор из окружения лёг в AUTH_DIR")
+            ok(auth.env_var("hirehi") in err.getvalue(),
+               f"о битом секрете не сказано ни слова: {err.getvalue()!r}")
+
+            # Обратимость: то, что печатает `auth export`, обязано читаться
+            # обратно. Иначе владелец скопирует значение, а вход не поднимется.
+            eq(auth.export_state("shadowhint"), env[auth.env_var("shadowhint")],
+               "export и hydrate разошлись форматом")
+
+            # Живой локальный файл НЕ перезаписывается старым слепком.
+            with open(auth.state_path("shadowhint"), "w", encoding="utf-8") as f:
+                json.dump({"cookies": [{"name": "свежая"}], "origins": []}, f)
+            with contextlib.redirect_stderr(io.StringIO()):
+                eq(auth.hydrate_from_env(), [],
+                   "секрет из окружения затёр живую локальную сессию")
+            with open(auth.state_path("shadowhint"), encoding="utf-8") as f:
+                eq(json.load(f)["cookies"][0]["name"], "свежая",
+                   "локальная сессия свежее любого слепка в секретах — "
+                   "перезаписывать её нельзя")
+
+
+def test_wave_post_tells_a_quiet_day_from_a_broken_crawl():
+    """Строка обхода в посте: «0 новых» и «всё развалилось» обязаны различаться.
+
+    Рутина работает без присмотра. Без этой строки молчаливый отказ выглядит
+    ровно как тихий день, и заметить его можно через неделю — а это та самая
+    цена, ради которой сборщик считает свои счётчики вслух.
+    """
+    from . import store, tgwave
+
+    with tempfile.TemporaryDirectory() as d:
+        db = os.path.join(d, "w.db")
+        with store.connect(db) as conn:
+            rid = store.start_run(conn, "Golang", {})
+            store.record_source(conn, rid, "hh", "ok", found=10, new=10)
+            store.record_source(conn, rid, "habr", "ok", found=5, new=5)
+            store.record_source(conn, rid, "glassdoor", "blocked", found=0, new=0)
+            store.record_source(conn, rid, "shadowhint", "no_login", found=0, new=0)
+            store.record_source(conn, rid, "jobicy", "error", found=0, new=0)
+
+        line = tgwave.coverage_line(db)
+        ok("2 из 5" in line, f"не сказано, сколько площадок отработало: {line!r}")
+        ok("выключено 1" in line, f"выключенное не отделено от сломанного: {line!r}")
+        for name in ("glassdoor", "jobicy"):
+            ok(name in line, f"не отработавшая площадка {name} не названа "
+                             f"поимённо — «сломалось 2» не даёт понять, что "
+                             f"именно потеряли: {line!r}")
+        ok("shadowhint" not in line,
+           f"выключенное названо среди аварий — это разные починки: {line!r}")
+        ok("протухла" not in line,
+           f"вход, который никогда не заводили, назван протухшим — так пост "
+           f"каждый день просит действий на ровном месте: {line!r}")
+
+        # А вот сессия, которую владелец ПОЛОЖИЛ в секреты и которая не
+        # сработала, — единственное во всём прогоне, что требует его рук:
+        # продлить её в облаке нечем, там нет браузера.
+        from .auth import env_var
+        with patched(os, "environ", {env_var("shadowhint"): "чтотоесть"}):
+            dead = tgwave.coverage_line(db)
+        ok("протухла" in dead and "shadowhint" in dead.split("протухла")[1],
+           f"настроенная и умершая сессия не названа — владелец узнает о ней "
+           f"только по пустому посту через неделю: {dead!r}")
+
+        # Пустая волна: строка обязана быть и там, иначе ноль читается как
+        # «сегодня тихо» при развалившемся обходе.
+        text, _ = tgwave.build(db, days=1, date="2026-08-08", top=3)
+        ok("0 новых" in text, f"пустая волна названа неверно: {text[:80]!r}")
+        ok("не отработали" in text,
+           f"в посте о ПУСТОЙ волне нет строки обхода — ровно там, где она "
+           f"нужнее всего: {text!r}")
+
+
 def main() -> int:
     for fn in (test_k_suffix_is_thousands, test_k_suffix_does_not_eat_words,
                test_zero_salary_is_not_a_salary,
@@ -1825,7 +1938,9 @@ def main() -> int:
                test_snapshot_is_taken_even_when_already_logged_in,
                test_private_endpoint_outranks_the_markup,
                test_live_session_is_found_in_another_browser,
-               test_dead_critical_session_is_the_first_next_step):
+               test_dead_critical_session_is_the_first_next_step,
+               test_session_travels_to_the_cloud_only_through_the_environment,
+               test_wave_post_tells_a_quiet_day_from_a_broken_crawl):
         fn()
     if FAILS:
         print(f"ПРОВАЛЕНО {len(FAILS)}:")

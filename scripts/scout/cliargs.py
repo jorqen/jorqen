@@ -293,7 +293,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     a = sub.add_parser("auth", help="сессии площадок в .auth/ (вход делает пользователь); "
                                     "refresh — продлить то, что продлевается без человека; "
-                                    "import — забрать куки из браузеров в единый профиль",
+                                    "import — забрать куки из браузеров в единый профиль; "
+                                    "export — сессия строкой для СЕКРЕТОВ окружения "
+                                    "облачной рутины (предъявительский доступ, никому "
+                                    "не показывать)",
                        parents=[common])
     # careered продлевается настоящим браузером на постоянном профиле — здесь
     # нужен тот же выбор браузера, что у `render`/`browse`. Импорт локальный:
@@ -301,7 +304,7 @@ def build_parser() -> argparse.ArgumentParser:
     from .render import add_browser_args  # noqa: PLC0415
     add_browser_args(a)
     a.add_argument("action", choices=["status", "login", "check", "refresh", "import",
-                                      "secure", "push-browser"],
+                                      "secure", "push-browser", "export"],
                    nargs="?", default="status")
     a.add_argument("platform", nargs="?")
     a.add_argument("--all", action="store_true",
