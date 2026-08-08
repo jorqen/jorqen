@@ -54,6 +54,7 @@ from .net import (BlockedError, FetchError, HostPacer, fetch, fetch_json,
 # нужен каждому источнику одинаково, а два расходящихся счётчика в одном сборщике
 # — это два разных ответа на вопрос «сколько потеряли».
 from .sources import ATS_ROLE_RE, Ctx, Tally, parse_salary, period_from_text
+from .tgvacancy import extract_company
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -409,7 +410,14 @@ def src_dreamoffer(ctx: Ctx) -> list[Vacancy]:
                 # своего URL у вакансии нет.
                 url=rec.get("link") or "",
                 title=_first_line(text) or (info.get("profession") or "вакансия"),
-                company=None,   # компании в таблице нет ни одним полем
+                # Колонки с работодателем в таблице нет, но САМ ПОСТ его часто
+                # называет: «**Компания**: Сбер». Читаем тем же разбором, что и
+                # телеграм-каналы (`extract_company`), — это единственное место,
+                # где работодатель у dreamoffer вообще появляется. 08.08.2026:
+                # без этого 7601 строка лежала безымянной, включая Сбер, Авито,
+                # Яндекс, VK и Т-Банк, причём часть из них — в топе шорт-листа.
+                # Пустая компания честнее выдуманной: не назван — остаётся None.
+                company=extract_company(text),
                 salary_from=sf, salary_to=st, currency=cur, salary_gross=gross,
                 salary_period=period_from_text(sal if isinstance(sal, str) else None),
                 location=", ".join(str(x) for x in (info.get("city"), info.get("country")) if x)
@@ -1687,8 +1695,20 @@ def src_hnhiring(ctx: Ctx) -> list[Vacancy]:
                     tally.parsed += 1
                     text = _strip_tags(hit.get("comment_text"))
                     head = _first_line(text)
-                    # Формат треда устоявшийся: «Компания | роль | локация | ссылка».
+                    # Формат треда «Компания | роль | локация | ссылка» — идеал,
+                    # а не правило: роль встречается и четвёртой, и шестой
+                    # («Spacelift | Remote (Europe) | Full-time | Senior Software
+                    # Engineer | $80k»). Заголовок из первых трёх кусков её терял,
+                    # и `on_profile` выбрасывал вакансию как чужую профессию.
+                    # Замер 08.08.2026: 119 постов из 224 отсеяно по заголовку,
+                    # у 25 из них Go назван в тексте. Поэтому кусок с ролью
+                    # ищется по всей строке и ставится сразу за компанией.
                     bits = [b.strip() for b in head.split("|") if b.strip()]
+                    role_at = next((i for i, b in enumerate(bits[1:], 1)
+                                    if ATS_ROLE_RE.search(b)), None)
+                    if role_at is not None and role_at >= 3:
+                        bits = [bits[0], bits[role_at],
+                                *(b for i, b in enumerate(bits[1:], 1) if i != role_at)]
                     sf, st, cur = _hn_salary(text)
                     link = re.search(r"https?://[^\s<>\"]+", text)
                     v = Vacancy(

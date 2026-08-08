@@ -1428,6 +1428,42 @@ def test_hnhiring_takes_direct_employer_link_and_scales_k():
          "в сводке не назван тред, из которого взяты посты")
 
 
+def test_hnhiring_title_keeps_the_role_wherever_it_stands():
+    """Роль обязана попасть в заголовок, даже если стоит четвёртой.
+
+    🔴 Формат треда «Компания | роль | локация» — идеал, а не правило. Живой
+    пост 08.08.2026: «Spacelift | Remote (Europe) | Full-time | Senior Software
+    Engineer | $80k-$110k+», то есть роль ЧЕТВЁРТАЯ. Заголовок собирался из
+    первых трёх кусков, роль в него не попадала, и `shortlist.on_profile`
+    отсеивал вакансию как чужую профессию — хотя backend у них «100% Go».
+    Замер по базе: из 224 постов окна 119 отсеяно по заголовку, и у 25 из них
+    Go назван в тексте. Это источник, которого нет ни на одном агрегаторе, и
+    терять его так обидно вдвойне."""
+    post = ("Spacelift | Remote (Europe) | Full-time | Senior Software Engineer "
+            "| $80k-$110k+ We're building an infrastructure orchestrator. "
+            "On the backend we're using 100% Go. https://spacelift.io/careers")
+    thread = {"hits": [{"objectID": "1", "title": "Ask HN: Who is hiring? (August 2026)"}]}
+    comments = {"hits": [{"objectID": "77", "parent_id": "1", "story_id": "1",
+                          "comment_text": post, "created_at": "2026-08-05T10:00:00Z",
+                          "author": "spacelift"}],
+                "nbPages": 1}
+    net = _Net({}, {"search_by_date": thread, "v1/search?tags=comment": comments})
+    rows = with_net(net, lambda: W.src_hnhiring(Ctx(query="Go", limit=20)))
+    js = jobs_of(rows)
+    if not js:
+        FAILS.append("пост Spacelift не разобран вовсе")
+        return
+    v = js[0]
+    if "Software Engineer" not in v.title:
+        FAILS.append(f"роль не попала в заголовок: {v.title!r} — "
+                     f"такую вакансию отсеет фильтр профессии")
+    from .shortlist import on_profile
+    if not on_profile(v.title):
+        FAILS.append(f"заголовок {v.title!r} не проходит on_profile — "
+                     f"Go-вакансия потеряна на фильтре")
+    eq(v.company, "Spacelift", "компания — первая часть строки поста")
+
+
 def test_hnhiring_asks_two_threads_by_separate_words():
     """«Go» — самая результативная формулировка на HN (115 попаданий против
     2 по «Golang» и 28 по фразе «Backend Go»: Algolia склеивает слова через И).
@@ -1804,7 +1840,8 @@ def main() -> int:
                test_jobsdb_sorts_by_date_and_walks_the_whole_window,
                test_jobsdb_salary_helper,
                test_hnhiring_takes_direct_employer_link_and_scales_k,
-               test_hnhiring_asks_two_threads_by_separate_words,
+               test_hnhiring_title_keeps_the_role_wherever_it_stands,
+        test_hnhiring_asks_two_threads_by_separate_words,
                test_hnhiring_paginates_and_drops_prefix_noise_and_replies,
                test_hn_salary_helper,
                test_levels_benchmark_is_a_reference_not_a_vacancy,

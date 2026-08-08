@@ -1184,6 +1184,11 @@ LINKEDIN_DRY_STREAK = 3
 # LinkedIn троттлит охотнее всех остальных, а пагинация превращает 9 запросов
 # в сотню. Пауза здесь длиннее общей: дешевле подождать, чем потерять регион.
 LINKEDIN_PAUSE = 1.2
+# Сколько пар «формулировка × регион» подряд должны отказать НАСУХО, чтобы
+# признать сеть мёртвой и прекратить источник. Две мало (регион может честно
+# упереться в троттлинг и отпустить), перебор всех пар — это тот самый прогон
+# на 1191 с ради нуля карточек, от которого предохранитель и ставится.
+LINKEDIN_DEAD_PAIRS = 3
 
 
 def _linkedin_windows(days: int) -> tuple[int, ...]:
@@ -1276,12 +1281,20 @@ def src_linkedin(ctx: Ctx) -> list[Vacancy]:
     # меньшую. Счётчик простоя один на весь источник — обнулять его на каждой
     # новой паре значило бы разгоняться там, где пар больше всего.
     slept = 0.0
+    # Предохранитель от мёртвой сети. Терпеть обрыв постранично правильно, но
+    # если не отвечает НИЧЕГО, честный повтор оборачивается своей
+    # противоположностью: 27 пар × LINKEDIN_RETRIES отступов с удвоением — это
+    # десятки минут ради нуля карточек (08.08.2026: 1191 с на пустую выдачу).
+    # Считаются пары подряд, кончившиеся отказом и не давшие ни одной карточки.
+    dead_pairs = 0
+    aborted = ""
     for q in queries:
       for seconds in windows:
         for region in LINKEDIN_REGIONS:
             label = (f"{region}/«{q}»" if len(windows) == 1
                      else f"{region}/«{q}»/{seconds // 86400}д")
             cards = dry = 0
+            refused = False
             for page in range(budget):
                 slept += _pause(LINKEDIN_PAUSE)
                 url = qs("https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search", {
@@ -1294,6 +1307,7 @@ def src_linkedin(ctx: Ctx) -> list[Vacancy]:
                     # это НЕ ноль вакансий здесь, а неспрошенная выдача, и молчать
                     # об этом нельзя: иначе «linkedin 86» читается как полный обход.
                     lost_regions.append(f"{label} (стр. {page + 1})")
+                    refused = True
                     break
                 chunks = text.split('<div class="base-card')[1:]
                 if not chunks:
@@ -1319,7 +1333,28 @@ def src_linkedin(ctx: Ctx) -> list[Vacancy]:
                 truncated.append(f"{label} ({cards})")
             if cards:
                 pairs_done += 1
+                dead_pairs = 0
+            elif not refused:
+                # Пара кончилась штатно, просто без карточек (конец выдачи или
+                # уход темы). Это ответ площадки, а не молчание сети: счётчик
+                # подряд идущих отказов обязан обнулиться, иначе «подряд»
+                # означало бы «когда-нибудь за прогон».
+                dead_pairs = 0
+            else:
+                dead_pairs += 1
+                if dead_pairs >= LINKEDIN_DEAD_PAIRS:
+                    aborted = (f"ОБРЫВ СВЯЗИ: {dead_pairs} пар подряд не ответили "
+                               f"ни одной карточкой — обход прекращён, чтобы не "
+                               f"тратить прогон на мёртвую сеть. Уже собранное "
+                               f"сохранено; остальное НЕ спрошено")
+                    break
+        if aborted:
+            break
+      if aborted:
+        break
     pairs = len(queries) * len(LINKEDIN_REGIONS) * len(windows)
+    if aborted:
+        tally.note(aborted)
     tally.note(f"пар «формулировка × регион × окно» с выдачей {pairs_done}/{pairs}, "
                f"страниц {tally.pages}, запросов {tally.requests}, "
                f"из них простой {slept:.0f} с (частота — не чаще 1 запроса "
@@ -1392,6 +1427,13 @@ def _linkedin_fetch(url: str, tally) -> str | None:
     подряд. Раньше первый же 429 обрывал регион целиком — а 429 у LinkedIn это
     не «нельзя», а «не так часто»: подождать и продолжить дешевле, чем потерять
     остаток выдачи и объявить его нулём.
+
+    🔴 Сетевой сбой лечится ТАК ЖЕ, и это не мелочь. `URLError` приезжает как
+    `FetchError` БЕЗ статуса, а условие ниже проверяло только 429/403 — всё
+    остальное уходило `raise` сквозь `src_linkedin` вместе с уже разобранными
+    карточками. Живой счёт 08.08.2026: 20 минут обхода, 510 ответов в кэше,
+    источник вернул НОЛЬ. Обрыв соединения — потеря одной страницы, а не
+    доказательство того, что вакансий нет.
     """
     delay = LINKEDIN_BACKOFF
     for attempt in range(LINKEDIN_RETRIES):
@@ -1400,7 +1442,10 @@ def _linkedin_fetch(url: str, tally) -> str | None:
             tally.requests += 1
             return text
         except FetchError as e:
-            if e.status not in (429, 403):
+            # status is None — это сеть (URLError, таймаут, сброс соединения):
+            # ровно тот случай, когда повтор осмыслен. Настоящие ответы площадки
+            # с кодом, кроме 429/403, повторять по-прежнему незачем.
+            if e.status is not None and e.status not in (429, 403):
                 raise
             tally.requests += 1
             if attempt + 1 >= LINKEDIN_RETRIES:
@@ -1665,6 +1710,23 @@ _ATS_IMPL = {"greenhouse": _ats_greenhouse, "lever": _ats_lever,
 _NOT_OUR_TRADE = (r"ландшафтн|градостроит|реставрац|интерьер|благоустройств|"
                   r"архитектор[\s-]*проектировщик|главный архитектор проекта|"
                   r"архитектор[\s-]*реставратор")
+
+# 🔴 «Go-to-Market» — это продажи и маркетинг, а не язык Go, но ловится корнем
+# `go`: «Lead Recruiter, Go to Market», «Senior Director, Go-To-Market Strategy»,
+# «Chief of Staff, Go to Market». Четыре штуки в топ-400 одной волны 08.08.2026.
+#
+# ⚠️ В `_NOT_OUR_TRADE` этому обороту не место, и это проверено поломкой:
+# запрет там работает как ВЕТО на весь заголовок, и первая же попытка снесла
+# живой пост «CareerJumpShip | Multiple engineering + go-to-market roles», где
+# инженерные роли названы прямо. Правильный приём другой: вырезать оборот из
+# текста ПЕРЕД поиском роли. Тогда «Chief of Staff, Go to Market» теряет
+# единственное совпадение и отсеивается, а пост с инженерными ролями остаётся.
+_GTM = re.compile(r"\bgo[\s-]*to[\s-]*market\b|\bgtm\b", re.I)
+
+
+def role_text(title: str | None) -> str:
+    """Заголовок, очищенный от оборотов, которые лишь похожи на нашу профессию."""
+    return _GTM.sub(" ", title or "")
 
 ATS_ROLE_RE = re.compile(
     rf"^(?![\s\S]*(?:{_NOT_OUR_TRADE}))[\s\S]*?"
