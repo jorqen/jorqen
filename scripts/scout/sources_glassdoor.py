@@ -438,9 +438,13 @@ def _src_glassdoor_html(ctx: Ctx) -> list[Vacancy]:
     if cards:
         tally.note("ld+json на странице поиска нет — разобраны карточки выдачи "
                    "по data-атрибутам; дата вычислена из метки возраста («15d»)")
+    # Своё число площадки уходит в `tally.claimed`, а не в примечание: там оно
+    # СХОДИТСЯ с остальными счётчиками одной строкой «РАЗРЫВ 75 → 28: …».
+    # Примечанием оно лежало рядом с ними и ни с чем не сходилось, и «взято 28
+    # при заявленных 75» каждый раз приходилось раскладывать руками.
     total = re.search(r'data-test="search-title"[^>]*>(\d+)', html)
     if total:
-        tally.note(f"площадка заявила {total.group(1)} вакансий по этому запросу")
+        tally.claimed = int(total.group(1))
     tally.note("снято браузером (render.py); анонимный GET площадка не отдаёт")
     out.append(tally.row())
     return out

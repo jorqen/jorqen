@@ -754,6 +754,45 @@ def test_card_gives_the_whole_contact_picture_and_names_the_barriers():
        "гео-метка с визовой поддержкой принята за барьер")
 
 
+def test_tally_splits_the_gap_between_claimed_and_kept():
+    """«Взято 28 при заявленных 75» обязано раскладываться САМО.
+
+    У glassdoor этот разрыв пришлось выяснять отдельным расследованием: своё
+    число площадки лежало в примечании, счётчики отсева — в другой части той же
+    сводки, и ни с чем они не сходились. Слагаемых три, и чинятся они РАЗНЫМ:
+    «не спросили» — глубиной обхода, «чужая профессия» и «старше окна» не
+    чинятся вовсе (так работают фильтры), «не разобралось» — разметкой.
+
+    Второе свойство важнее первого: строка не имеет права появляться там, где
+    разрыва нет. Иначе её начинают пролистывать, и она перестаёт работать."""
+    from .sources import Tally
+
+    t = Tally("glassdoor", claimed=75, offered=40, parsed=38, dropped=2,
+              skipped_profile=8, skipped_old=2, kept=28)
+    gap = t.gap_note()
+    eq("РАЗРЫВ 75 → 28" in gap, True, f"разрыв не назван числами: {gap!r}")
+    eq("НЕ СПРОШЕНО 35" in gap, True,
+       f"не сказано, сколько мы просто не спросили — а чинится только это: {gap!r}")
+    for expect in ("чужая профессия 8", "старше окна --days 2",
+                   "не разобралось — разметка 2"):
+        eq(expect in gap, True, f"в разрыве нет слагаемого «{expect}»: {gap!r}")
+    eq(gap in t.row().title, True, "разложенный разрыв не попал в сводку источника")
+
+    eq(Tally("hh", claimed=100, offered=100, parsed=100, kept=100).gap_note(), "",
+       "разрыв объявлен там, где взято всё — такую строку начнут пролистывать")
+    # Взяли ВСЁ заявленное, но по дороге отсеяли повторы страниц: терять тут
+    # нечего, а слагаемые ненулевые. Без явной проверки «взято >= заявленного»
+    # сюда печаталось бы «РАЗРЫВ 30 → 30: повторы между страницами 15».
+    eq(Tally("glassdoor", claimed=30, offered=45, parsed=30, dupes=15,
+             kept=30).gap_note(), "",
+       "разрыв посчитан там, где взято всё заявленное, — это чистый шум")
+    eq(Tally("habr", offered=10, parsed=10, kept=10).gap_note(), "",
+       "площадка своего числа не называла, а разрыв всё равно посчитан")
+    # Инвариант Tally не должен пострадать: `claimed` живёт отдельно от баланса
+    # «offered = dropped + dupes + skipped_kind + parsed».
+    eq(t.mismatch(), 0, "новое поле сломало баланс счётчиков")
+
+
 def test_tg_wave_is_one_post_and_never_sends_by_default():
     """Пост о волне: ОДИН, с числом и файлом, и по умолчанию никуда не уходит.
 
@@ -1289,6 +1328,7 @@ def main() -> int:
             test_wavedoc_slug_folds_legal_forms_and_transliterates,
             test_wavedoc_never_overwrites_a_document_with_judgement_in_it,
             test_card_gives_the_whole_contact_picture_and_names_the_barriers,
+            test_tally_splits_the_gap_between_claimed_and_kept,
             test_tg_wave_is_one_post_and_never_sends_by_default,
             test_funnel_does_not_call_a_page_view_an_answer,
             test_doctor_diagnoses_without_touching_the_network,
