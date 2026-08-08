@@ -2431,6 +2431,55 @@ def test_keyed_sources_say_they_are_off_without_a_key():
     eq(leaked, [], "в модуле зашит ключ — ключи живут только в .auth/, вне git")
 
 
+def test_keyed_keys_come_from_the_environment_too():
+    """Ключи площадок читаются и из окружения — иначе облачной рутине их не отдать.
+
+    В облаке чекаут публичного репозитория и больше ничего: `.auth/` туда не
+    уезжает и не уедет (инвариант 4). Пока ключ жил только в файле, четыре
+    площадки с ключами (superjob, adzuna, jooble, careerjet) в облаке были
+    выключены по построению, и «ВЫКЛЮЧЕН: нет ключа» читалось как настройка,
+    хотя было архитектурным тупиком.
+
+    Ключ площадки при этом НЕ равен сессионной куке: он даёт чтение публичного
+    каталога и отзывается в кабинете. Именно поэтому его можно отдать облаку,
+    а куку нельзя.
+    """
+    import os
+
+    from . import sources_keyed as K
+
+    # Явный пустой словарь обязан остаться «ключей нет»: на этом различии у hh
+    # ломался выбор между API и разбором HTML, и окружение не должно его
+    # подменять — иначе тест выше («без ключа источник выключен») зазеленел бы
+    # на машине владельца и покраснел бы в облаке.
+    with patched(os, "environ", {"JOOBLE_API_KEY": "из-окружения"}):
+        eq(K.keys("jooble", {}), None,
+           "env={} — это ЯВНОЕ «ключей нет», окружение его не отменяет")
+
+    fake_env = {"ADZUNA_APP_ID": "id-из-окружения",
+                "ADZUNA_APP_KEY": "key-из-окружения",
+                "ADZUNA_COUNTRIES": "de,nl"}
+    with patched(os, "environ", dict(fake_env)), \
+            patched(K, "read_env", lambda *_a, **_k: None):
+        got = K.keys("adzuna")
+        eq(got and got.get("ADZUNA_APP_ID"), "id-из-окружения",
+           "обязательный ключ из окружения не подхватился")
+        eq(got and got.get("ADZUNA_COUNTRIES"), "de,nl",
+           "необязательная настройка площадки потеряна: «ключи отдали, а список "
+           "стран нет» — это тихое сужение обхода")
+
+    # Окружение бьёт файл: в облаке файла нет, локально им удобно перебить.
+    with patched(os, "environ", {"JOOBLE_API_KEY": "новый"}), \
+            patched(K, "read_env", lambda *_a, **_k: {"JOOBLE_API_KEY": "старый"}):
+        eq(K.keys("jooble")["JOOBLE_API_KEY"], "новый",
+           "файл победил окружение — облачный прогон взял бы несуществующий ключ")
+
+    # Чужой префикс не подхватывается: JOOBLE_* не должен утекать в adzuna.
+    with patched(os, "environ", {"JOOBLE_API_KEY": "чужой"}), \
+            patched(K, "read_env", lambda *_a, **_k: None):
+        eq(K.keys("adzuna"), None, "ключи одной площадки утекли в другую")
+
+
 def test_keyed_sources_are_in_the_registry():
     """Площадка без ключа обязана СТОЯТЬ в реестре, а не исчезать из него.
 
@@ -3683,7 +3732,8 @@ def main() -> int:
                # ── telegram → vacancy и водяной знак ───────────────────────
                # ── площадки с бесплатным ключом: без ключа честно выключены ──
                test_keyed_sources_say_they_are_off_without_a_key,
-               test_keyed_sources_are_in_the_registry,
+               test_keyed_keys_come_from_the_environment_too,
+            test_keyed_sources_are_in_the_registry,
                test_superjob_key_travels_in_the_header_and_town_stays_home,
                test_superjob_rows_map_fields_and_never_invent_a_period,
                test_adzuna_never_turns_its_own_guess_into_a_salary,
