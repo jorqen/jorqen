@@ -735,6 +735,12 @@ def cmd_lint_cards(args) -> int:
     return cardfiles.cli_lint(args)
 
 
+def cmd_tg_wave(args) -> int:
+    """Один пост о волне в свой приватный канал. Отправка — только с --apply."""
+    from . import tgwave
+    return tgwave.cli(args)
+
+
 def cmd_funnel(args) -> int:
     """Воронка откликов и хвосты. Данные лежали в базе и не были видны нигде."""
     from . import funnel

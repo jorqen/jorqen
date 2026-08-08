@@ -754,6 +754,65 @@ def test_card_gives_the_whole_contact_picture_and_names_the_barriers():
        "гео-метка с визовой поддержкой принята за барьер")
 
 
+def test_tg_wave_is_one_post_and_never_sends_by_default():
+    """Пост о волне: ОДИН, с числом и файлом, и по умолчанию никуда не уходит.
+
+    Требование владельца 08.08.2026: единый пост — количество новых вакансий
+    плюс файл со всеми. Не сводка по площадкам и не строка на вакансию.
+
+    Отдельный модуль, а не ручка в `tgmirror`: у того инвариант жёстче и
+    проверяется тестом — ровно одна операция `forward_messages`, «ничего не
+    сочиняется» сказано буквально. Здесь сочиняется, значит и границы стоят
+    свои. Тест держит обе: этот модуль не пересылает чужое, а тот не пишет.
+
+    Первая версия строила окно f-строкой «3d» и передавала её в `shortlist.build`,
+    который ждёт готовую дату. Под такую границу не подходило ничего, и пост
+    бодро сообщал «0 новых вакансий» при полной базе — поломка, выглядящая
+    как исправная работа."""
+    import inspect
+    import os
+    import tempfile
+
+    from . import store, tgwave
+    from .model import Vacancy
+
+    # Ищется ВЫЗОВ, а не упоминание: в докстроке этого модуля `forward_messages`
+    # назван нарочно — там объясняется, чем его границы отличаются от границ
+    # `tgmirror`. Проверка по голой подстроке ловила бы объяснение вместо кода.
+    src = inspect.getsource(tgwave)
+    for forbidden in ("forward_messages", "iter_messages", "send_read_acknowledge",
+                      "delete_messages", "JoinChannelRequest", "send_message"):
+        if f".{forbidden}(" in src:
+            FAILS.append(f"tg-wave: найден вызов {forbidden!r} — этому модулю "
+                         f"позволен только собственный пост в свой канал")
+    if "def run" in src and "apply: bool = False" not in src:
+        FAILS.append("tg-wave: отправка обязана быть выключена по умолчанию")
+
+    with tempfile.TemporaryDirectory() as d:
+        db = os.path.join(d, "w.db")
+        with store.connect(db) as conn:
+            store.upsert(conn, [
+                Vacancy(source="hh", external_id=str(i), url=f"https://hh.ru/v/{i}",
+                        title=f"Go разработчик {i}", company=f"Acme {i}",
+                        salary_from=300000 if i % 2 else None,
+                        currency="RUB" if i % 2 else None,
+                        salary_period="month" if i % 2 else None,
+                        remote=bool(i % 3), published_at=_fresh(1))
+                for i in range(1, 8)])
+        text, table = tgwave.build(db, days=3, date="2026-08-08", top=3)
+
+    first = text.splitlines()[0]
+    eq(first.startswith("Волна 2026-08-08: 7 новых"), True,
+       f"первая строка поста обязана называть число новых, а не {first!r}")
+    eq(text.count("Волна 2026-08-08"), 1, "поста должно быть ровно одно начало")
+    eq(len([ln for ln in text.splitlines() if ln[:2] in ("1.", "2.", "3.", "4.")]), 3,
+       "--top не соблюдён: в посте должно быть ровно столько строк, сколько просили")
+    eq("shortlist:" in table, True,
+       "файл собран своим форматом вместо shortlist — это второй ответ "
+       "на тот же вопрос, он разойдётся с командой, которой пользуется владелец")
+    eq("7 вакансий" in table, True, "в файл попали не все новые вакансии")
+
+
 def test_funnel_does_not_call_a_page_view_an_answer():
     """Воронка обязана считать честно — иначе она хуже, чем её отсутствие.
 
@@ -1230,6 +1289,7 @@ def main() -> int:
             test_wavedoc_slug_folds_legal_forms_and_transliterates,
             test_wavedoc_never_overwrites_a_document_with_judgement_in_it,
             test_card_gives_the_whole_contact_picture_and_names_the_barriers,
+            test_tg_wave_is_one_post_and_never_sends_by_default,
             test_funnel_does_not_call_a_page_view_an_answer,
             test_doctor_diagnoses_without_touching_the_network,
             test_pause_charges_the_request_time_against_the_interval,

@@ -26,7 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
         DEFAULT_LIMIT, DEFAULT_MAX_ENRICH, RAW_SOURCES,
         cmd_ats, cmd_auth, cmd_brief, cmd_browse, cmd_budget, cmd_card,
         cmd_channel, cmd_check_links, cmd_collect, cmd_coverage, cmd_detail,
-        cmd_doctor, cmd_employer, cmd_funnel, cmd_enrich, cmd_habr_sync, cmd_hh_auth, cmd_hh_sync,
+        cmd_doctor, cmd_employer, cmd_funnel, cmd_tg_wave, cmd_enrich, cmd_habr_sync, cmd_hh_auth, cmd_hh_sync,
         cmd_mail_ingest, cmd_mail_read, cmd_mail_sync, cmd_mark, cmd_new,
         cmd_profile, cmd_raw, cmd_render, cmd_research, cmd_resolve, cmd_reveal,
         cmd_lint_cards, cmd_lint_letter, cmd_scan, cmd_shortlist, cmd_status, cmd_wavedoc, cmd_tg, cmd_tg_auth, cmd_tg_dm,
@@ -323,6 +323,20 @@ def build_parser() -> argparse.ArgumentParser:
                    help="login: ждать входа СЕК секунд, опрашивая страницу, вместо "
                         "Enter (нужно, когда команду запускают не из терминала)")
     a.set_defaults(func=cmd_auth)
+
+    tw = sub.add_parser("tg-wave", parents=[common],
+                        help="ОДИН пост о волне в свой приватный канал: сколько "
+                             "новых вакансий + файл со всеми. По умолчанию "
+                             "предпросмотр, отправка только с --apply")
+    tw.add_argument("--days", type=int, default=3, help="окно волны")
+    tw.add_argument("--top", type=int, default=10,
+                    help="сколько строк показать в самом посте (остальное в файле)")
+    tw.add_argument("--date", help="дата волны (по умолчанию сегодня)")
+    tw.add_argument("--apply", action="store_true",
+                    help="отправить (без него — только предпросмотр)")
+    tw.add_argument("--force", action="store_true",
+                    help="отправить повторно волну, которая уже уходила в канал")
+    tw.set_defaults(func=cmd_tg_wave)
 
     fn = sub.add_parser("funnel", parents=[common],
                         help="что происходит с откликами: сколько ушло, сколько "
