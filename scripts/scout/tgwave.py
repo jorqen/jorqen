@@ -247,7 +247,12 @@ def run(db: str, *, days: int, date: str, top: int = 10, apply: bool = False,
     try:
         from .tgclient import read_env  # noqa: PLC0415 — telethon опционален
         env = read_env() or {}
-    except Exception:
+    except Exception as e:  # noqa: BLE001 — файла может не быть, это штатно
+        # Молчать здесь нельзя: без этой строки поломка чтения файла выглядит
+        # как «канал не назначен», и чинить пойдут не то. Отсутствие файла —
+        # штатный случай (в облаке его нет вовсе), поэтому не отказ, а заметка.
+        print(f"\n.auth/telegram.env не прочитан ({type(e).__name__}: {e}) — "
+              f"беру только окружение", file=sys.stderr)
         env = {}
     creds = bot_creds(env)
     if via == "bot" and not creds:

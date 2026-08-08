@@ -820,6 +820,95 @@ def test_tally_splits_the_gap_between_claimed_and_kept():
     eq(t.mismatch(), 0, "новое поле сломало баланс счётчиков")
 
 
+def test_vetted_query_sets_actually_reach_the_platform():
+    """Проверенный набор формулировок обязан УЙТИ В СЕТЬ, а не просто лежать.
+
+    Замер 08.08.2026 (окно 3 дня, счёт своего вклада каждой формулировки):
+
+        hh.ru          «Golang» 96 → объединение 2331   (в 24 раза)
+        Хабр Карьера   «Golang» 20 → объединение 260    (в 13 раз)
+
+    Константа, которую забыли подмешать, не роняет ничего и не краснит ни один
+    тест: площадка честно отвечает на единственный запрос, покрытие падает в
+    два десятка раз, и выглядит это как «на площадке столько». Ровно та тихая
+    потеря, ради которой заведён этот модуль. Поэтому проверяется не наличие
+    константы, а факт запроса.
+    """
+    from . import sources as S
+    from .sources import Ctx, src_habr, src_hh
+
+    # 🔴 Ожидание ФИКСИРОВАННОЕ, а не «пройтись по самой константе». Цикл по
+    # константе — тест, зеленеющий вхолостую: опустоши её, и тело цикла просто
+    # не выполнится. Проверено нарочной поломкой — так и было.
+    #
+    # Перечислены главные поставщики по замеру: на hh «программист» дал 1358
+    # своих из 2331 и «backend» 467, на Хабре «backend» 146 из 260 и
+    # «Go разработчик» 77. Формулировка выбывает из набора только вместе с
+    # новым замером — тогда правится и эта строка.
+    must_hh = ("Go", "backend", "программист")
+    must_habr = ("backend", "Go разработчик", "программист")
+    for term in must_hh:
+        if term not in S.HH_QUERIES:
+            FAILS.append(f"hh: {term!r} пропал из HH_QUERIES без нового замера")
+    for term in must_habr:
+        if term not in S.HABR_QUERIES:
+            FAILS.append(f"habr: {term!r} пропал из HABR_QUERIES без нового замера")
+
+    hh_pages = {"&page=0": _hh_page([_hh_vac(1)], 1), "&page=1": _hh_page([], 1)}
+    fake = _FakeFetch(hh_pages)
+    _with_fake_fetch(fake, lambda: src_hh(Ctx(query="Golang")))
+    for term in must_hh:
+        quoted = urllib.parse.quote_plus(term)
+        if not any(f"text={quoted}" in u for u in fake.asked):
+            FAILS.append(f"hh: формулировка {term!r} не ушла в сеть — "
+                         f"покрытие площадки падает с 2331 до 96")
+
+    habr = _habr_page([_habr_card(1, _fresh(1))], has_next=False)
+    fake2 = _FakeFetch({"career.habr.com/vacancies": habr})
+    _with_fake_fetch(fake2, lambda: src_habr(Ctx(query="Golang")))
+    for term in must_habr:
+        quoted = urllib.parse.quote_plus(term)
+        if not any(f"q={quoted}" in u for u in fake2.asked):
+            FAILS.append(f"habr: формулировка {term!r} не ушла в сеть — "
+                         f"покрытие площадки падает с 260 до 20")
+
+
+def test_rabota_names_the_formulations_it_never_asked():
+    """Кончился бюджет запросов — неопрошенные формулировки НАЗЫВАЮТСЯ поимённо.
+
+    `RABOTA_MAX_REQUESTS` один на ВСЕ формулировки и держит нас от бана. Пока
+    он проверялся только во внутреннем цикле по страницам, лишние формулировки
+    молча прокручивались вхолостую: внешний цикл шёл до конца, внутренний
+    ломался на первой же проверке, и в сводке оставалось «в выдаче ?». Это
+    недобор, неотличимый от пустой площадки.
+
+    Потолок при этом НЕ поднимается — правильный ответ «сказать, чего не
+    спросили», а не «спросить больше».
+    """
+    from . import sources_web as W
+    from .sources import Tally
+
+    tally = Tally("rabota")
+    tally.requests = 0
+    eq(W._rabota_budget_out(tally, ["a", "b", "c"], 0), False,
+       "бюджет цел, а обход остановлен")
+    eq(tally.row().raw["notes"], [], "лишняя строка в сводке при целом бюджете")
+
+    tally.requests = W.RABOTA_MAX_REQUESTS
+    eq(W._rabota_budget_out(tally, ["Golang", "backend", "бэкенд", "программист"], 1),
+       True, "бюджет кончился, а обход продолжается — площадку будем долбить")
+    notes = tally.row().raw["notes"]
+    joined = " ".join(notes)
+    for must in ("backend", "бэкенд", "программист"):
+        if must not in joined:
+            FAILS.append(f"неопрошенная формулировка {must!r} не названа: {notes}")
+    if "Golang" in joined:
+        FAILS.append(f"уже опрошенная формулировка попала в неопрошенные: {notes}")
+    ok(any("недобор" in n for n in notes),
+       "в сводке не сказано, что это НЕДОБОР, а не пустая выдача: читающий "
+       "примет неспрошенное за «на площадке столько»")
+
+
 def test_tg_wave_is_one_post_and_never_sends_by_default():
     """Пост о волне: ОДИН, с числом и файлом, и по умолчанию никуда не уходит.
 
@@ -1541,6 +1630,8 @@ def main() -> int:
             test_wavedoc_never_overwrites_a_document_with_judgement_in_it,
             test_card_gives_the_whole_contact_picture_and_names_the_barriers,
             test_tally_splits_the_gap_between_claimed_and_kept,
+            test_vetted_query_sets_actually_reach_the_platform,
+            test_rabota_names_the_formulations_it_never_asked,
             test_tg_wave_is_one_post_and_never_sends_by_default,
             test_tg_wave_bot_path_is_stdlib_and_never_leaks_the_token,
             test_funnel_does_not_call_a_page_view_an_answer,

@@ -26,20 +26,17 @@ from __future__ import annotations
 from . import shortlist, store
 from .shortlist import norm
 
-# Грейдовые и языковые слова снимаются перед сравнением названий: «Go
-# Developer» и «Senior Go Developer» — одна вакансия в глазах площадки, но
-# РАЗНЫЕ в глазах инварианта (случай SumUp). Поэтому шум снимается тем же
-# `_ROLE_NOISE`, которым строится ключ склейки, и всё, что осталось разным
-# ПОСЛЕ снятия шума, — настоящее расхождение, а не оформление.
-_NOISE = shortlist._ROLE_NOISE
-
-
-def _role(title: str | None) -> str:
-    return norm(_NOISE.sub(" ", title or ""))
-
-
-def _grade(title: str | None) -> str:
-    return shortlist.grade_of(title or "")
+# Роль и грейд считаются ТЕМИ ЖЕ функциями, что и в самом дедупе. Своя формула
+# здесь была бы третьей копией и разошлась бы молча: аудит начал бы одобрять
+# склейки, которых дедуп не делает, и наоборот — то есть проверял бы не то,
+# что происходит.
+#
+# Грейд при сравнении роли НЕ снимается (`drop_grade` по умолчанию выключен):
+# «Backend Engineer - Cards» и «Senior Backend Engineer - Cards» у SumUp —
+# две разные открытые позиции, и аудит обязан показать их расхождение, а не
+# сгладить его.
+_role = shortlist.role_key
+_grade = shortlist.grade_of
 
 
 def audit(db: str, *, since: str | None, by: str = "seen",

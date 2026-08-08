@@ -360,7 +360,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="СОСТАВ схлопнутых групп: что именно склеил дедуп "
                              "и где внутри группы разошлись компания, грейд или "
                              "роль. Возвращает 1, когда есть что посмотреть")
-    dp.add_argument("--since", help="окно: дата, «3d» или auto")
+    dp.add_argument("--since", default="3d",
+                    help="окно: дата, «3d» или auto. Шире — «30d»: аудит по всей "
+                         "базе честнее, но идёт минуты")
     dp.add_argument("--by", choices=("seen", "published"), default="seen",
                     help="по какой дате брать окно")
     dp.add_argument("--sample", type=int, default=12,
