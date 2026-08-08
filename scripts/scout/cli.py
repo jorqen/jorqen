@@ -1325,9 +1325,119 @@ def cmd_check_links(args) -> int:
                     exit_code = 1
                 continue
             if not p:
-                print(f"?  {url}\n   не ATS-ссылка — живость по API не проверить, "
-                      f"открой глазами или `scout resolve`")
-                exit_code = 1
+                # Не ATS — это не повод разводить руками. Площадки помечают
+                # архив внутри страницы и отдают её с кодом 200, поэтому
+                # смотрим и код, и текст (`card.liveness_from_page`). Раньше
+                # здесь стояло «живость по API не проверить», и по большинству
+                # карточек волны ответа не было вовсе.
+                from .card import liveness_from_page
+                from .net import BlockedError, FetchError, fetch, fetch_json
+                # Витрины-редиректы (careerjet через jobviewtrack, jooble/away)
+                # своей страницы вакансии не имеют вовсе: они увозят на сайт
+                # работодателя или другой площадки. Проверять надо КОНЕЧНЫЙ
+                # адрес, иначе вердикт всегда «не похоже на страницу вакансии».
+                if host.endswith("jobviewtrack.com") or "/away/" in url:
+                    from .resolve import follow
+                    chain = follow(url).get("chain") or [url]
+                    dest = next((u for u in reversed(chain)
+                                 if u.startswith("http")
+                                 and "jobviewtrack.com" not in u
+                                 and "/away/" not in u), None)
+                    if not dest:
+                        # Витрина не раскрылась (стена или JS-редирект). Но та
+                        # же вакансия часто лежит в базе и с прямой ссылки —
+                        # дубли уже схлопнуты `shortlist`, и у соседа по группе
+                        # адрес проверяемый. Живость берём у него: это тот же
+                        # набор, просто опубликованный без посредника.
+                        row = conn.execute(
+                            "SELECT dup_key, title, company FROM vacancy "
+                            "WHERE url = ? LIMIT 1", (url,)).fetchone()
+                        twin = conn.execute(
+                            "SELECT url FROM vacancy WHERE dup_key = ? AND url != ? "
+                            "AND (url LIKE '%hh.ru/vacancy%' OR url LIKE '%careered.io/jobs%' "
+                            "OR url LIKE '%wantapply.com/jobs%') LIMIT 1",
+                            (row["dup_key"], url)).fetchone() if row and row["dup_key"] else None
+                        if not twin:
+                            print(f"?  {url}\n   витрина не раскрыла конечный адрес "
+                                  f"и дубля с прямой ссылкой в базе нет — живость "
+                                  f"проверяется только заходом человека")
+                            exit_code = 1
+                            continue
+                        print(f"   витрина за стеной — проверяю ту же вакансию "
+                              f"по прямой ссылке: {twin['url'][:70]}")
+                        dest = twin["url"]
+                    else:
+                        print(f"   витрина ведёт на {dest[:90]}")
+                    url, host = dest, urllib.parse.urlsplit(dest).netloc.lower()
+                # Телеграм-пост: его существование НЕ равно живости вакансии.
+                # Пост живёт вечно, а набор мог закрыться месяц назад. Честный
+                # ответ — «по посту не определить», а не выдуманное «жива».
+                if host in ("t.me", "telegram.me"):
+                    print(f"?  {url}\n   телеграм-пост: живость вакансии по нему "
+                          f"не определить (пост остаётся, даже когда набор "
+                          f"закрыт) — спроси у контакта из карточки")
+                    exit_code = 1
+                    continue
+                # careered — SPA: stdlib видит только каркас, и вердикт всегда
+                # выходил «не похоже на страницу вакансии». Живость там знает
+                # тот же API, из которого берётся описание (см. detail).
+                if host.endswith("careered.io"):
+                    jid = url.rstrip("/").rsplit("/", 1)[-1]
+                    # Bearer из .auth/careered.json — тот же путь, что у detail.
+                    # Без него сервер отдаёт mode=preview: живость видна, но
+                    # контакты зарезаны, и вердикт получается беднее, чем может.
+                    from . import auth as _auth
+                    _tok, _ = _auth.bearer_from_state("careered")
+                    _hdr = {"Authorization": f"Bearer {_tok}"} if _tok else None
+                    try:
+                        j = fetch_json(f"https://careered.io/api/jobs/{jid}",
+                                       headers=_hdr)
+                        j = j if isinstance(j, dict) else {}
+                        st = str(j.get("status") or j.get("state") or "").lower()
+                        if j.get("archived") or st in ("archived", "closed", "expired"):
+                            print(f"✗  МЕРТВА  {url}\n   API careered: status={st or 'archived'}")
+                            exit_code = 1
+                        # Вакансия у careered лежит в `content`, а не плоскими
+                        # полями: ключи ответа — id, kind, tag, content, links,
+                        # offers, mode, posted_at. Проверка по title/description
+                        # не находила ничего и давала «записи нет» на живых.
+                        elif j.get("content") or j.get("posted_at"):
+                            body = j.get("content")
+                            head = (body.get("title") if isinstance(body, dict)
+                                    else str(body or ""))[:50]
+                            print(f"✓  ЖИВА  {url}\n   API careered отдал вакансию "
+                                  f"«{head}» (mode={j.get('mode')}, "
+                                  f"опубл. {str(j.get('posted_at') or '')[:10]})")
+                        else:
+                            print(f"?  {url}\n   API careered ответил, но записи "
+                                  f"о вакансии в ответе нет")
+                            exit_code = 1
+                    except (FetchError, BlockedError) as e:
+                        code = getattr(e, "status", None)
+                        if code in (404, 410):
+                            print(f"✗  МЕРТВА  {url}\n   API careered: HTTP {code}")
+                            exit_code = 1
+                        else:
+                            print(f"?  {url}\n   API careered не ответил: {e}")
+                            exit_code = 1
+                    continue
+                try:
+                    html, final = fetch(url, timeout=15, retries=0)
+                    verdict, why = liveness_from_page(html, 200, final_url=final)
+                except BlockedError:
+                    verdict, why = "НЕИЗВЕСТНО", ("антибот-стена: страница есть, "
+                                                  "но её отдают только браузеру")
+                except FetchError as e:
+                    verdict, why = liveness_from_page("", e.status or 0) if e.status \
+                        else ("НЕИЗВЕСТНО", f"сеть не ответила: {e.reason}")
+                if verdict == "ЖИВА":
+                    print(f"✓  ЖИВА  {url}\n   {why}")
+                elif verdict == "МЕРТВА":
+                    print(f"✗  МЕРТВА  {url}\n   {why}")
+                    exit_code = 1
+                else:
+                    print(f"?  {url}\n   {why}")
+                    exit_code = 1
                 continue
             ats, token, jid = p
             b = boards[(ats, token)]

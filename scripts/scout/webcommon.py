@@ -42,6 +42,10 @@ _WALL_TITLES = (
 _WALL_BODY = (
     "awswaf.com", "challenge-container", "captcha-container", "cf_chl_opt",
     "datadome", "px-captcha", "_incapsula_resource",
+    # careerjet: заголовок у страницы-стены обычный («Careerjet»), опознаётся
+    # только по телу. Без этих двух строк проверка живости отвечала «не похоже
+    # на страницу вакансии» — формально верно, а по сути непонятно, что делать.
+    "требуется подтверждение", "необычный трафик",
 )
 
 
