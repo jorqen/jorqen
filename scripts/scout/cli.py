@@ -735,6 +735,17 @@ def cmd_lint_cards(args) -> int:
     return cardfiles.cli_lint(args)
 
 
+def cmd_funnel(args) -> int:
+    """Воронка откликов и хвосты. Данные лежали в базе и не были видны нигде."""
+    from . import funnel
+    # `--tail-days` без значения — это «как договорились», а не ноль дней:
+    # argparse отдаёт None, и подставить его в timedelta значит показать
+    # хвостами вообще все отклики.
+    if getattr(args, "tail_days", None) is None:
+        args.tail_days = funnel.TAIL_DAYS
+    return funnel.cli(args)
+
+
 def cmd_doctor(args) -> int:
     """Что на этой машине сломано. Одна команда вместо четырёх и догадок."""
     from . import doctor

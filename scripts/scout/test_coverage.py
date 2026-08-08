@@ -754,6 +754,65 @@ def test_card_gives_the_whole_contact_picture_and_names_the_barriers():
        "гео-метка с визовой поддержкой принята за барьер")
 
 
+def test_funnel_does_not_call_a_page_view_an_answer():
+    """Воронка обязана считать честно — иначе она хуже, чем её отсутствие.
+
+    Данные лежали в базе с самого начала и не были видны ни одной командой:
+    519 записей о том, что ответили НАМ. Соврать здесь проще всего двумя
+    способами, и оба закрыты тестом.
+
+    Первый: посчитать `viewed` ответом. «Резюме посмотрели» — факт открытия
+    страницы, а не решение; на живой базе это завысило бы отклик рынка
+    с 47% до 68%.
+
+    Второй: считать медиану ответа по горстке записей и подать её как вывод.
+    Дат события в базе хватает на пять откликов из 247 — на пяти замерах это
+    не медиана, а случайное число."""
+    import os
+    import tempfile
+
+    from . import funnel, store
+
+    rows = [
+        ("Go dev", "A", "rejection", "hh", "2026-07-01", "2026-07-05"),
+        ("Go dev", "B", "invitation", "hh", "2026-07-01", "2026-07-03"),
+        ("Go dev", "C", "interview", "mail", "2026-07-01", "2026-07-09"),
+        ("Go dev", "D", "viewed", "hh", "2026-07-01", "2026-07-02"),
+        ("Go dev", "E", "not_viewed", "habr", "2026-07-01", None),
+        ("Go dev", "F", "applied", "mail", "2026-08-07", None),
+    ]
+    with tempfile.TemporaryDirectory() as d:
+        db = os.path.join(d, "f.db")
+        with store.connect(db) as conn:
+            for title, comp, status, src, seen, event in rows:
+                conn.execute(
+                    "INSERT INTO negotiation (title_key, company_key, title, company,"
+                    " status, source, event_at, first_seen, updated_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?)",
+                    (title.lower(), comp.lower(), title, comp, status, src,
+                     event, seen, seen))
+            res = funnel.build(conn, tail_days=14)
+
+    eq(res["total"], 6, "не все отклики попали в воронку")
+    eq(res["answered"], 3, "ответом посчитано не то: viewed и not_viewed — не ответ")
+    eq(res["positive"], 2, "приглашение и интервью — это два, а не что-то иное")
+    eq(res["median_days"], 4, "медиана считается по датам ответивших")
+
+    # Хвосты — молчащие, и только они. Свежий отклик хвостом не является.
+    tails = {r["company"] for r in res["tails"]}
+    eq(tails, {"D", "E"},
+       f"хвосты посчитаны неверно: {tails}. Отвеченное хвостом не бывает, "
+       f"свежее — тоже")
+
+    text = funnel.render(res) + funnel.render_tails(res)
+    eq("ненадёжно" in text, True,
+       "медиана по трём откликам подана как факт — на таких данных её "
+       "надо помечать, а не печатать голым числом")
+    eq("не попадает" in text, True,
+       "не сказано, что отклик мимо hh/почты в знаменатель не входит — "
+       "по этим процентам нельзя считать «конверсию поиска»")
+
+
 def test_doctor_diagnoses_without_touching_the_network():
     """`doctor` обязан быть дешёвым и не врать про отсутствие как про поломку.
 
@@ -1171,6 +1230,7 @@ def main() -> int:
             test_wavedoc_slug_folds_legal_forms_and_transliterates,
             test_wavedoc_never_overwrites_a_document_with_judgement_in_it,
             test_card_gives_the_whole_contact_picture_and_names_the_barriers,
+            test_funnel_does_not_call_a_page_view_an_answer,
             test_doctor_diagnoses_without_touching_the_network,
             test_pause_charges_the_request_time_against_the_interval,
             test_linkedin_empty_page_is_rechecked_before_calling_it_the_end,

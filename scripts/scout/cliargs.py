@@ -26,7 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
         DEFAULT_LIMIT, DEFAULT_MAX_ENRICH, RAW_SOURCES,
         cmd_ats, cmd_auth, cmd_brief, cmd_browse, cmd_budget, cmd_card,
         cmd_channel, cmd_check_links, cmd_collect, cmd_coverage, cmd_detail,
-        cmd_doctor, cmd_employer, cmd_enrich, cmd_habr_sync, cmd_hh_auth, cmd_hh_sync,
+        cmd_doctor, cmd_employer, cmd_funnel, cmd_enrich, cmd_habr_sync, cmd_hh_auth, cmd_hh_sync,
         cmd_mail_ingest, cmd_mail_read, cmd_mail_sync, cmd_mark, cmd_new,
         cmd_profile, cmd_raw, cmd_render, cmd_research, cmd_resolve, cmd_reveal,
         cmd_lint_cards, cmd_lint_letter, cmd_scan, cmd_shortlist, cmd_status, cmd_wavedoc, cmd_tg, cmd_tg_auth, cmd_tg_dm,
@@ -323,6 +323,20 @@ def build_parser() -> argparse.ArgumentParser:
                    help="login: ждать входа СЕК секунд, опрашивая страницу, вместо "
                         "Enter (нужно, когда команду запускают не из терминала)")
     a.set_defaults(func=cmd_auth)
+
+    fn = sub.add_parser("funnel", parents=[common],
+                        help="что происходит с откликами: сколько ушло, сколько "
+                             "ответили, за сколько дней, и какие молчат слишком долго")
+    fn.add_argument("--tail-days", type=int, default=None, metavar="ДН",
+                    help="сколько дней молчания считать хвостом (по умолчанию 14)")
+    fn.set_defaults(func=cmd_funnel)
+
+    tl = sub.add_parser("tails", parents=[common],
+                        help="только хвосты: отклики, молчащие дольше срока. "
+                             "Возвращает 1, когда есть что разобрать — годится в рутину")
+    tl.add_argument("--tail-days", type=int, default=None, metavar="ДН",
+                    help="порог молчания в днях (по умолчанию 14)")
+    tl.set_defaults(func=cmd_funnel, tails_only=True)
 
     doc = sub.add_parser("doctor", parents=[common],
                          help="что на этой машине сломано: окружение, база, "
