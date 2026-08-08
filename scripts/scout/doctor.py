@@ -36,6 +36,19 @@ OPTIONAL = (
     ("playwright", "браузерные площадки (glassdoor, вход на площадки, render)"),
     ("price_parser", "разбор редких форматов вилок; без него работает свой парсер"),
     ("telethon", "telegram-каналы (tg-fetch, tg-dm, tg-mirror)"),
+    # 🔴 Без него `mail-sync` падает этапом «УПАЛ», а почта — один из четырёх
+    # каналов статусов откликов и единственный для компаний, которые не пишут
+    # в hh. 08.08.2026 doctor отрапортовал «всё на месте», волна отработала
+    # целиком, и только в покрытии выяснилось, что почта не читалась вовсе —
+    # а в ней лежал свежий отказ по вакансии из топа шорт-листа.
+    ("imap_tools", "статусы откликов из почты (mail-sync, mail-read)"),
+    # 🔴 Без него куки браузера НЕ РАСШИФРОВЫВАЮТСЯ, и весь механизм «вход,
+    # сделанный руками, доезжает до сборщика» молча выключается: scout
+    # откатывается на устаревший слепок `.auth/browser.json` и объявляет живые
+    # сессии истёкшими. 08.08.2026 это стоило ложной тревоги «wantapply: нужен
+    # новый вход» при живом входе (токен был действителен ещё сутки), а заодно
+    # прямых ссылок в ATS работодателя по всем вакансиям площадки.
+    ("cryptography", "чтение кук браузера — без него входы площадок не видны"),
 )
 
 
@@ -64,7 +77,51 @@ def _python() -> list[tuple[str, str]]:
             rows.append((WARN, f"нет {mod} — не будет: {gain}"))
         else:
             rows.append((OK, f"{mod} на месте"))
+    rows += _browsers()
     return rows
+
+
+def _browsers() -> list[tuple[str, str]]:
+    """Установлен ли САМ браузер, а не только пакет playwright.
+
+    🔴 Пакет и браузер ставятся отдельно, и проверка импорта про второй не
+    говорит ничего. Живой случай 08.08.2026: `playwright на месте`, а каталог
+    сборок пуст — остался один ffmpeg. Всё браузерное молча не работало:
+    `render` падал, `channel --render` возвращал «рендер тоже не прошёл», а
+    живость вакансий hh проверить было нечем, потому что площадка уводит робота
+    на страницу VPN-проверки и отдаёт её с кодом 200.
+    """
+    try:
+        __import__("playwright")
+    except ImportError:
+        return []
+    root = os.path.expanduser(
+        os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+        or "~/Library/Caches/ms-playwright")
+    if not os.path.isdir(root):
+        return [(WARN, "браузеров playwright нет вовсе — `.venv/bin/python -m "
+                       "playwright install chromium`; без них render, "
+                       "channel --render и проверка живости за стеной не работают")]
+    builds = [d for d in os.listdir(root)
+              if d.startswith(("chromium", "firefox", "webkit"))]
+    # 🔴 `chromium` и `chromium_headless_shell` — РАЗНЫЕ сборки, и ставятся они
+    # раздельно. `render` зовёт `chromium.launch(headless=True)`, то есть именно
+    # headless-shell. Проверка «есть хоть какой-то chromium» это пропускала:
+    # 08.08.2026 doctor рапортовал «браузеры на месте: chromium-1234», а render
+    # падал «Executable doesn't exist at …/chromium_headless_shell-1234/…».
+    if builds and not any(d.startswith("chromium_headless_shell") for d in builds):
+        return [(WARN, f"есть {', '.join(sorted(builds)[:2])}, но НЕТ "
+                       f"chromium_headless_shell — именно его запускает render "
+                       f"(`chromium.launch(headless=True)`). Поставь: "
+                       f"`.venv/bin/python -m playwright install "
+                       f"chromium-headless-shell`")]
+    if not builds:
+        have = ", ".join(sorted(os.listdir(root))[:4]) or "пусто"
+        return [(WARN, f"пакет playwright есть, а браузеров НЕТ (в {root}: {have}) "
+                       f"— `.venv/bin/python -m playwright install chromium`. "
+                       f"Молча отваливаются render, channel --render и живость "
+                       f"страниц за антибот-стеной")]
+    return [(OK, f"браузеры playwright: {', '.join(sorted(builds)[:3])}")]
 
 
 def _db(path: str) -> list[tuple[str, str]]:
@@ -88,10 +145,15 @@ def _db(path: str) -> list[tuple[str, str]]:
                          f"(схлопнуто {n - groups})"))
         cache = store.raw_cache_stats(conn)
         if cache.get("pages"):
-            from .rawcache import RawCache  # noqa: PLC0415 — только ради срока
+            # Класс называется Cache. Имя RawCache не существовало никогда, а
+            # ветка живёт только при НЕПУСТОМ кэше — то есть doctor падал
+            # ImportError ровно после первой волны, когда его и запускают
+            # первым делом. Пустая база это скрывала: и на чистой машине, и в
+            # тесте ветка просто не выполнялась.
+            from .rawcache import Cache  # noqa: PLC0415 — только ради срока
             rows.append((OK, f"кэш ответов площадок за сегодня: {cache['pages']} "
                              f"страниц, {cache['bytes'] / 1024 ** 2:.1f} МБ "
-                             f"(старше {RawCache.KEEP_DAYS} дн. чистится сам)"))
+                             f"(старше {Cache.KEEP_DAYS} дн. чистится сам)"))
         last = conn.execute(
             "SELECT started_at, finished_at, query FROM run "
             "ORDER BY id DESC LIMIT 1").fetchone()
