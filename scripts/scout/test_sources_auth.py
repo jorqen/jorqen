@@ -1742,6 +1742,60 @@ def test_dead_critical_session_is_the_first_next_step():
     ok("scout auth login shadowhint" in steps[0], "названа команда, а не намёк")
 
 
+def test_shadowhint_renewal_never_overwrites_a_good_snapshot():
+    """Продление shadowhint: свежий токен пишем, протухший — НЕТ.
+
+    Вход на shadowhint идёт через «Войти с Google» (в куках домена `g_state`),
+    то есть пароля у площадки нет вовсе. Сам JWT живёт 7,7 дня, а сессия Google
+    в постоянном профиле — месяцами и выдаёт новый JWT при каждом заходе.
+    Отсюда продление без человека.
+
+    🔴 Опасная ветка ровно одна: профиль отдал ПРОСРОЧЕННОЕ. Записать его
+    значит своими руками сломать работающий слепок. Это уже случалось в
+    экспорте с другой стороны — просроченная кука из браузера накрывала свежую
+    из файла, и в облако уезжала мёртвая сессия.
+    """
+    import base64 as b64
+    import time
+
+    from . import auth, authrefresh, render
+
+    def jwt(exp: float) -> str:
+        head = b64.urlsafe_b64encode(b'{"alg":"HS256","typ":"JWT"}').rstrip(b"=")
+        body = b64.urlsafe_b64encode(json.dumps({"exp": exp}).encode()).rstrip(b"=")
+        return f"{head.decode()}.{body.decode()}.подпись"
+
+    live, dead = jwt(time.time() + 7 * 86400), jwt(time.time() - 86400)
+
+    with tempfile.TemporaryDirectory() as d, patched(auth, "AUTH_DIR", d):
+        with patched(render, "evaluate_on",
+                     lambda *a, **k: f"_ym_d=1; auth_token={live}; g_state=x"):
+            ok_, why = authrefresh.renew_shadowhint(browser="chrome")
+        eq(ok_, True, f"свежий токен с профиля не записан: {why}")
+        with open(auth.state_path("shadowhint"), encoding="utf-8") as f:
+            got = [c["value"] for c in json.load(f)["cookies"]
+                   if c["name"] == "auth_token"]
+        eq(got, [live], "в слепке оказался не тот токен")
+
+        # Профиль протух — слепок обязан остаться прежним.
+        with patched(render, "evaluate_on",
+                     lambda *a, **k: f"auth_token={dead}"):
+            ok_, why = authrefresh.renew_shadowhint(browser="chrome")
+        eq(ok_, False, "просроченный токен принят за продление")
+        ok("ПРОСРОЧ" in why.upper(), f"причина отказа не названа: {why}")
+        with open(auth.state_path("shadowhint"), encoding="utf-8") as f:
+            got = [c["value"] for c in json.load(f)["cookies"]
+                   if c["name"] == "auth_token"]
+        eq(got, [live], "рабочий слепок затёрт просроченным токеном из профиля")
+
+        # Профиль вообще не знает площадку — тоже отказ, и с внятным советом.
+        with patched(render, "evaluate_on", lambda *a, **k: "_ym_d=1"):
+            ok_, why = authrefresh.renew_shadowhint(browser="chrome")
+        eq(ok_, False, "продление без куки объявлено успешным")
+        ok("--browser" in why,
+           f"не сказано, что входить надо ИМЕННО в постоянный профиль: {why}")
+
+
 def test_expired_token_is_dead_even_when_the_cookie_is_there():
     """Истёкший JWT — это НЕ вход. «Кука есть» и «токен годится» — разные вещи.
 
@@ -2000,6 +2054,7 @@ def main() -> int:
                test_private_endpoint_outranks_the_markup,
                test_live_session_is_found_in_another_browser,
                test_dead_critical_session_is_the_first_next_step,
+               test_shadowhint_renewal_never_overwrites_a_good_snapshot,
                test_expired_token_is_dead_even_when_the_cookie_is_there,
                test_session_travels_to_the_cloud_only_through_the_environment,
                test_wave_post_tells_a_quiet_day_from_a_broken_crawl):

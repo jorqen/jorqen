@@ -259,6 +259,43 @@ def state_cookie(platform: str) -> tuple[str | None, str]:
                   f"повтори: scout auth login {platform}")
 
 
+def save_session_cookie(platform: str, domain: str, name: str, value: str) -> None:
+    """Кладёт свежую СЕССИОННУЮ куку в `.auth/<площадка>.json`, не трогая остальное.
+
+    Зеркало `save_localstorage_token` для площадок, чья сессия живёт в куке
+    (shadowhint). Файл здесь — тоже слепок, а не дом сессии: жить она обязана
+    в постоянном профиле, где продлевается сама, а слепок нужен stdlib-слою,
+    который в профиль ходить не умеет.
+
+    Остальные куки домена сохраняются: среди них `g_state`, по которому
+    площадка узнаёт сессию Google, и выбрасывать их ради одной строки нельзя.
+    """
+    path = state_path(platform)
+    state: dict = {"cookies": [], "origins": []}
+    if have(platform):
+        try:
+            with open(path, encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                state = loaded
+        except (json.JSONDecodeError, OSError):
+            pass  # битый слепок — перезаписываем целиком, это не потеря сессии
+    cookies = state.setdefault("cookies", [])
+    state.setdefault("origins", [])
+    for c in cookies:
+        if c.get("name") == name and str(c.get("domain") or "").lstrip(".") == domain:
+            c["value"] = value
+            break
+    else:
+        cookies.append({"name": name, "value": value, "domain": domain,
+                        "path": "/", "secure": False, "httpOnly": False,
+                        "sameSite": "Lax"})
+    os.makedirs(AUTH_DIR, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False)
+
+
 def save_localstorage_token(platform: str, origin: str, name: str, token: str) -> None:
     """Кладёт свежий localStorage-токен в `.auth/<площадка>.json`, не трогая куки.
 

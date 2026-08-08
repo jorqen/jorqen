@@ -24,6 +24,14 @@
   стареет. Снимаем заново с ПОСТОЯННОГО профиля scout, где сессия живёт и
   продлевается сама, — тем же настоящим браузером, что ходит по площадкам.
 
+* **shadowhint** — вход через «Войти с Google» (в куках домена лежит `g_state`),
+  то есть пароля у площадки нет вовсе, а живёт всё на сессии Google. Сам JWT
+  площадки короткий — 7,7 дня (замер 08.08.2026), а сессия Google в постоянном
+  профиле держится месяцами и выдаёт новый JWT при каждом заходе. Поэтому
+  лечение то же, что у careered: один вход В ПРОФИЛЬ, дальше снимаем свежую
+  куку без человека. Вход в другом окне сюда не попадает — это и была причина
+  еженедельных походов за новым токеном.
+
 Отсюда и деление: `preflight()` — офлайн-картина «что отвалится в этом прогоне»
 (её зовут `wave` и `budget` до сбора), `renew()` — то, что можно поднять без
 человека. Всё, что человек обязан сделать сам, названо командой, а не намёком.
@@ -32,6 +40,8 @@
 from __future__ import annotations
 
 import sys
+import time
+from datetime import datetime, timezone
 
 from . import auth
 
@@ -63,7 +73,7 @@ def cost_of_death(platform: str) -> tuple[str, bool]:
 def can_renew(platform: str) -> bool:
     """Поднимается ли сессия ПРЯМО СЕЙЧАС без человека.
 
-    Только две площадки, и у каждой своё условие:
+    Три площадки, и у каждой своё условие:
 
     * hirehi — продлевать можно лишь то, что есть: клиенту нужен живой
       refresh-токен из `.auth/hirehi.json`. Нет файла — нет и продления, и
@@ -71,12 +81,40 @@ def can_renew(platform: str) -> bool:
       команду, которая заведомо вернёт отказ;
     * careered — источник не файл, а постоянный профиль, где сессия живёт сама.
       Слепка `.auth/careered.json` может не быть вовсе: он результат продления,
-      а не его условие.
+      а не его условие;
+    * shadowhint — то же, что careered, но сессия в куке. Условие то же:
+      постоянный профиль должен быть залогинен в Google, иначе площадка отдаст
+      анонимную страницу и продлевать будет нечего.
+
+    Проверяем НАЛИЧИЕ куки Google-состояния в профиле, а не сам вход: срок
+    сессии Google снаружи не виден, и обещать «поднимется само» без единого
+    признака значит слать человека за заведомым отказом.
 
     Всё остальное — пароль, код или Cloudflare, то есть человек."""
     if platform == "hirehi":
         return auth.have("hirehi")
+    if platform == "shadowhint":
+        return _profile_knows_shadowhint()
     return platform == "careered"
+
+
+def _profile_knows_shadowhint() -> bool:
+    """Есть ли в постоянном профиле следы входа на shadowhint (кука `g_state`).
+
+    Дешёвая офлайн-проверка: читаем базу кук профиля, браузер не поднимаем.
+    `preflight` зовут `wave` и `budget` до сбора, и открывать там окно ради
+    ответа «продлевается ли» было бы дороже самого продления.
+    """
+    try:
+        from . import cookiesrc  # noqa: PLC0415
+
+        for browser in ("chrome", "yandex"):
+            got = cookiesrc.read_scout_profile(browser, ("shadowhint.com",))
+            if any(c.get("name") in ("g_state", "auth_token") for c in got):
+                return True
+    except Exception:  # noqa: BLE001 — нет профиля, нет браузера, залочена база
+        return False
+    return False
 
 
 _CACHE: dict[str | None, list[dict]] = {}
@@ -361,7 +399,67 @@ def renew_careered(*, browser: str | None = None) -> tuple[bool, str]:
 # Команда
 # ──────────────────────────────────────────────────────────────────────────────
 
-RENEWERS = {"hirehi": renew_hirehi, "careered": renew_careered}
+def renew_shadowhint(*, browser: str | None = None) -> tuple[bool, str]:
+    """Снимает свежий `auth_token` shadowhint с постоянного профиля scout.
+
+    Зачем это вообще возможно. Вход на shadowhint идёт через «Войти с Google»
+    (в куках домена лежит `g_state` — cookie Google Identity Services), поэтому
+    пароля у площадки не существует, а живёт всё на сессии Google. Сессия
+    Google в постоянном профиле держится месяцами, и при каждом заходе площадка
+    выдаёт НОВЫЙ восьмидневный JWT.
+
+    Отсюда весь смысл: JWT shadowhint живёт 7,7 дня (замер 08.08.2026), и без
+    этой ручки владельцу пришлось бы входить руками каждую неделю. С ней —
+    один вход в постоянный профиль, дальше продление без человека.
+
+    Кука НЕ httpOnly намеренно со стороны площадки: приложение зеркалит в неё
+    Bearer из localStorage. Поэтому её видно из `document.cookie`, и браузер
+    отдаёт её той же дорогой, что и careered свой localStorage.
+    """
+    import urllib.parse  # noqa: PLC0415
+
+    from . import render  # noqa: PLC0415
+
+    domain, name = auth.PLATFORMS["shadowhint"]["session_cookie"]
+    if not browser:
+        # Тот же выбор, что у careered: встроенный шелл сюда не годится —
+        # постоянного профиля у него нет, а именно в нём и живёт сессия.
+        real = [b for b in render.installed_browsers() if b != render.BUNDLED]
+        browser = real[0] if real else None
+    try:
+        raw = render.evaluate_on(f"https://{domain}/", "() => document.cookie",
+                                 browser=browser)
+    except Exception as e:  # noqa: BLE001 — площадка/браузер не повод падать
+        return False, f"профиль не отдал куки: {type(e).__name__}: {e}"
+
+    token = None
+    for part in (raw or "").split(";"):
+        key, _, value = part.strip().partition("=")
+        if key == name:
+            token = urllib.parse.unquote(value)
+    if not token:
+        return False, (f"в постоянном профиле нет куки {name!r} — войди ОДИН раз "
+                       f"именно в него: `scout auth login shadowhint --force "
+                       f"--browser chrome`. Вход в другом окне сюда не попадёт")
+
+    # Свежесть проверяем ДО записи: перезаписать живой слепок протухшим значит
+    # своими руками сломать то, что работало. Ровно это уже случалось при
+    # экспорте — просроченный токен из браузера накрывал свежий из файла.
+    exp = auth._jwt_exp(token)
+    if exp is not None and exp < time.time():
+        return False, ("профиль отдал ПРОСРОЧЕННЫЙ токен — сессия Google в нём "
+                       "кончилась, нужен вход руками")
+    try:
+        auth.save_session_cookie("shadowhint", domain, name, token)
+    except OSError as e:
+        return False, f"не смог записать {auth.state_path('shadowhint')}: {e}"
+    when = ("до " + datetime.fromtimestamp(exp, timezone.utc).astimezone()
+            .strftime("%d.%m.%Y %H:%M")) if exp else "срок не объявлен"
+    return True, f"токен снят с постоянного профиля, жив {when}"
+
+
+RENEWERS = {"hirehi": renew_hirehi, "careered": renew_careered,
+            "shadowhint": renew_shadowhint}
 
 
 def renew(platforms: list[str] | None = None, *, browser: str | None = None,
