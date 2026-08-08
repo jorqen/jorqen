@@ -337,12 +337,22 @@ def build(conn, url: str, *, skills: list[str] | None = None,
 
     # Источники и все адреса группы: вакансия, подтверждённая тремя площадками,
     # — это другой факт, чем вакансия с одной.
-    urls = [x["url"] for x in conn.execute(
-        "SELECT url FROM vacancy WHERE dup_key = (SELECT dup_key FROM vacancy "
-        "WHERE source=? AND external_id=?) AND url <> ''",
-        (r["source"], r["external_id"])).fetchall()]
+    group = conn.execute(
+        "SELECT url, location FROM vacancy WHERE dup_key = (SELECT dup_key FROM "
+        "vacancy WHERE source=? AND external_id=?) AND url <> ''",
+        (r["source"], r["external_id"])).fetchall()
+    urls = [x["url"] for x in group]
     if len(urls) > 1:
         out.append(f"- **Источников:** {len(urls)} — " + " · ".join(urls[:5]))
+    # Города всей группы. Одна вакансия в тридцати городах — обычное дело у
+    # консалтинга (adesso SE) и у продуктовых с офисами в разных странах; строка
+    # «Формат» показывает город ОДНОЙ записи, и без этой строки «поеду/не поеду»
+    # решается по случайно выбранному городу.
+    cities = list(dict.fromkeys(x["location"] for x in group if x["location"]))
+    if len(cities) > 1:
+        out.append(f"- **Города (одна вакансия, {len(cities)}):** "
+                   + " · ".join(cities[:12])
+                   + (f" (+{len(cities) - 12})" if len(cities) > 12 else ""))
 
     # Маршруты отклика и контакт из кэша — то, что дороже всего искать заново.
     raw_dict = None

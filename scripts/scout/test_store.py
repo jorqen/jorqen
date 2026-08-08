@@ -635,6 +635,47 @@ def test_merge_collapses_identical_urls_even_without_company():
     eq(len(other), 1, "другой пост остался отдельной вакансией")
 
 
+def test_merge_keeps_every_city_of_a_collapsed_group():
+    """Схлопнули по городам — города обязаны выжить.
+
+    Аудит живой базы 08.08.2026: дедуп прячет 1329 строк, и 1100 из них (82%) —
+    это ОДНА вакансия одной компании в разных городах. adesso SE даёт «Software
+    Engineer Defense» в 30 немецких городах, Bending Spoons — «Graduate software
+    engineer» в 20 городах пяти стран. Ложных склеек РАЗНЫХ работодателей в базе
+    нет ни одной (три подозрительные пары оказались одной компанией в двух
+    написаниях: `1KOMMA5˚`/`1KOMMA5°`, `ГУ "Кызмат"`/`ГУ «Кызмат»`, `СБЕР`/`Сбер`),
+    то есть инвариант «ошибаться в сторону разделения» держится.
+
+    Терялось другое: канон группы выбирается по `first_seen`, и в таблицу попадал
+    город случайной записи — Штральзунд при том, что та же вакансия открыта
+    в Берлине. Решение «не поеду» принималось по факту, которого нет."""
+    from .shortlist import merge, render
+
+    rows = [
+        {"source": "linkedin", "external_id": "1", "company": "adesso SE",
+         "title": "Software Engineer Defense", "first_seen": "2026-08-01",
+         "url": "https://x/1", "location": "Штральзунд"},
+        {"source": "linkedin", "external_id": "2", "company": "adesso SE",
+         "title": "Software Engineer Defense", "first_seen": "2026-08-02",
+         "url": "https://x/2", "location": "Берлин"},
+        {"source": "linkedin", "external_id": "3", "company": "adesso SE",
+         "title": "Software Engineer Defense", "first_seen": "2026-08-03",
+         "url": "https://x/3", "location": "Мюнхен"},
+    ]
+    merged = merge(rows)
+    eq(len(merged), 1, "одна вакансия — одна группа")
+    eq(merged[0]["_locations"], ["Штральзунд", "Берлин", "Мюнхен"],
+       "все три города доехали до группы, а не только город канона")
+
+    g = dict(merged[0], _score=None, _years=None, _rtw="", _worked=[])
+    text = render({"rows": [g], "stats": {"groups": 1, "delta": 3, "off_profile": 0,
+                                          "collapsed": 2, "with_years": 0,
+                                          "worked": 0}})
+    eq("+2" in text, True, "в таблице видно, что городов больше одного")
+    for city in ("Берлин", "Мюнхен"):
+        eq(city in text, True, f"город {city} назван в выдаче, а не съеден склейкой")
+
+
 def test_simhash_dedup_never_merges_across_grades_or_companies():
     """Третий слой дедупа — по описаниям, и он не имеет права нарушить два
     правила, оплаченных потерянными вакансиями.
@@ -1586,6 +1627,7 @@ def main() -> int:
             test_tg_watermark_is_monotonic_and_resumable,
             test_tg_mirror_writes_nothing_without_explicit_apply,
             test_merge_collapses_identical_urls_even_without_company,
+            test_merge_keeps_every_city_of_a_collapsed_group,
             test_simhash_dedup_never_merges_across_grades_or_companies,
             test_dup_decision_survives_and_respects_human,
             test_other_language_penalty_reads_the_body_too,

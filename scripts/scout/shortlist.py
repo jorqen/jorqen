@@ -434,9 +434,20 @@ def merge(rows: list[dict]) -> list[dict]:
             g = dict(r)
             g["_sources"] = []
             g["_urls"] = []
+            g["_locations"] = []
             groups[key] = g
         g["_sources"].append(r.get("source"))
         g["_urls"].append(r.get("url"))
+        # Города группы. Собираются потому, что 82% всего, что прячет дедуп на
+        # живой базе (1100 строк из 1329), — это ОДНА вакансия одной компании,
+        # размещённая в разных городах: adesso SE даёт «Software Engineer
+        # Defense» в 30 немецких городах, Bending Spoons — «Graduate software
+        # engineer» в 20 городах пяти стран. Схлопывать их правильно: 30 строк
+        # об одной работе — шум. Но показывать город ОДНОЙ выжившей строки —
+        # вранье: канон выбирается по first_seen, и в таблицу попадал Штральзунд
+        # при том, что та же вакансия открыта в Берлине.
+        if r.get("location"):
+            g["_locations"].append(r["location"])
         # Вилка: побеждает та, где есть цифры (площадки часто отдают пустую).
         if not g.get("salary_from") and r.get("salary_from"):
             for k in ("salary_from", "salary_to", "currency", "salary_period",
@@ -837,6 +848,7 @@ def render(res: dict, *, fmt: str = "table") -> str:
         "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     multi: list[str] = []
+    geo: list[str] = []
     for i, g in enumerate(rows, 1):
         uniq = list(dict.fromkeys(s for s in g["_sources"] if s))
         srcs = ",".join(uniq)
@@ -845,7 +857,17 @@ def render(res: dict, *, fmt: str = "table") -> str:
         # а не залежавшегося объявления.
         if len(uniq) > 1:
             srcs = f"×{len(uniq)} {srcs}"
+        cities = list(dict.fromkeys(x for x in (g.get("_locations") or []) if x))
         loc = (g.get("location") or "")[:22]
+        if len(cities) > 1:
+            # «+29» в колонке — единственный признак того, что город в строке
+            # не единственный. Без него схлопнутая по городам вакансия выглядит
+            # привязанной к одному месту, и решение «не поеду» принимается по
+            # ложному факту.
+            loc = f"{loc[:16]} +{len(cities) - 1}"
+            geo.append(f"  {i}. {(g.get('title') or '')[:40]} — "
+                       + " · ".join(c[:28] for c in cities[:8])
+                       + (f" (+{len(cities) - 8})" if len(cities) > 8 else ""))
         if g.get("remote"):
             loc = (loc + " remote").strip()
         out.append(
@@ -872,6 +894,11 @@ def render(res: dict, *, fmt: str = "table") -> str:
         out.append(f"Схлопнутые группы ({len(multi)}) — все адреса, "
                    f"кроме показанного в таблице:")
         out += multi
+    if geo:
+        out.append("")
+        out.append(f"Одна вакансия в нескольких городах ({len(geo)}) — "
+                   f"откликаться один раз, но город выбираешь ты:")
+        out += geo
     return "\n".join(out)
 
 
