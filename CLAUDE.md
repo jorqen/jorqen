@@ -28,13 +28,14 @@ scripts/build_resume_formats.sh          # resume.yaml → en/, ru/, PDF, DOCX, 
 **Не читай этот README целиком — он на 1200 строк.** Открывай нужный раздел по
 оглавлению (`grep -n '^###' scripts/scout/README.md`) или ищи по команде.
 
-**Тесты — шесть отдельных модулей, каждый запускается сам, pytest не нужен**
+**Тесты — восемь отдельных модулей, каждый запускается сам, pytest не нужен**
 (его тут и нет — ядро на одной стандартной библиотеке, см. инвариант 3).
 Список с назначением каждого — раздел «Тесты» того же README. Быстрая проверка
 без сети:
 
 ```bash
-for m in test_scout test_sources_web test_sources_auth test_atsapi test_profile; do
+for m in test_scout test_store test_coverage test_sources_web \
+         test_sources_auth test_atsapi test_profile; do
   .venv/bin/python -m scripts.scout.$m || break
 done
 .venv/bin/python -m scripts.scout.test_e2e --offline   # шестой, обязательно с --offline
@@ -150,10 +151,10 @@ done
 
 | Файл | Строк | Как заходить |
 |---|---|---|
-| `scripts/scout/test_scout.py` | ~5900 | `grep -n 'def test_'` → читать нужный тест |
+| `scripts/scout/test_scout.py` | ~3700 | `grep -n 'def test_'` → читать нужный тест |
 | `scripts/scout/sources.py` | ~2200 | `grep -n 'def src_'` → нужная площадка |
 | `scripts/scout/cli.py` | ~1975 | `grep -n 'def cmd_'` → нужная команда |
-| `scripts/scout/test_sources_auth.py`, `sources_web.py`, `test_sources_web.py`, `sources_auth.py` | 1500–1800 | то же |
+| `scripts/scout/test_sources_auth.py`, `test_sources_web.py`, `sources_web.py`, `sources_auth.py`, `test_store.py` | 1500–1850 | то же |
 | `scripts/scout/README.md` | ~1300 строк | `grep -n '^###'` → нужный раздел |
 | `.claude/skills/jobs/references/oss-references.md` | ~100 КБ | справочник, читать по `grep` |
 
@@ -169,6 +170,10 @@ done
 | `cliargs.py` | все подкоманды и флаги (сам разбор аргументов) |
 | `clidetail.py` | команды `detail` и `enrich` |
 | `authrefresh.py` | продление сессий и проба авторизации до прогона |
+| `cardfiles.py` | раскладка карточек по каталогам и `lint-cards` |
+| `wavedoc.py` | главный документ волны, слаг компании, индекс волн |
+| `lintletter.py` | проверка письма на маркеры генератора |
+| `testutil.py` | общее для тестов: подмена, подделки сети, даты |
 
 Имена реэкспортируются из прежних модулей, поэтому старые импорты работают.
 
