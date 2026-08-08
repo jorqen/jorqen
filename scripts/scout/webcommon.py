@@ -26,7 +26,7 @@ from .net import wall_marker as net_wall_marker
 # Ctx и Tally общие для всех адаптеров и живут в `sources`: счёт «отдано →
 # записано» нужен каждому источнику одинаково, а два расходящихся счётчика в
 # одном сборщике — это два разных ответа на вопрос «сколько потеряли».
-from .sources import Ctx, Tally, _pause  # noqa: F401 — Ctx нужен в аннотациях
+from .sources import Ctx, Tally, _pause, merge_queries  # noqa: F401 — Ctx нужен в аннотациях
 
 # Общая механика: стены, окно свежести, POST-чтение
 # ──────────────────────────────────────────────────────────────────────────────
@@ -301,11 +301,20 @@ def query_re(ctx: Ctx) -> re.Pattern:
     return re.compile(r"\b(" + "|".join(re.escape(t) for t in sorted(terms)) + r")\b", re.I)
 
 
-def _long_queries(ctx: Ctx, minlen: int, tally: Tally, why: str) -> list[str]:
-    """Формулировки длиннее порога. Двухбуквенные площадки не ищут вовсе."""
+def _long_queries(ctx: Ctx, minlen: int, tally: Tally, why: str, *,
+                  vetted: tuple[str, ...] = ()) -> list[str]:
+    """Формулировки длиннее порога. Двухбуквенные площадки не ищут вовсе.
+
+    `vetted` — проверенный замером набор площадки; подмешивается ДО отсева по
+    длине, а не после. Порядок значим: набор площадки может содержать короткое
+    слово, и тогда о нём надо сказать в сводке тем же способом, что и о коротком
+    запросе пользователя, а не выбросить молча.
+    """
     ok, short = [], []
-    for q in ctx.queries():
+    for q in merge_queries(ctx.queries(), vetted):
         (ok if len(q.strip()) >= minlen else short).append(q.strip())
     if short:
         tally.note(f"пропущены короткие запросы {short}: {why}")
+    if vetted:
+        tally.note(f"формулировки: {', '.join(ok)}")
     return ok

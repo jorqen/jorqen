@@ -483,6 +483,22 @@ RABOTA_MIN_QUERY = 3   # `query=Go` отдаёт ноль: двухбуквен�
 # вина, поэтому 12 секунд между страницами и жёсткий потолок на прогон.
 RABOTA_PAUSE = 12.0
 RABOTA_MAX_PAGES = 4
+# Проверенный набор формулировок rabota.ru. Замер 08.08.2026, окно 3 дня, счёт
+# СВОЕГО вклада к объединению предыдущих:
+#
+#   Golang        1   своего 1     ← одна формулировка = 1 из 13
+#   backend       4   своего 3
+#   бэкенд        5   своего 1
+#   программист  10   своего 8
+#   ИТОГО объединение 13
+#
+# 🔴 «бэкенд» здесь В НАБОРЕ, хотя на hh и Хабре он отдавал своего 0. Площадки
+# ищут по-разному: те приводят кириллицу и латиницу к одному токену, эта —
+# нет. Набор одной площадки на другую не переносится, только замер.
+#
+# «Go» в набор не попадает не по замеру, а по длине: RABOTA_MIN_QUERY отсекает
+# двухбуквенное, потому что площадка отвечает на него нулём.
+RABOTA_QUERIES = ("backend", "бэкенд", "программист")
 RABOTA_MAX_REQUESTS = 9
 
 
@@ -574,6 +590,27 @@ def _rabota_api_page(query: str, offset: int) -> dict:
     return resp
 
 
+
+def _rabota_budget_out(tally: Tally, queries: list[str], i: int) -> bool:
+    """Кончился ли бюджет запросов, и если да — НАЗВАТЬ неопрошенное.
+
+    Бюджет `RABOTA_MAX_REQUESTS` один на все формулировки, а проверялся он
+    только во ВНУТРЕННЕМ цикле по страницам. Из-за этого лишние формулировки
+    молча прокручивались вхолостую: внешний цикл шёл до конца, внутренний
+    ломался на первой же проверке, и в сводке оставалось «в выдаче ?» — то
+    есть потеря выдачи, неотличимая от пустой площадки.
+
+    Потолок при этом НЕ поднимается: он держит нас от бана. Правильный ответ —
+    сказать вслух, чего не спросили.
+    """
+    if tally.requests < RABOTA_MAX_REQUESTS:
+        return False
+    tally.note(f"не опрошены формулировки {list(queries[i:])}: бюджет "
+               f"{RABOTA_MAX_REQUESTS} запросов кончился. Это НЕ «на площадке "
+               f"больше нет» — это недобор, потолок держит нас от бана")
+    return True
+
+
 def _src_rabota_api(ctx: Ctx) -> list[Vacancy]:
     """Официальный v4. Окно --days режется обрывом: выдача отсортирована по дате."""
     tally = Tally("rabota")
@@ -581,8 +618,11 @@ def _src_rabota_api(ctx: Ctx) -> list[Vacancy]:
     out: list[Vacancy] = []
     seen: set[str] = set()
     queries = _long_queries(ctx, RABOTA_MIN_QUERY, tally,
-                            "двухбуквенный запрос отдаёт ноль, это не «вакансий нет»")
-    for q in queries:
+                            "двухбуквенный запрос отдаёт ноль, это не «вакансий нет»",
+                            vetted=RABOTA_QUERIES)
+    for i, q in enumerate(queries):
+        if _rabota_budget_out(tally, queries, i):
+            break
         relevant = None
         for page in range(RABOTA_MAX_PAGES):
             if tally.requests >= RABOTA_MAX_REQUESTS:
@@ -700,9 +740,10 @@ def _src_rabota_html(ctx: Ctx) -> list[Vacancy]:
     throttle: ThrottledError | None = None
 
     queries = _long_queries(ctx, RABOTA_MIN_QUERY, tally,
-                            "двухбуквенный запрос отдаёт ноль, это не «вакансий нет»")
-    for q in queries:
-        if throttle:
+                            "двухбуквенный запрос отдаёт ноль, это не «вакансий нет»",
+                            vetted=RABOTA_QUERIES)
+    for i, q in enumerate(queries):
+        if throttle or _rabota_budget_out(tally, queries, i):
             break
         for page in range(1, RABOTA_MAX_PAGES + 1):
             if tally.requests >= RABOTA_MAX_REQUESTS:

@@ -404,6 +404,26 @@ def _one(pattern: str, text: str, group: int = 1) -> str | None:
 HH_PAGE = 100        # серверный потолок карточек на странице
 HH_MAX_PAGES = 20    # 2000 вакансий на формулировку — предохранитель, а не режим
 
+# Проверенный набор формулировок hh. Замер 08.08.2026, окно 3 дня, счёт СВОЕГО
+# вклада (сколько ссылок формулировка добавила к объединению предыдущих):
+#
+#   Golang            96   своего 96     ← одна формулировка = 96 из 2331
+#   Go               472   своего 410
+#   backend          574   своего 467
+#   программист     1719   своего 1358   ← главный поставщик, 38 с
+#   ИТОГО объединение 2331
+#
+# «Golang» в одиночку достаёт 4% выдачи самой плотной площадки — в двадцать
+# четыре раза меньше доступного.
+#
+# 🔴 Чего в наборе нет и почему (обе проверены и отвергнуты замером):
+#   • «бэкенд» — те же 574, своего 0. hh приводит кириллицу и латиницу к одному
+#     токену, второй запрос оплачен зря;
+#   • «Go разработчик» — 143 при своём 0: полностью внутри «Go» + «backend».
+#     На Хабре та же формулировка даёт 77 своих — площадки ищут по-разному,
+#     и переносить набор между ними нельзя.
+HH_QUERIES = ("Go", "Golang", "backend", "программист")
+
 
 def src_hh(ctx: Ctx) -> list[Vacancy]:
     """hh: через официальный API, если есть пользовательский токен, иначе —
@@ -457,7 +477,8 @@ def src_hh_api(ctx: Ctx) -> list[Vacancy]:
     tally = Tally("hh")
     env = hhapi.read_env() or {}
     budget = _page_budget(ctx, hhapi.PER_PAGE, hhapi.MAX_PAGES)
-    for q in ctx.queries():
+    queries = merge_queries(ctx.queries(), HH_QUERIES)
+    for q in queries:
         total: int | None = None
         taken = pages = 0
         for page in range(budget):
@@ -486,6 +507,7 @@ def src_hh_api(ctx: Ctx) -> list[Vacancy]:
             tally.note(f"⚠️  «{q}»: hh отдаёт максимум {hhapi.API_RESULT_CAP} "
                        f"из {total} — остальное достижимо только более узким "
                        f"запросом (регион, зарплата, специализация)")
+    tally.note(f"формулировки: {', '.join(queries)}")
     tally.note("официальный API, пользовательский токен (.auth/hh-token.json, "
                "ключи приложения — не наши, см. .auth/hh.env); "
                "окно --days применяет площадка (period)")
@@ -564,7 +586,8 @@ def _src_hh_html(ctx: Ctx) -> list[Vacancy]:
     seen: set[str] = set()
     tally = Tally("hh")
     budget = _page_budget(ctx, HH_PAGE, HH_MAX_PAGES)
-    for q in ctx.queries():
+    queries = merge_queries(ctx.queries(), HH_QUERIES)
+    for q in queries:
         total: int | None = None
         taken = pages = 0
         for page in range(budget):
@@ -603,6 +626,7 @@ def _src_hh_html(ctx: Ctx) -> list[Vacancy]:
                 tally.note(_truncated_note(f"«{q}»", taken, total))
         tally.note(f"«{q}»: в выдаче {total if total is not None else '?'}, "
                    f"взято {taken} за {pages} стр.")
+    tally.note(f"формулировки: {', '.join(queries)}")
     tally.note("окно --days применяет сама площадка (search_period): "
                "по публикации-ИЛИ-обновлению")
     # Путь получения выдачи называем прямо: «hh 396» через API и через разбор
@@ -687,6 +711,24 @@ _HABR_PAGINATION = re.compile(r'<div class="pagination">(.*?)</div>\s*</div>', r
 
 HABR_API = "https://career.habr.com/api/frontend/vacancies"
 
+# Проверенный набор формулировок Хабра. Замер 08.08.2026, окно 3 дня, счёт
+# СВОЕГО вклада (сколько ссылок формулировка добавила к объединению предыдущих):
+#
+#   Golang            20   своего 20     ← одна формулировка = 20 из 260
+#   Go                27   своего 13
+#   backend          169   своего 146    ← главный поставщик, и он не про Go
+#   Go разработчик   209   своего 77
+#   программист       17   своего 4      ← мало, но 1,4 с
+#   ИТОГО объединение 260
+#
+# То есть «Golang» в одиночку достаёт 8% выдачи площадки. Это не проценты, это
+# в тринадцать раз.
+#
+# 🔴 «бэкенд» в набор НЕ входит: отдал те же 169 и своего 0. Хабр приводит
+# кириллицу и латиницу к одному токену, и вторая формулировка здесь — оплаченный
+# запрос за нулевой результат. Не добавлять обратно «для симметрии».
+HABR_QUERIES = ("Go", "Golang", "backend", "Go разработчик", "программист")
+
 
 def src_habr(ctx: Ctx) -> list[Vacancy]:
     """Хабр Карьера: сначала JSON того же экрана, при отказе — разбор HTML.
@@ -730,7 +772,8 @@ def src_habr_api(ctx: Ctx) -> list[Vacancy]:
     tally = Tally("habr")
     edge = _cutoff(ctx.days)
     budget = _page_budget(ctx, HABR_PAGE, HABR_MAX_PAGES)
-    for q in ctx.queries():
+    queries = merge_queries(ctx.queries(), HABR_QUERIES)
+    for q in queries:
         pages = 0
         total: int | None = None
         for page in range(1, budget + 1):
@@ -763,6 +806,7 @@ def src_habr_api(ctx: Ctx) -> list[Vacancy]:
             tally.note(_truncated_note(f"«{q}»", pages * HABR_PAGE, total))
         tally.note(f"«{q}»: в выдаче {total if total is not None else '?'}, "
                    f"страниц пройдено {pages} [API]")
+    tally.note(f"формулировки: {', '.join(queries)}")
     tally.note("фронтовый JSON career.habr.com/api/frontend/vacancies; "
                "--days режется по дате поднятия карточки, она же порядок сортировки")
     out.append(tally.row())
@@ -837,7 +881,8 @@ def _src_habr_html(ctx: Ctx) -> list[Vacancy]:
     tally = Tally("habr")
     edge = _cutoff(ctx.days)
     budget = _page_budget(ctx, HABR_PAGE, HABR_MAX_PAGES)
-    for q in ctx.queries():
+    queries = merge_queries(ctx.queries(), HABR_QUERIES)
+    for q in queries:
         pages = barren = 0
         for page in range(1, budget + 1):
             if page > 1:
@@ -884,6 +929,7 @@ def _src_habr_html(ctx: Ctx) -> list[Vacancy]:
         else:
             tally.note(_truncated_note(f"«{q}»", pages * HABR_PAGE, None))
         tally.note(f"«{q}»: страниц пройдено {pages}")
+    tally.note(f"формулировки: {', '.join(queries)}")
     tally.note("--days режется по basic-date (дата поднятия карточки, она же "
                "порядок сортировки); карточки без даты остаются")
     out.append(tally.row())

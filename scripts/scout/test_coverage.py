@@ -63,6 +63,7 @@ def test_hh_walks_every_page():
 
     Живой замер: по «Go» за трое суток totalResults 396, а один запрос без `page`
     приносил 100. Триста вакансий не existовали в отчёте, и отчёт об этом молчал."""
+    from . import sources as S
     from .sources import Ctx, src_hh
 
     # Фрагмент с амперсандом — не педантизм: «page=1» встречается и внутри
@@ -73,8 +74,12 @@ def test_hh_walks_every_page():
         "&page=2": _hh_page([_hh_vac(i) for i in range(201, 251)], 250),
         "&page=3": _hh_page([], 250),
     }
+    # Набор формулировок площадки глушится: здесь проверяется ПАГИНАЦИЯ, а
+    # HH_QUERIES умножил бы каждый счётчик на число формулировок и спрятал бы
+    # ровно то, что тест ловит. Приём тот же, что у geekjob и shadowhint.
     fake = _FakeFetch(pages)
-    got = _with_fake_fetch(fake, lambda: src_hh(Ctx(query="Golang")))
+    with patched(S, "HH_QUERIES", ()):
+        got = _with_fake_fetch(fake, lambda: src_hh(Ctx(query="Golang")))
 
     jobs = [v for v in got if v.external_id != "_summary"]
     summary = [v for v in got if v.external_id == "_summary"][0]
@@ -106,7 +111,8 @@ def test_hh_truncation_is_never_silent():
     S.HH_MAX_PAGES = 2
     try:
         fake = _FakeFetch(pages)
-        got = _with_fake_fetch(fake, lambda: src_hh(Ctx(query="Golang")))
+        with patched(S, "HH_QUERIES", ()):
+            got = _with_fake_fetch(fake, lambda: src_hh(Ctx(query="Golang")))
     finally:
         S.HH_MAX_PAGES = real
     summary = [v for v in got if v.external_id == "_summary"][0]
@@ -160,7 +166,9 @@ def test_habr_paginates_until_the_window_edge():
     p2 = _habr_page([_habr_card(i, _fresh(30)) for i in range(6, 11)], has_next=True)
     p3 = _habr_page([_habr_card(i, _stale(30)) for i in range(11, 16)], has_next=True)
     fake = _FakeFetch({"page=1": p1, "page=2": p2, "page=3": p3})
-    got = _with_fake_fetch(fake, lambda: src_habr(Ctx(query="Golang", days=3)))
+    from . import sources as S
+    with patched(S, "HABR_QUERIES", ()):
+        got = _with_fake_fetch(fake, lambda: src_habr(Ctx(query="Golang", days=3)))
 
     jobs = [v for v in got if v.external_id != "_summary"]
     summary = [v for v in got if v.external_id == "_summary"][0]
@@ -181,9 +189,12 @@ def test_habr_stops_where_the_site_says_it_ends():
     и вне пагинатора, и «Golang» (47 вакансий, 2 страницы) выглядел как 25."""
     from .sources import Ctx, src_habr
 
+    from . import sources as S
+
     p1 = _habr_page([_habr_card(i, _fresh(1)) for i in range(1, 4)], has_next=False)
     fake = _FakeFetch({"career.habr.com/vacancies": p1})
-    got = _with_fake_fetch(fake, lambda: src_habr(Ctx(query="Golang")))
+    with patched(S, "HABR_QUERIES", ()):
+        got = _with_fake_fetch(fake, lambda: src_habr(Ctx(query="Golang")))
     eq(len([v for v in got if v.external_id != "_summary"]), 3, "одна страница разобрана")
     eq(len(fake.asked), 1, "нет rel=next — второй страницы не существует, и мы её не просим")
 
