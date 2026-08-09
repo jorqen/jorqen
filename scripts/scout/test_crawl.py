@@ -470,6 +470,41 @@ def test_a_stranger_mailbox_on_a_banner_is_not_the_employer_contact():
        f"своя почта найма перестала побеждать страницу: {best2}")
 
 
+def test_a_handle_inside_the_posting_beats_a_link_to_the_showcase():
+    """Ник из ТЕЛА вакансии на витрине — контакт. Ссылка на витрину — нет.
+
+    🔴 Слова владельца 09.08.2026: «в агрегаторах вакансий откликнуться нельзя,
+    можно только получить контакт». Раз так, ник в тексте объявления ценнее
+    ссылки на саму витрину — с неё мы и пришли, и возвращать её как «лучший
+    контакт» значит не ответить на вопрос «куда писать».
+
+    Живой счёт: у Teleport с hirehi единственным контактом оказался телеграм
+    рекрутёра в теле вакансии на vseti.app. Обход выдавал вместо него ссылку
+    на страницу vseti.app — и долг по раскрытию «закрывался» ничем.
+    """
+    show = "https://vseti.app/vakansii/123"
+    web = Web({show: page(title="Go Developer, компания Teleport",
+                          extra="Отклик: https://t.me/lenalinmoon")})
+    best = crawl.best_contact(crawl.crawl([show], gap=0, fetcher=web))
+    ok(best is not None, "контакт не найден вовсе")
+    if best:
+        eq(best.get("kind"), "telegram",
+           f"ник из тела вакансии не стал контактом: {best}")
+        ok("lenalinmoon" in str(best.get("value")),
+           f"вместо ника выдано: {best.get('value')}")
+        ok("проверь, что это наниматель" in (best.get("why") or ""),
+           "ник с витрины подан без оговорки о том, чей он")
+
+    # Канал самой площадки ником нанимателя не является.
+    own = "https://vseti.app/vakansii/124"
+    web2 = Web({own: page(title="Go Developer",
+                          extra="Наш канал: https://t.me/vseti")})
+    best2 = crawl.best_contact(crawl.crawl([own], gap=0, fetcher=web2))
+    if best2 and "vseti" in str(best2.get("value", "")).lower() \
+            and best2.get("kind") == "telegram":
+        FAILS.append(f"канал самой витрины выдан за контакт нанимателя: {best2}")
+
+
 def test_the_deadline_stops_the_walk_and_says_so():
     """Общий дедлайн по времени. Часы подменяются — тест не спит."""
     seeds = [f"https://firm{i}.example.com/vacancy/{i}" for i in range(4)]
@@ -626,6 +661,16 @@ def test_a_stranger_domain_is_not_guessed_as_the_employer():
     res3 = crawl.crawl([own], gap=0, fetcher=Web({own: page(title="Вакансия")}))
     if not crawl.employer_guess(res3, company=None):
         FAILS.append("при скрытом работодателе догадка пропала — а она тут и нужна")
+
+    # Четвёртая: страница, которая вакансию не отдаёт, работодателем не бывает —
+    # даже когда имя компании неизвестно. У поста Teleport обход зашёл на
+    # главную Яндекса по ссылке из объявления, и `ya.ru` стал «работодателем».
+    ya = "https://ya.ru/"
+    web4 = Web({ya: "<html><head><title>Яндекс</title></head><body>Поиск</body></html>"})
+    res4 = crawl.crawl([ya], gap=0, fetcher=web4)
+    got4 = crawl.employer_guess(res4, company=None)
+    if got4:
+        FAILS.append(f"страница без вакансии названа работодателем: {got4.get('value')}")
 
 
 def test_opened_but_speechless_is_not_called_unreachable():

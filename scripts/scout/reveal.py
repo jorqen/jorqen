@@ -316,6 +316,113 @@ def note_debt(conn, url: str, *, why: str) -> bool:
     return True
 
 
+# Чем долг закрывается, а чем нет. Долг заведён из-за ОТСУТСТВИЯ контакта,
+# поэтому «вот ссылка на витрину» его не закрывает: с витрины мы и пришли.
+# 🔴 Живой прогон 09.08.2026 показал цену пропуска этой проверки сразу: обход
+# дублей вернул `kind="витрина"` с честным пояснением «прямого канала обход не
+# нашёл», а долг всё равно снялся — у Remoby платной careered-записью, у
+# Teleport вакансией ОДНОИМЁННОЙ американской компании на LinkedIn. Оба долга
+# выглядели закрытыми, писать было некуда.
+REAL_CONTACT = frozenset({"почта найма", "telegram", "ATS работодателя",
+                          "вакансия на сайте работодателя"})
+
+
+def clear_debt(conn, url: str, *, contact: str, why: str) -> bool:
+    """Снимает долг: контакт добыт даром. True — сняли."""
+    row = conn.execute("SELECT source, external_id FROM vacancy WHERE url = ? LIMIT 1",
+                       (url,)).fetchone()
+    if not row:
+        return False
+    store.save_research(conn, row["source"], row["external_id"],
+                        verdict=f"КОНТАКТ НАЙДЕН БЕСПЛАТНО: {contact} — {why}")
+    return True
+
+
+def twin_anywhere(conn, url: str) -> list[str]:
+    """Та же компания на ЛЮБОЙ другой площадке, свежие первыми.
+
+    Отличие от `free_contact_for`: там список площадок, где контакт открыт
+    сразу, здесь — любая запись, потому что контакт может лежать не в ней
+    самой, а за её ссылками (телеграм-пост → страница вакансии → телеграм
+    рекрутёра). Достаёт его обход, а не сама запись.
+    """
+    row = conn.execute("SELECT company FROM vacancy WHERE url = ? LIMIT 1",
+                       (url,)).fetchone()
+    if not row or not row["company"]:
+        return []
+    from .shortlist import company_aliases  # noqa: PLC0415
+    keys = set(company_aliases(row["company"]))
+    if not keys:
+        return []
+    out = []
+    for cand in conn.execute("SELECT url, company FROM vacancy WHERE url != ? "
+                             "AND company IS NOT NULL ORDER BY last_seen DESC", (url,)):
+        if keys & set(company_aliases(cand["company"])):
+            out.append(cand["url"])
+    return out[:6]
+
+
+def resolve_debt(conn, url: str, *, db: str) -> dict | None:
+    """Пробует добыть контакт по долгу ДАРОМ. None — не вышло.
+
+    Три пути, по убыванию дешевизны, и все три уже есть в проекте — здесь они
+    только связаны в один порядок:
+
+      1. та же вакансия на площадке с открытым контактом (`free_contact_for`);
+      2. та же компания на любой другой площадке + ОБХОД её ссылок: контакт
+         часто лежит не в записи, а за ней (живой счёт 09.08.2026: Teleport с
+         hirehi нашёлся телеграм-постом на shadowhint, пост вёл на vseti.app,
+         и уже там стоял телеграм рекрутёра);
+      3. зонд собственного сайта компании (`channel`): у Remoby весь контакт —
+         info@remoby.com на главной.
+
+    Ради этого механизм и написан: три долга прошлой волны я закрывал руками,
+    и следующая волна принесла бы ту же ручную работу.
+    """
+    free = free_contact_for(conn, url)
+    if free:
+        return {"contact": free, "why": f"та же компания на площадке с открытым контактом"}
+
+    from . import crawl as _crawl  # noqa: PLC0415 — обход тяжёлый, грузим по нужде
+    for twin in twin_anywhere(conn, url):
+        try:
+            # Именно `walk`, а не голый `crawl`: стартовые ссылки собирает
+            # `applyopt.gather`, и только он умеет вскрыть телеграм-пост —
+            # достать ссылки ИЗ ЕГО ТЕЛА. Голый обход отбрасывал сам пост
+            # фильтром «соцсеть работодателем не бывает» и возвращал ноль
+            # узлов: дубль Teleport, у которого контакт как раз и лежал за
+            # постом, «не находился» (09.08.2026).
+            # `force`: кэш обхода хранит МАРШРУТЫ, а контакт-ник в нём не живёт.
+            # Без переобхода `contact_from_routes` отвечает «прямой канал из
+            # базы» — то есть ссылкой, а долг заведён именно из-за отсутствия
+            # контакта. Долги разбираются редко и по прямой просьбе, так что
+            # свежий обход тут дешевле промаха.
+            res, found = _crawl.walk(conn, twin, force=True)
+        except Exception:  # noqa: BLE001 — сеть не должна ронять разбор долгов
+            continue
+        best = (_crawl.best_contact(res) if res is not None
+                else _crawl.contact_from_routes(found))
+        if best and best.get("kind") in REAL_CONTACT:
+            return {"contact": best["value"],
+                    "why": f"обход дубля {twin}: {best.get('why') or best.get('kind')}"}
+
+    row = conn.execute("SELECT company FROM vacancy WHERE url = ? LIMIT 1",
+                       (url,)).fetchone()
+    company = (row["company"] or "").strip() if row else ""
+    if company:
+        from . import channel as _channel  # noqa: PLC0415
+        try:
+            res = _channel.find(company, render=True)
+        except Exception:  # noqa: BLE001
+            res = {}
+        pick = _channel.best(res.get("hits") or [])
+        if pick:
+            value = (pick.get("mails") or [None])[0] or pick.get("url")
+            if value:
+                return {"contact": value, "why": f"зонд сайта компании: {pick.get('why')}"}
+    return None
+
+
 def pending_reveals(conn) -> list[dict]:
     """Вакансии, по которым контакт остался нераскрытым. Список для следующей волны."""
     cur = conn.execute(

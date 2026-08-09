@@ -728,21 +728,41 @@ def cmd_pending_reveals(args) -> int:
     Лимит у hirehi восстанавливается, поэтому «не смогли» означает «вернуться»,
     а не «забыть». Список ведёт `reveal` сам — здесь его просто показывают.
     """
-    from .reveal import pending_reveals
+    from .reveal import clear_debt, pending_reveals, resolve_debt
     from . import store
     with store.connect(args.db) as conn:
         rows = pending_reveals(conn)
-    if not rows:
-        print("долгов по раскрытию нет — контакты добыты либо не требовались")
-        return 0
+        if not rows:
+            print("долгов по раскрытию нет — контакты добыты либо не требовались")
+            return 0
+        if getattr(args, "resolve", False):
+            # Три бесплатных пути к контакту — обход дубля, зонд сайта компании,
+            # дубль на площадке с открытым контактом — вместо ручной работы
+            # агента. Лимит раскрытий тут не тратится вовсе.
+            print(f"# долгов: {len(rows)} — пробую добыть контакт БЕЗ лимита\n")
+            closed = 0
+            for r in rows:
+                got = resolve_debt(conn, r["url"], db=args.db)
+                head = f"· {r['company'] or '—'}: {(r['title'] or '')[:52]}"
+                if got:
+                    clear_debt(conn, r["url"], contact=got["contact"], why=got["why"])
+                    closed += 1
+                    print(f"{head}\n    ✓ {got['contact']}\n      {got['why']}")
+                else:
+                    print(f"{head}\n    · даром не вышло — остаётся за лимитом "
+                          f"раскрытий")
+            conn.commit()
+            print(f"\nзакрыто даром {closed} из {len(rows)}; "
+                  f"остальные ждут лимита (`scout reveal <url…>`)")
+            return 0
     print(f"# контакт не раскрыт: {len(rows)} — вернуться, когда лимит восстановится\n")
     for r in rows:
         print(f"· {r['company'] or 'работодатель не раскрыт'}: {(r['title'] or '')[:60]}")
         print(f"    {r['url']}")
         print(f"    {r['why']}")
-    print("\nПроверь остаток лимита и раскрой: "
-          "`scout reveal <url…>` (тратит лимит, поэтому сперва убедись, "
-          "что вакансия ещё жива: `scout check-links <url>`)")
+    print("\nСначала попробуй даром: `scout pending-reveals --resolve` "
+          "(обход дубля и зонд сайта компании, лимит не тратится). "
+          "Не вышло — `scout reveal <url…>`, он СПИСЫВАЕТ лимит.")
     return 0
 
 

@@ -101,7 +101,10 @@ _AGGREGATORS = {
     "hirehi.ru", "careered.io", "rabota.ru", "hack-offer.tech", "wantapply.com",
     "linkedin.com", "jobicy.com", "arbeitnow.com", "himalayas.app",
     "relocate.me", "jobsdb.com", "europa.eu", "news.ycombinator.com",
-    "t.me", "dreamoffer.app", "shadowhint.com",
+    "t.me", "dreamoffer.app", "shadowhint.com", "vseti.app",
+    # vseti.app — витрина вакансий («Сети»), не работодатель. Пока её тут
+    # не было, обход считал её страницу «вакансией на сайте работодателя»
+    # и выдавал ссылку на витрину как ЛУЧШИЙ КОНТАКТ (09.08.2026).
     # Домены самих ATS: карьерная страница на них принадлежит платформе,
     # а не работодателю. Без этого зонд шёл на careers.job-boards.greenhouse.io
     # и мог засчитать «ATS: greenhouse» просто потому, что домен греенхаусовский

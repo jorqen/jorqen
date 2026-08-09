@@ -1740,6 +1740,100 @@ def test_reveal_records_a_debt_when_the_limit_runs_out():
         FAILS.append(f"долг записан не на ту вакансию: {debts[0]}")
 
 
+def test_a_debt_is_closed_by_walking_the_twin_not_by_spending_the_limit():
+    """Долг закрывается ОБХОДОМ дубля, а не тратой лимита.
+
+    🔴 Живой счёт 09.08.2026: три долга прошлой волны я закрывал руками —
+    искал ту же компанию по редким словам описания, вручную звал обход, вручную
+    смотрел сайт. Следующая волна принесла бы ту же ручную работу, а «алгоритм
+    такой ошибки не допустил бы» — прямые слова владельца про пропущенные
+    вакансии.
+
+    Ключевое: контакт лежит НЕ В САМОЙ записи-дубле, а за её ссылками. У
+    Teleport дублем был телеграм-пост, пост вёл на страницу вакансии, и уже
+    там стоял телеграм рекрутёра. Поэтому дубль ищется на ЛЮБОЙ площадке, а
+    не только на тех, где контакт открыт сразу.
+    """
+    import os
+    import tempfile
+
+    from . import crawl as C
+    from . import store
+    from .model import Vacancy
+    from .reveal import note_debt, pending_reveals, resolve_debt
+
+    with tempfile.TemporaryDirectory() as d:
+        db = os.path.join(d, "r.db")
+        with store.connect(db) as conn:
+            store.upsert(conn, [
+                Vacancy(source="hirehi", external_id="72777",
+                        url="https://hirehi.ru/development/x-72777",
+                        title="go developer", company="Teleport"),
+                # Дубль: телеграм-пост той же компании. Контакта в нём нет —
+                # он за ссылкой, и достать его может только обход.
+                Vacancy(source="shadowhint", external_id="951",
+                        url="https://t.me/backend_frontend_jobs/951",
+                        title="Go Developer (Middle+/Senior)", company="Teleport")])
+            note_debt(conn, "https://hirehi.ru/development/x-72777",
+                      why="лимит раскрытий исчерпан (direct_left=0)")
+
+            walked: list[str] = []
+
+            forced: list[bool] = []
+
+            def fake_crawl(_conn, target, **kw):
+                walked.append(target)
+                forced.append(bool(kw.get("force")))
+                return C.Result(origin=target), []
+
+            def fake_best(res):
+                return {"value": "@lenalinmoon", "kind": "telegram",
+                        "why": "телеграм рекрутёра со страницы вакансии"}
+
+            old_crawl, old_best = C.walk, C.best_contact
+            C.walk, C.best_contact = fake_crawl, fake_best
+            try:
+                got = resolve_debt(conn, "https://hirehi.ru/development/x-72777", db=db)
+            finally:
+                C.walk, C.best_contact = old_crawl, old_best
+
+            if not got or got.get("contact") != "@lenalinmoon":
+                FAILS.append(f"контакт из обхода дубля не добыт: {got}")
+            if "https://t.me/backend_frontend_jobs/951" not in walked:
+                FAILS.append(f"обход дубля не запускался: {walked}")
+            # Кэш обхода хранит маршруты, а не ник — значит нужен переобход,
+            # иначе контакт из тела вакансии до долга не доедет.
+            if not all(forced):
+                FAILS.append("обход дубля пошёл из кэша: контакта в кэше нет, "
+                             "и долг остался бы висеть при найденном контакте")
+
+            # 🔴 Обратная сторона, поймана живым прогоном в тот же день: обход
+            # часто отвечает «прямого канала не нашёл, вот витрина». Это НЕ
+            # контакт — с витрины мы и пришли, — и долг им закрываться не
+            # должен. Иначе долг Teleport «закрылся» вакансией одноимённой
+            # американской компании на LinkedIn.
+            def showcase(res):
+                return {"kind": "витрина", "value": "https://uk.linkedin.com/jobs/view/1",
+                        "why": "прямого канала обход не нашёл — отклик через площадку"}
+
+            C.walk, C.best_contact = fake_crawl, showcase
+            try:
+                weak = resolve_debt(conn, "https://hirehi.ru/development/x-72777", db=db)
+            finally:
+                C.walk, C.best_contact = old_crawl, old_best
+            if weak and "linkedin" in str(weak.get("contact", "")):
+                FAILS.append(f"витрина засчитана за контакт и закрыла долг: {weak}")
+
+            # Долг снят и больше не висит.
+            from .reveal import clear_debt
+            if got:
+                clear_debt(conn, "https://hirehi.ru/development/x-72777",
+                           contact=got["contact"], why=got["why"])
+            left = pending_reveals(conn)
+    if left:
+        FAILS.append(f"долг остался висеть после того, как контакт найден: {left}")
+
+
 def test_reveal_refuses_to_spend_the_limit_on_a_dead_or_free_vacancy():
     """Лимит раскрытий тратится только на то, что этого стоит.
 

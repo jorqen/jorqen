@@ -471,13 +471,15 @@ def _describe(node: Node, text: str) -> None:
     else:
         node.state, node.evidence = PAGE_OK, node.liveness_why
 
-    # Контакты берём только со страниц работодателя и ATS. На витрине живёт
-    # её собственная поддержка (`support@…`), и предложить её как контакт
-    # работодателя — худшее, что может сделать обход.
-    if node.publisher in (applyopt.EMPLOYER, applyopt.ATS, applyopt.UNKNOWN):
-        from . import contacts as C  # noqa: PLC0415
-        found = C.gather({"description": visible_text(text)})
-        node.contacts = {k: v[:3] for k, v in found.items() if v}
+    # Контакты собираем со ВСЕХ страниц, включая витрины: «в агрегаторах
+    # откликнуться нельзя, можно только получить контакт» (владелец, 09.08.2026),
+    # и ник рекрутёра в теле объявления — ровно то, за чем туда идут. Опасность
+    # витрины не в самом сборе, а в выдаче её собственной поддержки за контакт
+    # работодателя, и отвечает за это `best_contact`: почта берётся только со
+    # страниц работодателя, а ник с витрины — с явной оговоркой, чей он.
+    from . import contacts as C  # noqa: PLC0415
+    found = C.gather({"description": visible_text(text)})
+    node.contacts = {k: v[:3] for k, v in found.items() if v}
 
 
 def _render_shell(node: Node) -> str | None:
@@ -721,6 +723,29 @@ def best_contact(res: Result) -> dict | None:
                                    "найденной страницы откликнуться нельзя"}
 
     kind = _page_kind(publisher, url)
+
+    # 3. Ник ИЗ ТЕЛА вакансии на витрине — тоже контакт, и часто единственный.
+    # «В агрегаторах вакансий откликнуться нельзя, можно только получить
+    # контакт» (слова владельца 09.08.2026): раз так, ник в тексте объявления
+    # ценнее ссылки на саму витрину, с которой мы и пришли. Живой счёт: у
+    # Teleport с hirehi контакт нашёлся только так — телеграм рекрутёра в теле
+    # вакансии на vseti.app. Пометка честная: чей это ник, обход не знает.
+    if kind == "витрина":
+        for n in alive:
+            page = n.final_url or n.url
+            site = re.sub(r"[^a-z0-9]+", "", _org(host_of(page)))
+            for c in n.contacts.get("telegram") or []:
+                # Канал самой площадки ником нанимателя не является: у витрины
+                # «Сети» это @vseti, и подсунуть его как контакт — то же самое,
+                # что подсунуть её же support@.
+                nick = re.sub(r"[^a-z0-9]+", "", str(c["value"]).lower())
+                if nick and site and (nick in site or site.startswith(nick[:5])):
+                    continue
+                return {"kind": "telegram", "value": c["value"], "url": page,
+                        "why": f"ник из тела вакансии на витрине ({host_of(page)}) "
+                               f"— прямого канала обход не нашёл; проверь, что "
+                               f"это наниматель"}
+
     why = {"ATS работодателя": "отклик попадает в собственную воронку компании, "
                                "а не в общую базу витрины",
            "вакансия на сайте работодателя": "страница вакансии на домене компании",
@@ -824,6 +849,12 @@ def employer_guess(res: Result, company: str | None = None) -> dict | None:
         url = n.final_url or n.url
         host = host_of(url)
         if n.publisher == applyopt.EMPLOYER and host:
+            # Страница обязана ОТДАВАТЬ вакансию. Иначе работодателем
+            # объявляется что угодно, до чего дошёл обход: у поста Teleport
+            # так в догадку попал `ya.ru` — обход зашёл на главную Яндекса
+            # по ссылке из объявления (09.08.2026).
+            if n.liveness != "ЖИВА":
+                continue
             if company and not _name_touches_domain(company, host):
                 continue
             for pref in CAREERS_HOST:

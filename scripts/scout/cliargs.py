@@ -464,6 +464,9 @@ def build_parser() -> argparse.ArgumentParser:
     pr = sub.add_parser("pending-reveals", parents=[common],
                         help="долги по раскрытию контактов: где лимит кончился "
                              "и надо вернуться")
+    pr.add_argument("--resolve", action="store_true",
+                    help="попытаться добыть контакт БЕЗ лимита: обход дубля "
+                         "вакансии на другой площадке и зонд сайта компании")
     pr.set_defaults(func=cmd_pending_reveals)
 
     m = sub.add_parser("mark", help="зафиксировать решение по вакансии", parents=[common])
