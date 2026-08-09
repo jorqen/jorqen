@@ -551,6 +551,11 @@ def build_parser() -> argparse.ArgumentParser:
     cl = sub.add_parser("check-links", help="предфлайт живости ATS-ссылок "
                                             "(Ashby ротирует UUID!)", parents=[common])
     cl.add_argument("urls", nargs="+")
+    cl.add_argument("--render", action="store_true",
+                    help="упёрлись в стену — добрать настоящим браузером. hh при "
+                         "подозрении на VPN уводит на /vpncheeck и отдаёт заглушку "
+                         "с кодом 200: без этого флага такие вакансии остаются "
+                         "«не определить» при живой странице")
     cl.set_defaults(func=cmd_check_links)
 
     # ── tg-auth / tg-fetch: Telegram-архив без MCP ───────────────────────────

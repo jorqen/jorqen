@@ -1534,6 +1534,25 @@ def cmd_check_links(args) -> int:
                 except FetchError as e:
                     verdict, why = liveness_from_page("", e.status or 0) if e.status \
                         else ("НЕИЗВЕСТНО", f"сеть не ответила: {e.reason}")
+                # 🔴 «Не определить» из-за стены — не ответ, а отказ отвечать.
+                # hh при подозрении на VPN уводит на `/vpncheeck` и отдаёт
+                # заглушку с кодом 200: восемь вакансий волны 08.08.2026 так и
+                # остались непроверенными, хотя браузером открываются за
+                # секунду. Добираем настоящим браузером — по флагу, потому что
+                # он дорогой, и только там, где stdlib уже сдался.
+                if verdict == "НЕИЗВЕСТНО" and getattr(args, "render", False):
+                    try:
+                        from .wall import fetch_many_through
+                        r_html, r_final, r_state = fetch_many_through([url], wait=4.0)[0]
+                    except Exception:  # noqa: BLE001 — нет браузера: не наша беда
+                        r_html, r_final, r_state = "", "", "error"
+                    if r_html:
+                        v2, w2 = liveness_from_page(r_html, 200, final_url=r_final)
+                        if v2 != "НЕИЗВЕСТНО":
+                            verdict, why = v2, f"{w2} (добрано браузером)"
+                        elif r_state == "human":
+                            why = ("капча: страницу отдают только после ручного "
+                                   "подтверждения — живость здесь не определить")
                 if verdict == "ЖИВА":
                     print(f"✓  ЖИВА  {url}\n   {why}")
                 elif verdict == "МЕРТВА":
