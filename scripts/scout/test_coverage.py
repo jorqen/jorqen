@@ -316,6 +316,34 @@ def test_linkedin_asks_every_formulation():
        "«формулировка × регион × окно»")
 
 
+def test_refresh_finds_a_card_that_was_renamed_by_hand():
+    """`--refresh` находит карточку по ССЫЛКЕ внутри, а не по имени файла.
+
+    🔴 Имя файла устойчивым идентификатором не является: карточку переименовывают
+    руками, когда автослаг выходит нечитаемым («…-240k-careered» вместо
+    «senior-backend-developer-go-kubernetes-observability»). Без поиска по
+    ссылке `--refresh` писал рядом голый скелет — в волне 08.08.2026 так
+    появилось два файла на одну вакансию, причём фит и письмо остались в
+    старом, а свежие факты уехали в новый (09.08.2026).
+    """
+    import os
+    import tempfile
+
+    from . import cardfiles
+
+    with tempfile.TemporaryDirectory() as d:
+        comp = os.path.join(d, "2026-08-08", "companies", "_hidden")
+        os.makedirs(comp)
+        renamed = os.path.join(comp, "2026-08-08-korotkoe-imya.md")
+        with open(renamed, "w", encoding="utf-8") as f:
+            f.write("## Роль — Компания\n\n- **Ссылка:** https://careered.io/jobs/2d89\n\n"
+                    "### Фит\n\nПисать.\n")
+        got = cardfiles.card_with_url(d, "2026-08-08", "https://careered.io/jobs/2d89")
+        eq(got, renamed, "переименованная карточка не нашлась по ссылке внутри")
+        miss = cardfiles.card_with_url(d, "2026-08-08", "https://careered.io/jobs/OTHER")
+        eq(miss, None, "по чужой ссылке подставлена чужая карточка")
+
+
 def test_a_card_is_found_when_the_showcase_shuffles_its_tracking_params():
     """Ссылка карточки находится в базе, даже если витрина перетасовала счётчики.
 

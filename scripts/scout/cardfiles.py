@@ -99,6 +99,34 @@ def refresh_text(old: str, fresh: str) -> str | None:
     return head + old[i:]
 
 
+def card_with_url(root: str, date: str, url: str) -> str | None:
+    """Уже написанная карточка ЭТОЙ вакансии — по ссылке внутри файла.
+
+    🔴 Имя файла устойчивым идентификатором не является: карточку переименовывают
+    руками, когда автослаг выходит нечитаемым. Ссылка на вакансию — является.
+    Без этого `--refresh` не находил переименованную карточку и писал рядом
+    голый скелет: в волне 08.08.2026 так появился второй файл на одну вакансию,
+    причём с фитом и письмом остался старый (09.08.2026).
+    """
+    base = os.path.join(root, date, "companies")
+    if not os.path.isdir(base):
+        return None
+    needle = f"**Ссылка:** {url}"
+    for dirpath, _dirs, files in os.walk(base):
+        for name in files:
+            if not name.endswith(".md"):
+                continue
+            path = os.path.join(dirpath, name)
+            try:
+                with open(path, encoding="utf-8") as f:
+                    head = f.read(2000)
+            except OSError:
+                continue
+            if needle in head:
+                return path
+    return None
+
+
 def find_vacancy(conn, url: str):
     """Запись вакансии по ссылке. Сначала точное совпадение, потом — по ПУТИ.
 
@@ -145,6 +173,9 @@ def write(db: str, urls: list[str], *, date: str, root: str = ".jobs",
                 out.append((url, "нет в базе — ссылку возьми из `scout shortlist`"))
                 continue
             path = card_path(root, date, row["company"], row["title"] or "")
+            if refresh and not os.path.exists(path):
+                # Карточку могли переименовать руками — ищем по ссылке внутри.
+                path = card_with_url(root, date, url) or path
             exists = os.path.exists(path)
             if exists and not (force or refresh):
                 # Тот же довод, что у `wavedoc`: в файле уже может лежать фит и
