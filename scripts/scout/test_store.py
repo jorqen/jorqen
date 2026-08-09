@@ -1765,6 +1765,17 @@ def test_a_showcase_is_a_showcase_in_every_country_zone():
         if not is_employer_domain(dom):
             FAILS.append(f"домен работодателя принят за витрину: {dom}")
 
+    # И маршруты обязаны получить ТУ ЖЕ классификацию: список витрин один на
+    # проект, а не по копии в каждом модуле.
+    from . import applyopt
+    for url, want in (("https://jooble.org/desc/1", applyopt.AGGREGATOR),
+                      ("https://www.adzuna.pl/x", applyopt.AGGREGATOR),
+                      ("https://jobviewtrack.com/v2/abc", applyopt.AGGREGATOR),
+                      ("https://careers.kaspersky.ru/vacancy/1", applyopt.EMPLOYER)):
+        got, _direct = applyopt.classify(url)
+        if got != want:
+            FAILS.append(f"маршрут {url} классифицирован как {got}, ожидалось {want}")
+
 
 def test_a_general_mailbox_is_never_the_hiring_channel():
     """`info@` каналом найма не становится — нужна почта ДЛЯ ОТКЛИКОВ.

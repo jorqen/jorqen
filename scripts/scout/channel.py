@@ -158,19 +158,26 @@ _AGGREGATOR_NAMES = {
 }
 
 
+def is_aggregator_domain(dom: str) -> bool:
+    """Витрина ли это. Обратная сторона `is_employer_domain`, но отдельным
+    именем: `applyopt` спрашивает именно «витрина ли», и второго списка витрин
+    в проекте быть не должно — две регулярки на один вопрос расходятся всегда.
+    """
+    if not dom:
+        return False
+    dom = dom.lower().removeprefix("www.")
+    if any(dom == a or dom.endswith("." + a) for a in _AGGREGATORS):
+        return True
+    parts = [x for x in dom.split(".") if x]
+    return any(len(parts) >= -i and parts[i] in _AGGREGATOR_NAMES for i in (-2, -3))
+
+
 def is_employer_domain(dom: str) -> bool:
     """Домен работодателя, а не витрины. Проверка обязательна: раньше careers
     агрегатора уходил в кэш как «канал компании»."""
     if not dom or "." not in dom:
         return False
-    if any(dom == a or dom.endswith("." + a) for a in _AGGREGATORS):
-        return False
-    # Имя организации без зоны: у adzuna.de и adzuna.pl оно одно на всех.
-    parts = [x for x in dom.split(".") if x]
-    for i in (-2, -3):                      # обычная зона и составная (co.uk)
-        if len(parts) >= -i and parts[i] in _AGGREGATOR_NAMES:
-            return False
-    return True
+    return not is_aggregator_domain(dom)
 
 
 # Страницы, где почта найма живёт даже когда карьерного раздела нет вовсе.

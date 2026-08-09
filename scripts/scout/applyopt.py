@@ -22,7 +22,7 @@ from __future__ import annotations
 import re
 import urllib.parse
 
-from .channel import _AGGREGATORS, is_employer_domain
+from .channel import is_aggregator_domain, is_employer_domain
 from .tgpost import fetch_apply_links
 
 # Кто публикует. Порядок в кортеже = порядок предпочтения при выборе best_url.
@@ -64,7 +64,7 @@ def classify(url: str) -> tuple[str, bool]:
         return TELEGRAM, False
     if any(host == a or host.endswith("." + a) for a in _ATS_DOMAINS):
         return ATS, True
-    if any(host == a or host.endswith("." + a) for a in _AGGREGATORS):
+    if is_aggregator_domain(host):
         return AGGREGATOR, False
     if is_employer_domain(host):
         return EMPLOYER, True
