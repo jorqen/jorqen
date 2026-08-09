@@ -316,6 +316,41 @@ def test_linkedin_asks_every_formulation():
        "«формулировка × регион × окно»")
 
 
+def _check_refresh_keeps_the_letter(cardfiles):
+    """`--refresh`: факты обновляются, фит и письмо остаются нетронутыми.
+
+    🔴 Факты стареют, суждение — нет. Живой счёт 09.08.2026: 13 карточек волны
+    показывали витрину (jooble, adzuna, jobviewtrack) как «прямой канал в
+    компанию» — реестр витрин был неполон. Обновить их можно было только
+    `--force`, то есть выбросив написанные фит и письмо, поэтому правка шла
+    руками, и следующая волна принесла бы ту же ручную работу.
+
+    Граница ровно одна — заголовок «### Фит»: выше сгенерированное, ниже
+    суждение модели.
+    """
+    old = ("## Роль — Компания\n\n- **Деньги:** от 100\n\n"
+           "### Связь\n  🎯 [employer, прямой] https://jooble.org/x\n\n"
+           "### Фит\n\nПисать: совпадение по задачам.\n\n"
+           "### Отклик\n\n```\nЗдравствуйте! Откликаюсь…\n```\n")
+    fresh = ("## Роль — Компания\n\n- **Деньги:** от 100\n\n"
+             "### Связь\n  🎯 [aggregator, через витрину] https://jooble.org/x\n\n"
+             "### Фит\n\n<!-- ЗАПОЛНЯЕТ МОДЕЛЬ -->\n")
+    got = cardfiles.refresh_text(old, fresh)
+    if got is None:
+        FAILS.append("--refresh не смог склеить карточку, где фит уже написан")
+        return
+    if "через витрину" not in got:
+        FAILS.append("--refresh не обновил факты: витрина осталась «прямым каналом»")
+    if "Здравствуйте! Откликаюсь" not in got or "совпадение по задачам" not in got:
+        FAILS.append("--refresh потерял письмо или фит — ровно то, что нечем восстановить")
+    if "ЗАПОЛНЯЕТ МОДЕЛЬ" in got:
+        FAILS.append("--refresh затёр написанный фит заглушкой скелета")
+
+    # Карточка без фита — обычная перезапись, склеивать нечего.
+    if cardfiles.refresh_text("## Роль\n\n- **Деньги:** от 100\n", fresh) is not None:
+        FAILS.append("--refresh взялся склеивать карточку, где модель ещё не писала")
+
+
 def test_card_write_flags_dead_ats_links_before_writing():
     """Мёртвая ATS-ссылка помечается ДО записи файла, а не после.
 
@@ -339,6 +374,7 @@ def test_card_write_flags_dead_ats_links_before_writing():
     live = "текст https://boards.greenhouse.io/gitlab/jobs/123 конец"
     with patched(atsapi, "board", lambda a, t, q=None: Board(["123"])):
         eq(cardfiles._dead_links(live), [], "живая ссылка помечена мёртвой")
+    _check_refresh_keeps_the_letter(cardfiles)
     with patched(atsapi, "board", lambda a, t, q=None: Board(["999"])):
         eq(len(cardfiles._dead_links(live)), 1, "мёртвая ссылка не поймана")
 

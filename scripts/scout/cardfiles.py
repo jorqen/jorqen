@@ -75,12 +75,37 @@ def _dead_links(text: str) -> list[str]:
     return bad
 
 
+# Раздел, с которого в карточке начинается работа МОДЕЛИ. Всё выше — факты из
+# базы, всё ниже — суждение и письмо. Граница нужна `--refresh`: пересобрать
+# факты, не тронув написанное.
+_MODEL_PART = "### Фит"
+
+
+def refresh_text(old: str, fresh: str) -> str | None:
+    """Свежие факты + сохранённое суждение. None — склеить нечем.
+
+    Карточка делится ровно надвое: до «### Фит» — сгенерированное (деньги,
+    маршруты, флаги, требования), дальше — фит и письмо, которых в базе нет и
+    восстановить их нечем. `--force` затирал всё целиком, поэтому обновление
+    фактов в готовой волне делалось руками — а факты меняются: 13 карточек
+    волны 08.08.2026 показывали витрину как «прямой канал в компанию» просто
+    потому, что реестр витрин был неполон (09.08.2026).
+    """
+    i = old.find(_MODEL_PART)
+    if i < 0:
+        return None                     # модель ещё не писала — обычная перезапись
+    j = fresh.find(_MODEL_PART)
+    head = fresh[:j] if j >= 0 else fresh.rstrip() + "\n\n"
+    return head + old[i:]
+
+
 def write(db: str, urls: list[str], *, date: str, root: str = ".jobs",
           force: bool = False, skills=None, skills_note=None,
-          walk: bool = True) -> list[tuple[str, str]]:
+          walk: bool = True, refresh: bool = False) -> list[tuple[str, str]]:
     """[(путь, что сделано)]. Существующие файлы не трогает без `force`.
 
     `walk=False` — собирать без обхода ссылок вакансии (без сети).
+    `refresh=True` — обновить ФАКТЫ существующей карточки, сохранив фит и письмо.
     """
     from . import card  # noqa: PLC0415 — тяжёлый импорт (резюме, разбор вилок)
 
@@ -95,13 +120,25 @@ def write(db: str, urls: list[str], *, date: str, root: str = ".jobs",
                 out.append((url, "нет в базе — ссылку возьми из `scout shortlist`"))
                 continue
             path = card_path(root, date, row["company"], row["title"] or "")
-            if os.path.exists(path) and not force:
+            exists = os.path.exists(path)
+            if exists and not (force or refresh):
                 # Тот же довод, что у `wavedoc`: в файле уже может лежать фит и
                 # письмо, которых в базе нет и восстановить их нечем.
                 out.append((path, "уже есть — не перезаписан (`--force`, если надо)"))
                 continue
             text = card.build(conn, url, skills=skills, skills_note=skills_note,
                               walk=walk)
+            if exists and refresh and not force:
+                with open(path, encoding="utf-8") as f:
+                    merged = refresh_text(f.read(), text)
+                if merged is None:
+                    out.append((path, "фита и письма ещё нет — пересобран целиком"))
+                else:
+                    text, _note = merged, None
+                    with open(path, "w", encoding="utf-8") as f:
+                        f.write(text if text.endswith("\n") else text + "\n")
+                    out.append((path, "факты обновлены, фит и письмо сохранены"))
+                    continue
             dead = _dead_links(text)
             if dead:
                 # Ссылка проверяется ДО записи, а не после. Ashby ротирует UUID
@@ -255,6 +292,7 @@ def cli_write(args) -> int:
     date = getattr(args, "date", None) or store.now()[:10]
     rows = write(args.db, list(args.urls), date=date,
                  force=getattr(args, "force", False),
+                 refresh=getattr(args, "refresh", False),
                  walk=not getattr(args, "no_crawl", False))
     for path, what in rows:
         print(f"{path}: {what}")

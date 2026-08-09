@@ -199,6 +199,11 @@ def build_parser() -> argparse.ArgumentParser:
     cd.add_argument("--force", action="store_true",
                     help="--write: перезаписать существующие файлы (по умолчанию "
                          "НЕ трогает: там уже может лежать фит и письмо)")
+    cd.add_argument("--refresh", action="store_true",
+                    help="--write: обновить ФАКТЫ существующей карточки (деньги, "
+                         "маршруты, живость, флаги, требования), сохранив фит и "
+                         "письмо. Ради этого и разделены разделы: факты стареют, "
+                         "суждение — нет")
     cd.add_argument("--fetch-market", action="store_true",
                     help="спросить справочники зарплат (levels.fyi, dreamoffer) "
                          "живьём, а не брать из базы")
