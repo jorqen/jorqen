@@ -401,6 +401,75 @@ def test_the_hiring_mailbox_beats_the_page_and_the_front_desk_does_not():
     ok("почта" not in best2["kind"], f"вид контакта определён неверно: {best2}")
 
 
+def test_a_card_shouts_when_the_walk_found_the_vacancy_dead():
+    """Обход выяснил, что вакансия мертва — карточка обязана сказать это сверху.
+
+    🔴 Найдено ревью 09.08.2026. Обход по посту Авито честно отвечает «МЕРТВА:
+    все пройденные страницы отдают 404», в маршрутах ссылка помечена ✗МЕРТВА и
+    лучшей не выбирается. Но во ФЛАГАХ карточки об этом не было ни слова: сверху
+    стояло спокойное «🟡 вилки нет, 🟢 требуют 3 лет», и человек, читающий
+    карточку сверху вниз, узнавал бы о смерти вакансии в лучшем случае из
+    середины таблицы маршрутов.
+
+    Смерть вакансии — самый важный факт о ней: он отменяет и фит, и письмо.
+    Место такому флагу — рядом с «работодатель не раскрыт», а не в примечании."""
+    from .card import flags
+
+    dead = [{"url": "https://career.example.com/v/1", "liveness": "МЕРТВА",
+             "is_direct": True, "publisher": "employer"}]
+    got = " ".join(flags({"company": "Acme"}, None, None, "", routes=dead))
+    ok("МЕРТВ" in got.upper(),
+       f"карточка молчит о том, что вакансия мертва: {got!r}")
+
+    alive = [{"url": "https://career.example.com/v/1", "liveness": "ЖИВА",
+              "is_direct": True, "publisher": "employer"}]
+    got2 = " ".join(flags({"company": "Acme"}, None, None, "", routes=alive))
+    ok("МЕРТВ" not in got2.upper(),
+       f"живая вакансия помечена мёртвой: {got2!r}")
+
+    # Часть маршрутов мертва, часть жива — это НЕ смерть вакансии: так бывает,
+    # когда одна площадка сняла перепечатку, а у работодателя всё открыто.
+    mixed = dead + alive
+    got3 = " ".join(flags({"company": "Acme"}, None, None, "", routes=mixed))
+    ok("МЕРТВ" not in got3.upper(),
+       f"вакансия с живым маршрутом объявлена мёртвой: {got3!r}")
+
+
+def test_a_stranger_mailbox_on_a_banner_is_not_the_employer_contact():
+    """Почта НАЙМА бьёт страницу — но только если она принадлежит НАНИМАТЕЛЮ.
+
+    🔴 Живой случай 09.08.2026, найден на первом же прогоне обхода. Пост вёл на
+    вакансию Kaspersky (`careers.kaspersky.ru/vacancy/25712`), а на странице
+    висел баннер рейтинга работодателей РБК. Обход дошёл до `hr-rating.rbc.ru`,
+    увидел там `hr-forum@rbc.ru`, классифицировал домен как «работодатель» (он
+    и правда не агрегатор) и выдал ЭТУ почту лучшим контактом.
+
+    Цена ошибки максимальная из возможных: письмо от имени владельца ушло бы
+    чужой компании, а он бы этого не заметил — в карточке стоял бы уверенный
+    «ЛУЧШИЙ КОНТАКТ [почта найма]». Поэтому почта засчитывается, только когда
+    её домен связан с работодателем вакансии, а не просто найден по дороге."""
+    vac = "https://careers.kaspersky.ru/vacancy/25712"
+    banner = "https://hr-rating.rbc.ru/"
+    web = Web({vac: page(banner, title="Lead Go Developer"),
+               banner: page(title="Рейтинг работодателей",
+                            extra="Пишите: hr-forum@rbc.ru")})
+    res = crawl.crawl([vac], gap=0, fetcher=web)
+    best = crawl.best_contact(res)
+    ok(best is not None, "контакт не найден вовсе")
+    if best and "rbc.ru" in str(best.get("value", "")):
+        FAILS.append(f"чужая почта с баннера выдана за контакт работодателя: {best}")
+    if best:
+        ok(str(best.get("value", "")).startswith("https://careers.kaspersky.ru"),
+           f"вместо страницы вакансии работодателя выбрано: {best}")
+
+    # А своя почта найма на своём же домене по-прежнему побеждает страницу.
+    own = "https://careers.acme.example/vacancy/7"
+    web2 = Web({own: page(title="Go dev", extra="Резюме: hr@acme.example")})
+    best2 = crawl.best_contact(crawl.crawl([own], gap=0, fetcher=web2))
+    eq(best2["value"], "hr@acme.example",
+       f"своя почта найма перестала побеждать страницу: {best2}")
+
+
 def test_the_deadline_stops_the_walk_and_says_so():
     """Общий дедлайн по времени. Часы подменяются — тест не спит."""
     seeds = [f"https://firm{i}.example.com/vacancy/{i}" for i in range(4)]
@@ -755,7 +824,9 @@ def main() -> int:
             test_an_spa_shell_is_named_not_guessed,
             test_a_link_back_to_the_showcase_is_not_a_contact,
             test_the_hiring_mailbox_beats_the_page_and_the_front_desk_does_not,
-            test_the_deadline_stops_the_walk_and_says_so,
+            test_a_card_shouts_when_the_walk_found_the_vacancy_dead,
+        test_a_stranger_mailbox_on_a_banner_is_not_the_employer_contact,
+        test_the_deadline_stops_the_walk_and_says_so,
             test_the_legal_footer_is_not_walked,
             test_reveal_does_not_spend_the_limit_when_the_walk_found_a_contact,
             test_the_best_route_is_one_you_can_actually_apply_from,

@@ -542,9 +542,21 @@ def barriers(row: dict, payload: dict | None, years: int | None) -> list[str]:
 
 
 def flags(row: dict, payload: dict | None, years: int | None,
-          rtw: str) -> list[str]:
+          rtw: str, *, routes: list[dict] | None = None) -> list[str]:
     """Красные и зелёные флаги. Каждый — проверяемое утверждение, не впечатление."""
     out: list[str] = []
+
+    # 🔴 Смерть вакансии — самый важный факт о ней: он отменяет и фит, и письмо.
+    # Обход её выясняет (`crawl`), маршруты помечаются ✗МЕРТВА, но во флагах
+    # этого не было, и сверху карточка выглядела спокойной (найдено ревью
+    # 09.08.2026 на посте Авито: единственная настоящая ссылка отдавала 404).
+    # Мертва = мертвы ВСЕ проверенные маршруты: одна снятая перепечатка при
+    # живой странице работодателя смертью вакансии не является.
+    checked = [o for o in (routes or []) if o.get("liveness")]
+    if checked and all(o["liveness"] == "МЕРТВА" for o in checked):
+        out.append("🔴 ВАКАНСИЯ МЕРТВА — обход прошёл все её ссылки, и каждая "
+                   "отдаёт «снята/404». Писать некуда: сначала найди, открыта "
+                   "ли роль у работодателя сейчас")
     company = (row.get("company") or "").strip()
     text = " ".join(str((payload or {}).get(k) or "")
                     for k in ("description", "requirements", "apply_note"))
@@ -749,7 +761,7 @@ def build(conn, url: str, *, skills: list[str] | None = None,
 
     out.append("")
     out.append("### Флаги")
-    fl = flags(r, payload, years, rtw)
+    fl = flags(r, payload, years, rtw, routes=opts)
     out += [f"- {f}" for f in fl] or ["- явных флагов не найдено"]
 
     out.append("")

@@ -614,6 +614,49 @@ def _page_kind(publisher: str, url: str) -> str:
     return "витрина"
 
 
+def _org(host: str) -> str:
+    """«Организационная» часть домена: careers.kaspersky.ru → kaspersky.ru.
+
+    Грубо, по двум последним меткам, и этого достаточно: задача — отличить свой
+    домен от чужого (rbc.ru против kaspersky.ru), а не разобрать зону идеально.
+    Для доменов вида co.uk берём три метки, иначе «bbc.co.uk» и «itv.co.uk»
+    выглядели бы одной организацией.
+    """
+    parts = [p for p in (host or "").split(".") if p]
+    if len(parts) < 2:
+        return host or ""
+    if len(parts) >= 3 and parts[-2] in ("co", "com", "org", "net", "ac", "gov"):
+        return ".".join(parts[-3:])
+    return ".".join(parts[-2:])
+
+
+def _same_org(host_or_domain: str, own: set[str]) -> bool:
+    return _org((host_or_domain or "").lower().removeprefix("www.")) in own
+
+
+def employer_domains(res: Result) -> set[str]:
+    """Домены, которые и есть работодатель этой вакансии.
+
+    Берутся из СТАРТОВЫХ страниц обхода (глубина 0–1), классифицированных как
+    сайт компании или её ATS: именно туда вела вакансия. Всё, что нашлось
+    глубже, — уже соседи по дороге (баннеры, рейтинги, партнёры), и их контакты
+    работодателем не являются.
+    """
+    # Берём САМЫЙ МЕЛКИЙ уровень, на котором работодатель вообще встретился:
+    # для ссылки на сайт компании это глубина 0, для телеграм-поста — 1 (сам
+    # пост работодателем не является). Всё, что глубже, — уже соседи по дороге.
+    # Без этого баннер рейтинга РБК со страницы Kaspersky попадал в «свои»
+    # домены и приносил чужую почту как контакт (09.08.2026).
+    own_by_depth: dict[int, set[str]] = {}
+    for n in res.nodes:
+        if n.publisher not in (applyopt.EMPLOYER, applyopt.ATS):
+            continue
+        host = host_of(n.final_url or n.url)
+        if host:
+            own_by_depth.setdefault(n.depth, set()).add(_org(host))
+    return own_by_depth[min(own_by_depth)] if own_by_depth else set()
+
+
 def best_contact(res: Result) -> dict | None:
     """Куда писать — и ПОЧЕМУ именно туда. None — обход контакта не нашёл.
 
@@ -634,12 +677,27 @@ def best_contact(res: Result) -> dict | None:
         vals = [c["value"] for c in (node.contacts.get("email") or [])]
         return [v for v in vals if bool(HR_MAILBOX.match(v.split("@")[0])) == hr_only]
 
+    own = employer_domains(res)
     for n in alive:                       # 1. почта найма на странице компании
-        if n.publisher in (applyopt.EMPLOYER, applyopt.ATS):
-            for v in mails(n, hr_only=True):
-                return {"kind": "почта найма", "value": v, "url": n.final_url or n.url,
-                        "why": f"почта отдела найма прямо на странице работодателя "
-                               f"({host_of(n.final_url or n.url)})"}
+        if n.publisher not in (applyopt.EMPLOYER, applyopt.ATS):
+            continue
+        page = n.final_url or n.url
+        for v in mails(n, hr_only=True):
+            # 🔴 Почта обязана принадлежать НАНИМАТЕЛЮ, а не просто попасться по
+            # дороге. Живой случай 09.08.2026: на странице вакансии Kaspersky
+            # висел баннер рейтинга работодателей РБК, обход дошёл до
+            # hr-rating.rbc.ru и выдал тамошний hr-forum@rbc.ru «лучшим
+            # контактом» — письмо ушло бы чужой компании, а в карточке стояло
+            # бы уверенное «почта отдела найма».
+            if own and not (_same_org(host_of(page), own)
+                            or _same_org(v.split("@")[-1], own)):
+                res.dropped.append(
+                    {"url": v, "why": f"почта с чужого домена ({v.split('@')[-1]}) "
+                                      f"— работодатель вакансии: {', '.join(sorted(own))}"})
+                continue
+            return {"kind": "почта найма", "value": v, "url": page,
+                    "why": f"почта отдела найма прямо на странице работодателя "
+                           f"({host_of(page)})"}
 
     found = routes(res)
     url = applyopt.best([o for o in found if o.get("liveness") != "МЕРТВА"] or found)
