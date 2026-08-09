@@ -144,6 +144,25 @@ def test_resolver_ignores_social():
         FAILS.append("resolve: кнопка внутри <form> должна быть помечена как неотправляемая")
 
 
+def test_boolean_data_attribute_is_not_an_address():
+    """`data-apply-link="true"` — флаг, а не адрес: маршрута из него быть не должно.
+
+    Живой счёт 09.08.2026: у hirehi кнопка размечена
+    `<a href="#" data-apply-link="true" data-direct-kind="telegram">Откликнуться…</a>`,
+    и «true» склеивалось с адресом страницы в `https://hirehi.ru/development/true`.
+    Этот призрак попадал в маршруты ВСЕХ вакансий площадки, шёл в `apply_url`
+    выжимки и потом ещё и обходился краулером — впустую, страницы не существует.
+    """
+    html = ('<a href="#" data-apply-link="true" data-direct="true">Откликнуться</a>'
+            '<a href="#" data-apply-url="/vacancy/42/apply">Откликнуться</a>')
+    urls = [t.url for t in find_targets(html, "https://hirehi.ru/development/x-1")
+            if t.url]
+    if any(u.endswith("/true") for u in urls):
+        FAILS.append("resolve: булево значение data-атрибута стало адресом отклика")
+    if not any(u.endswith("/vacancy/42/apply") for u in urls):
+        FAILS.append("resolve: настоящий относительный адрес из data-атрибута потерян")
+
+
 def test_classify():
     eq(classify("https://job-boards.greenhouse.io/x/jobs/1")[0], "ats", "greenhouse → ats")
     eq(classify("https://jobs.lever.co/acme/1")[0], "ats", "lever → ats")
@@ -3667,102 +3686,19 @@ def test_salary_note_says_what_was_not_believed():
 
 
 def main() -> int:
-    for fn in (test_salary, test_zero_is_not_a_salary, test_salary_str, test_currency,
-               test_dup_key, test_resolver_ignores_social, test_classify,
-               test_tg_split_on_header_only, test_tg_resume_form_without_hashtag,
-               test_html_to_text, test_parse_job_url, test_country_matcher_structural,
-               test_salary_str_function, test_parse_negotiations_markup,
-               test_parse_negotiations_lux, test_negotiations_empty_and_broken,
-               test_classify_mail, test_company_guess, test_negotiation_upsert,
-               test_habr_responses_markup, test_habr_status_and_date_mapping,
-               test_habr_empty_and_broken, test_habr_signout_detect,
-               test_summary_rows_are_stored_but_not_counted,
-               test_match_processed_conservative, test_build_scan_report,
-               test_cookie_domain_filter_rejects_wildcard, test_cookie_domain_allowed,
-               test_cookie_merge, test_cookie_expires_and_samesite,
-               test_mail_dump_classification,
-               # ── добавлено по разбору аудита ────────────────────────────
-               test_classify_mail_body, test_classify_mail_false_positives,
-               test_parse_vacancy_from_body, test_mail_key_does_not_collapse,
-               test_mail_read_filter, test_mail_read_truncates_long_body,
-               test_mail_read_limit_reports_the_rest,
-               test_cookie_file_formats, test_cookie_samesite_none_without_secure,
-               test_choose_browser_picks_widest,
-               test_cookie_source_reports_missing_without_grabbing_all,
-               test_cookie_header_from_source, test_missing_cache_breaks_nothing,
-               test_cookie_merge_prefers_fresher, test_filter_state_and_origins,
-               test_scan_report_survives_broken_stages,
-               test_scan_report_has_full_delta_table,
-               test_match_processed_groups_by_candidate,
-               test_match_processed_short_company_no_false_positive,
-               test_negotiations_empty_markers_english,
-               test_hh_status_from_tag,
-               # ── найдено на приёмке ────────────────────────────────────
-               test_db_flag_before_subcommand, test_enrich_order_freshest_first,
-               # ── разбор двух исследований готовых библиотек ─────────────
-               test_html_to_text_drops_template_state,
-               test_html_to_text_keeps_form_questions,
-               test_mail_body_decodes_legacy_charsets, test_mail_body_falls_back_to_html,
-               test_mail_own_letters_skipped, test_mail_candidate_filter,
-               test_generic_text_picker_rules, test_generic_text_cuts_boilerplate,
-               test_himalayas_parses_fixture, test_himalayas_empty_answer_is_a_failure,
-               # ── период вилки: без него колонка «деньги» врала ──────────
-               test_period_normalization, test_salary_str_shows_period,
-               test_db_migration_adds_period_to_old_base,
-               test_hh_period_is_month_even_for_shift_rates,
-               test_habr_period_only_when_named,
-               test_careered_takes_period_from_its_own_field,
-               test_new_and_report_print_period,
-               test_new_since_announces_undated_rows,
-               test_arbeitnow_follows_cursor_pagination, test_jobicy_filters_on_the_server,
-               test_new_sources_are_in_the_registry,
-               # ── полнота обхода: пагинация, окно и фильтр профессии ─────
-               # ── четыре новых движка ATS: teamtailor, personio, jazzhr, workday ─
-               test_teamtailor_keeps_the_second_country,
-               test_personio_splits_the_glued_offices_and_admits_it_has_no_dates,
-               test_personio_falls_back_from_de_to_com,
-               test_jazzhr_dedups_the_doubled_table_and_dates_rows_by_id,
-               test_jazzhr_never_reports_a_missing_board_as_zero_vacancies,
-               test_workday_reads_total_only_from_the_first_page,
-               test_workday_location_counter_is_not_a_location,
-               test_workday_token_carries_all_three_parts,
-               test_tg_dm_format_marks_direction_and_files,
-               test_tg_dm_header_says_who_is_who, test_tg_dm_never_marks_as_read,
-               # ── reveal (hirehi) и careered-сессия в localStorage ────────
-               # ── telegram → vacancy и водяной знак ───────────────────────
-               # ── площадки с бесплатным ключом: без ключа честно выключены ──
-               test_keyed_sources_say_they_are_off_without_a_key,
-               test_keyed_keys_come_from_the_environment_too,
-            test_keyed_sources_are_in_the_registry,
-               test_superjob_key_travels_in_the_header_and_town_stays_home,
-               test_superjob_rows_map_fields_and_never_invent_a_period,
-               test_adzuna_never_turns_its_own_guess_into_a_salary,
-               test_jooble_never_leaks_its_key_into_an_error,
-               test_jooble_reads_its_text_salary_and_its_own_window,
-               test_careerjet_parses_a_live_answer,
-               test_careerjet_sends_what_the_api_demands,
-               test_jooble_walks_pages_by_total_not_by_page_size,
-               test_keyed_broken_parser_falls_instead_of_reporting_zero,
-               # ── корпус живых строк зарплат и деградация без зависимости ──
-               test_salary_corpus,
-               test_salary_parses_without_price_parser,
-               test_hourly_rate_does_not_swallow_its_cents,
-               test_salary_note_says_what_was_not_believed,
-               # ── чужой текст: инъекции, гейт письма, состояние страницы ──
-               test_untrusted_finds_directives_and_keeps_the_text_intact,
-               test_untrusted_does_not_fire_on_normal_vacancy_language,
-               test_untrusted_sees_what_is_invisible_to_the_eye,
-               test_letter_gate_stops_service_prefixes_and_foreign_links,
-               test_card_shows_untrusted_findings_instead_of_hiding_them,
-               test_page_state_tells_a_dead_vacancy_from_a_broken_parser,
-               test_hh_detail_names_the_state_instead_of_blaming_the_layout,
-               test_hh_and_habr_read_their_own_dead_flags,
-               test_gone_vacancy_is_remembered_and_not_refetched_every_run,
-               test_db_migration_adds_page_state_to_old_detail_table,
-               test_enrich_counts_dead_vacancies_apart_from_failures,
-               test_apply_cost_names_the_questionnaire_and_the_test_task,
-               test_negotiation_never_regresses_into_no_answer,
-               test_levels_md_is_parsed_by_labels_not_by_line_numbers):
+    # Тесты собираются АВТОМАТИЧЕСКИ — все `test_*` этого модуля, в порядке
+    # определения. Раньше здесь лежал ручной кортеж на 116 имён, и забытое имя
+    # означало тест, который не запускается и потому «зелёный» всегда: ровно
+    # так 09.08.2026 молча не работала проверка булевых data-атрибутов.
+    # Список, который надо не забыть пополнить, — не защита, а её видимость.
+    import inspect as _inspect
+    mod = sys.modules[__name__]
+    tests = [f for _, f in _inspect.getmembers(mod, _inspect.isfunction)
+             if f.__name__.startswith("test_") and f.__module__ == __name__
+             and not any(pr.default is pr.empty
+                         for pr in _inspect.signature(f).parameters.values())]
+    tests.sort(key=lambda f: f.__code__.co_firstlineno)
+    for fn in tests:
         fn()
     if FAILS:
         print(f"ПРОВАЛЕНО {len(FAILS)}:")

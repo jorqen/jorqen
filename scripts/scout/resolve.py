@@ -59,6 +59,18 @@ APPLY_WORDS = re.compile(
 URL_ATTRS = ("data-apply-link", "data-apply-url", "data-url", "data-href",
              "data-external-url", "data-redirect", "data-target-url", "data-link")
 
+# Те же имена площадки используют и как БУЛЕВ ФЛАГ: у hirehi кнопка размечена
+# `data-apply-link="true"`, и «true» склеивалось с адресом страницы в
+# `https://hirehi.ru/development/true` — призрак, который попадал в маршруты
+# каждой вакансии площадки и обходился краулером впустую (09.08.2026).
+# Адрес обязан нести признак адреса: схему, слэш или точку домена.
+_NOT_A_URL = re.compile(r"^(?:true|false|yes|no|on|off|1|0|null|none|undefined)$", re.I)
+
+
+def _looks_like_url(value: str) -> bool:
+    v = (value or "").strip()
+    return bool(v) and not _NOT_A_URL.match(v) and any(c in v for c in "/.?:")
+
 
 @dataclass
 class Target:
@@ -121,7 +133,7 @@ def find_targets(html: str, page_url: str) -> list[Target]:
             if href and APPLY_WORDS.search(inner or ""):
                 for a in URL_ATTRS:
                     hidden = _one(rf'{a}\s*=\s*["\']([^"\']+)["\']', attrs)
-                    if hidden:
+                    if hidden and _looks_like_url(hidden):
                         u = _abs(page_url, hidden)
                         kind, label = classify(u)
                         add(Target(kind, u, inner, f"адрес взят из {a}"))
@@ -147,8 +159,9 @@ def find_targets(html: str, page_url: str) -> list[Target]:
         attrs, inner = m.group(1), _strip(m.group(2))
         if not APPLY_WORDS.search(inner or "") and not APPLY_WORDS.search(attrs):
             continue
-        hidden = next((_one(rf'{a}\s*=\s*["\']([^"\']+)["\']', attrs) for a in URL_ATTRS
-                       if _one(rf'{a}\s*=\s*["\']([^"\']+)["\']', attrs)), None)
+        hidden = next((v for v in
+                       (_one(rf'{a}\s*=\s*["\']([^"\']+)["\']', attrs) for a in URL_ATTRS)
+                       if v and _looks_like_url(v)), None)
         if hidden:
             u = _abs(page_url, hidden)
             kind, _ = classify(u)
