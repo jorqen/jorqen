@@ -383,7 +383,7 @@ class Tally:
 # работал, и ни один источник править не пришлось. Переезд сделан отдельным
 # коммитом и поведения не менял.
 from .salary import (  # noqa: F401 — реэкспорт публичного контракта
-    expand_k, parse_salary, period_from_text, salary_note,
+    expand_k, parse_salary, period_by_magnitude, period_from_text, salary_note,
 )
 
 

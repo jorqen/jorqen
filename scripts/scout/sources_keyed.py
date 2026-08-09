@@ -64,6 +64,7 @@ from .sources import (
     _strip_tags,
     _truncated_note,
     parse_salary,
+    period_by_magnitude,
     period_from_text,
 )
 
@@ -649,7 +650,11 @@ def _jooble_rows(rows: list, edge, ctx: Ctx, out: list, seen: set,
             title=title,
             company=j.get("company"),
             salary_from=lo, salary_to=hi, currency=cur, salary_gross=gross,
-            salary_period=period_from_text(money),
+            # Слово в строке — первично; величина — запасной признак для вилок
+            # без слова. Jooble отдаёт американские «197 300–225 100 USD» без
+            # периода, и без второй проверки они читались как месячные.
+            salary_period=(period_from_text(money)
+                           or period_by_magnitude(lo, hi, cur)),
             location=j.get("location"),
             published_at=j.get("updated"),
             tags=[x for x in (j.get("type"),) if x],
