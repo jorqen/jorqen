@@ -1550,6 +1550,27 @@ def test_doctor_diagnoses_without_touching_the_network():
 
     eq(bad, 0, f"на чистой машине поломок быть не должно, а насчитано {bad}")
 
+    # 🔴 «database is locked» — это ИДЁТ другой прогон, а не поломка базы.
+    # Живой счёт 09.08.2026: `doctor`, запущенный во время волны, отвечал
+    # «ПОЛОМОК 1: база не читается» — то есть отправлял чинить целую базу там,
+    # где надо было просто дождаться. Ложная тревога в диагностике дороже
+    # молчания: по ней принимают решения.
+    import sqlite3 as _sq
+
+    def locked(*a, **k):
+        raise _sq.OperationalError("database is locked")
+
+    with tempfile.TemporaryDirectory() as d2:
+        busy_db = os.path.join(d2, "busy.db")
+        with store.connect(busy_db) as conn:
+            conn.execute("SELECT 1")
+        with patched(doctor.sqlite3, "connect", locked), \
+                patched(authrefresh, "preflight", lambda *a, **k: alive):
+            busy_lines, busy_bad = doctor.report(busy_db)
+    eq(busy_bad, 0, "занятая другим прогоном база посчитана поломкой")
+    if "идёт другой прогон" not in "\n".join(busy_lines):
+        FAILS.append("doctor не объяснил, что база просто занята прогоном")
+
     # 🔴 Каждый опциональный пакет обязан быть НАЗВАН в отчёте. Проверяется не
     # текущий набор, а полнота: doctor существует ради ответа «что сломано», и
     # молчание про отсутствующий пакет — это ложное «всё на месте». Живой счёт

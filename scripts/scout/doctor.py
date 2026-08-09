@@ -137,8 +137,12 @@ def _db(path: str) -> list[tuple[str, str]]:
             conn.execute("BEGIN IMMEDIATE").fetchall()
             conn.rollback()
         except sqlite3.OperationalError:
-            rows.append((BAD, "база ЗАБЛОКИРОВАНА другим процессом — идёт вторая "
-                              "волна или зависла прошлая; `ps aux | grep scout`"))
+            # ⚠️, а не 🔴: идёт другой прогон — это штатное состояние, а не
+            # поломка. Чинить нечего, надо дождаться (или посмотреть, не завис
+            # ли прошлый: `ps aux | grep scout`).
+            rows.append((WARN, "база занята: прямо сейчас идёт другой прогон "
+                               "(`wave`, `scan`, `enrich`) или зависла прошлая — "
+                               "`ps aux | grep scout`"))
         n = conn.execute("SELECT COUNT(*) FROM vacancy").fetchone()[0]
         groups = conn.execute("SELECT COUNT(DISTINCT dup_key) FROM vacancy").fetchone()[0]
         rows.append((OK, f"вакансий {n}, групп после дедупа {groups} "
@@ -168,7 +172,17 @@ def _db(path: str) -> list[tuple[str, str]]:
                              f"запрос «{last['query']}»"))
         conn.close()
     except sqlite3.DatabaseError as e:
-        rows.append((BAD, f"база не читается: {e}"))
+        # «database is locked» — это ИДЁТ другой прогон, а не поломка базы.
+        # Живой счёт 09.08.2026: `doctor` во время волны рапортовал «ПОЛОМОК 1»
+        # и отправлял чинить целую базу, тогда как чинить было нечего —
+        # достаточно дождаться. Ложная тревога в диагностике дороже молчания:
+        # по ней принимают решения.
+        if "locked" in str(e).lower() or "busy" in str(e).lower():
+            rows.append((WARN, "база занята: прямо сейчас идёт другой прогон "
+                               "(`wave`, `scan`, `enrich`). Это не поломка — "
+                               "часть проверок пропущена, повтори после него"))
+        else:
+            rows.append((BAD, f"база не читается: {e}"))
     return rows
 
 
