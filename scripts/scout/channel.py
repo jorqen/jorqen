@@ -143,12 +143,34 @@ _AGGREGATORS = {
 }
 
 
+# Витрины, у которых своя доска в КАЖДОЙ стране: adzuna.de, adzuna.pl,
+# adzuna.co.uk, glassdoor.de… Перечислять зоны бессмысленно — их десятки, и
+# новая появляется молча. Здесь имя второго уровня, зона любая.
+# 🔴 Живой счёт 09.08.2026: в базе 1342 вакансии на jooble.org, 251 на
+# jobviewtrack.com и 322 на adzuna.* считались «доменом работодателя» просто
+# потому, что их не было в списке. В карточках это печаталось как
+# «[employer, прямой]» — то есть человеку обещали прямой канал в компанию,
+# а вела ссылка на витрину.
+_AGGREGATOR_NAMES = {
+    "jooble", "jobviewtrack", "adzuna", "careerjet", "glassdoor", "arbeitnow",
+    "neuvoo", "trudvsem", "indeed", "monster", "ziprecruiter", "simplyhired",
+    "jobsora", "jobrapido", "trovit", "mitula", "learn4good", "whatjobs",
+}
+
+
 def is_employer_domain(dom: str) -> bool:
     """Домен работодателя, а не витрины. Проверка обязательна: раньше careers
     агрегатора уходил в кэш как «канал компании»."""
     if not dom or "." not in dom:
         return False
-    return not any(dom == a or dom.endswith("." + a) for a in _AGGREGATORS)
+    if any(dom == a or dom.endswith("." + a) for a in _AGGREGATORS):
+        return False
+    # Имя организации без зоны: у adzuna.de и adzuna.pl оно одно на всех.
+    parts = [x for x in dom.split(".") if x]
+    for i in (-2, -3):                      # обычная зона и составная (co.uk)
+        if len(parts) >= -i and parts[i] in _AGGREGATOR_NAMES:
+            return False
+    return True
 
 
 # Страницы, где почта найма живёт даже когда карьерного раздела нет вовсе.

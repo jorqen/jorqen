@@ -1740,6 +1740,32 @@ def test_reveal_records_a_debt_when_the_limit_runs_out():
         FAILS.append(f"долг записан не на ту вакансию: {debts[0]}")
 
 
+def test_a_showcase_is_a_showcase_in_every_country_zone():
+    """adzuna.de и adzuna.co.uk — та же витрина, что adzuna.com.
+
+    🔴 Найдено на живых данных 09.08.2026: в базе 1342 вакансии на `jooble.org`,
+    251 на `jobviewtrack.com` и 322 на `adzuna.*` классифицировались как «домен
+    работодателя» — просто потому, что их не было в списке. В карточках это
+    печаталось «[employer, прямой]»: человеку обещали прямой канал в компанию,
+    а ссылка вела на витрину.
+
+    Перечислять зоны бессмысленно, их десятки и новая появляется молча, —
+    поэтому сверяется имя второго уровня при любой зоне.
+    """
+    from .channel import is_employer_domain
+
+    for dom in ("jooble.org", "adzuna.de", "adzuna.pl", "adzuna.co.uk",
+                "glassdoor.de", "jobviewtrack.com", "careerjet.fr"):
+        if is_employer_domain(dom):
+            FAILS.append(f"витрина принята за домен работодателя: {dom}")
+    # Настоящие работодатели остаются работодателями — в том числе те, у кого
+    # в домене есть слово из карьерного словаря.
+    for dom in ("careers.datadoghq.com", "fundraiseup.com", "plata.careers",
+                "careers.kaspersky.ru", "remoby.com"):
+        if not is_employer_domain(dom):
+            FAILS.append(f"домен работодателя принят за витрину: {dom}")
+
+
 def test_a_general_mailbox_is_never_the_hiring_channel():
     """`info@` каналом найма не становится — нужна почта ДЛЯ ОТКЛИКОВ.
 
