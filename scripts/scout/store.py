@@ -179,6 +179,8 @@ CREATE TABLE IF NOT EXISTS apply_option (
     is_direct   INTEGER,                -- 1 = прямой канал работодателя
     note        TEXT,                   -- откуда узнали этот маршрут
     rank        INTEGER DEFAULT 0,      -- порядок обнаружения: устойчивый выбор best
+    liveness    TEXT,                   -- ЖИВА | МЕРТВА | НЕИЗВЕСТНО — по факту обхода
+    state       TEXT,                   -- net.PAGE_*: как ответила страница
     found_at    TEXT NOT NULL,
     PRIMARY KEY (source, external_id, url)
 );
@@ -247,6 +249,8 @@ CREATE TABLE IF NOT EXISTS tg_watermark (
 MIGRATIONS: list[tuple[str, str, str]] = [
     ("vacancy", "salary_period", "TEXT"),
     ("detail", "page_state", "TEXT"),
+    ("apply_option", "liveness", "TEXT"),
+    ("apply_option", "state", "TEXT"),
 ]
 
 
@@ -790,17 +794,32 @@ def save_apply_options(conn, source: str, external_id: str,
                        options: list[dict]) -> int:
     """Пишет маршруты. Возвращает, сколько записано.
 
-    `INSERT OR REPLACE`, а не удаление старых: маршрут, найденный в прошлой
-    волне и пропавший из выдачи сегодня, всё ещё рабочий — терять его незачем.
+    Дописывание, а не удаление старых: маршрут, найденный в прошлой волне и
+    пропавший из выдачи сегодня, всё ещё рабочий — терять его незачем.
+
+    Поля обхода (`liveness`, `state`) переписываются ТОЛЬКО непустыми: их знает
+    один `crawl`, а строку по тому же адресу пишет ещё и дешёвый `gather`,
+    которому про живость известно ничего. С прежним `INSERT OR REPLACE`
+    ближайший `brief` затирал результат обхода в NULL — то есть дорогая
+    проверка жила до первой следующей команды.
     """
     ts = now()
     for i, o in enumerate(options):
         conn.execute(
-            "INSERT OR REPLACE INTO apply_option (source, external_id, url, "
-            "publisher, is_direct, note, rank, found_at) VALUES (?,?,?,?,?,?,?,?)",
+            "INSERT INTO apply_option (source, external_id, url, publisher, "
+            "is_direct, note, rank, liveness, state, found_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(source, external_id, url) DO UPDATE SET "
+            "  publisher = excluded.publisher, is_direct = excluded.is_direct, "
+            "  note = COALESCE(excluded.note, apply_option.note), "
+            "  rank = excluded.rank, "
+            "  liveness = COALESCE(excluded.liveness, apply_option.liveness), "
+            "  state = COALESCE(excluded.state, apply_option.state), "
+            "  found_at = excluded.found_at",
             (source, str(external_id), o["url"], o.get("publisher"),
              1 if o.get("is_direct") else 0, o.get("note"),
-             int(o.get("rank", i)), ts))
+             int(o.get("rank", i)), o.get("liveness") or None,
+             o.get("state") or None, ts))
     return len(options)
 
 
@@ -809,12 +828,14 @@ def apply_options(conn, source: str, external_id: str) -> list[dict]:
     менялся от прогона к прогону на одних и тех же данных: SQL порядок строк
     не гарантирует, а два маршрута одного ранга различались только им."""
     rows = conn.execute(
-        "SELECT url, publisher, is_direct, note, rank FROM apply_option "
-        "WHERE source=? AND external_id=? ORDER BY is_direct DESC, rank, url",
+        "SELECT url, publisher, is_direct, note, rank, liveness, state "
+        "FROM apply_option WHERE source=? AND external_id=? "
+        "ORDER BY is_direct DESC, rank, url",
         (source, str(external_id))).fetchall()
     return [{"url": r["url"], "publisher": r["publisher"],
              "is_direct": bool(r["is_direct"]), "note": r["note"],
-             "rank": r["rank"]} for r in rows]
+             "rank": r["rank"], "liveness": r["liveness"], "state": r["state"]}
+            for r in rows]
 
 
 def save_mirror(conn, source: str, external_id: str, chat_id: str,

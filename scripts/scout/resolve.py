@@ -179,7 +179,9 @@ _JSON_KEYS = ("apply_url", "applyUrl", "applicationUrl", "apply_link", "applyLin
               "hostedUrl", "careers_url", "careers_apply_url", "jobUrl")
 
 # Хосты, которые не могут быть каналом найма, как бы они ни назывались в JSON.
-_NOISE_HOSTS = re.compile(
+# Публичное имя: тем же списком отсеивает мусор обход ссылок (`crawl`), и второй
+# копии этого списка в проекте быть не должно.
+NOISE_HOSTS = re.compile(
     r"(^|\.)(vk\.com|dzen\.ru|ok\.ru|max\.ru|youtube\.com|facebook\.com|instagram\.com|"
     r"twitter\.com|x\.com|setka\.ru|apple\.com|play\.google\.com|itunes\.apple\.com|"
     r"gstatic\.com|googleapis\.com|googletagmanager\.com|yandex\.(ru|net)|"
@@ -214,7 +216,7 @@ def _from_embedded_json(html: str, page_url: str) -> list[str]:
         u = H.unescape(u)
         h = _host(u)
         if (u.startswith("http") and h and h != _host(page_url)
-                and not _NOISE_HOSTS.search(h) and u not in seen):
+                and not NOISE_HOSTS.search(h) and u not in seen):
             seen.add(u)
             out.append(u)
     return out[:12]
@@ -245,6 +247,14 @@ def _one(pattern: str, text: str) -> str | None:
     return m.group(1) if m else None
 
 
+# Редирект, который не проходит ни один HTTP-клиент: он написан в разметке.
+# Регулярка публичная и одна на проект — по ней же проходит цепочки обход
+# ссылок (`crawl`), а разошедшиеся копии одного разбора у нас уже были.
+META_REFRESH = re.compile(
+    r'<meta[^>]+http-equiv=["\']refresh["\'][^>]+content=["\'][^"\']*url=([^"\'>]+)',
+    re.I)
+
+
 def follow(url: str, max_hops: int = 5) -> dict:
     """Проходит цепочку редиректов GET-запросами. Ничего не отправляет.
 
@@ -262,10 +272,9 @@ def follow(url: str, max_hops: int = 5) -> dict:
             chain.append(final)
             current = final
         # meta refresh — редирект, который curl не проходит
-        meta = _one(r'<meta[^>]+http-equiv=["\']refresh["\'][^>]+content=["\'][^"\']*url=([^"\'>]+)',
-                    text)
+        meta = META_REFRESH.search(text or "")
         if meta:
-            current = _abs(current, meta)
+            current = _abs(current, meta.group(1))
             chain.append(current)
             continue
         break

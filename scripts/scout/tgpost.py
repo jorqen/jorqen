@@ -23,14 +23,16 @@
 
 from __future__ import annotations
 
-import html as H
 import re
 
 from .net import BlockedError, FetchError, fetch
 
 # Домены, которые контактом работодателя НЕ являются: сам телеграм, соцсети и
 # мессенджеры с каналами вакансий (правило из field-notes), плюс счётчики.
-_NOT_CONTACT = (
+# Публичное имя: этот же список — единственный на проект — читает обход ссылок
+# (`crawl`), вычитая из него сокращатели: контактом они не годятся, а дорогой
+# вполне, и куда они ведут, обход как раз выясняет переходом.
+NOT_CONTACT = (
     "t.me", "telegram.me", "telegram.org", "vk.com", "vk.ru", "ok.ru",
     "max.ru", "ord.vk.com", "instagram.com", "facebook.com", "youtube.com",
     "clck.ru",          # сокращатель Яндекса: куда ведёт, из ссылки не видно
@@ -45,17 +47,27 @@ def _host(url: str) -> str:
     return (m.group(1) if m else "").lower().removeprefix("www.")
 
 
-def _is_contact(url: str) -> bool:
+def _is_contact(url: str, *, keep_shorteners: bool = False) -> bool:
     host = _host(url)
-    return bool(host) and not any(
-        host == d or host.endswith("." + d) for d in _NOT_CONTACT)
+    if not host:
+        return False
+    banned = NOT_CONTACT
+    if keep_shorteners:
+        from .crawl import SHORTENERS  # noqa: PLC0415 — ленивый: crawl зовёт нас
+        banned = tuple(d for d in NOT_CONTACT if d not in SHORTENERS)
+    return not any(host == d or host.endswith("." + d) for d in banned)
 
 
-def apply_links_from_post(page_html: str, channel: str, ident: int | str) -> list[str]:
+def apply_links_from_post(page_html: str, channel: str, ident: int | str, *,
+                          keep_shorteners: bool = False) -> list[str]:
     """Внешние ссылки ИЗ ОДНОГО поста — кандидаты в контакт отклика.
 
     Порядок сохраняется: в посте ссылка отклика обычно идёт первой, а хвост —
     это подписи каналов автора. Соцсети и сам телеграм отфильтрованы.
+
+    `keep_shorteners` — оставить короткие ссылки. Контактом они не годятся
+    (куда ведут, из адреса не видно), но обход ссылок умеет по ним пройти и
+    посмотреть; для карточки же остаётся прежний строгий фильтр.
     """
     text = page_html or ""
     start = text.find(_POST_BLOCK.format(chan=channel, ident=ident))
@@ -64,15 +76,21 @@ def apply_links_from_post(page_html: str, channel: str, ident: int | str) -> lis
     # До начала СЛЕДУЮЩЕГО поста: лента отдаётся одной страницей.
     nxt = text.find('data-post="', start + 10)
     block = text[start:nxt if nxt > 0 else len(text)]
+    from .crawl import clean_url  # noqa: PLC0415 — ленивый: crawl зовёт нас
+
     out: list[str] = []
     for raw in _HREF.findall(block):
-        url = H.unescape(raw)
-        if _is_contact(url) and url not in out:
+        # 🔴 Телеграм экранирует href ДВАЖДЫ: `&amp;amp;`. Одной распаковки мало
+        # (живой случай 09.08.2026, пост job_web3/3757) — этим занимается
+        # `clean_url`, он же снимает якорь.
+        url = clean_url(raw)
+        if _is_contact(url, keep_shorteners=keep_shorteners) and url not in out:
             out.append(url)
     return out
 
 
-def fetch_apply_links(post_url: str, *, timeout: int = 20) -> tuple[list[str], str]:
+def fetch_apply_links(post_url: str, *, timeout: int = 20,
+                      keep_shorteners: bool = False) -> tuple[list[str], str]:
     """(ссылки отклика, пояснение) по адресу поста `t.me/<канал>/<id>`.
 
     Пустой список — это не ошибка: у части постов контакт дан текстом (`@ник`
@@ -89,7 +107,8 @@ def fetch_apply_links(post_url: str, *, timeout: int = 20) -> tuple[list[str], s
         return [], "телеграм отдал стену вместо веб-версии поста"
     except FetchError as e:
         return [], f"веб-версия поста не открылась: {e.reason}"
-    links = apply_links_from_post(page, chan, ident)
+    links = apply_links_from_post(page, chan, ident,
+                                  keep_shorteners=keep_shorteners)
     if not links:
         return [], ("в посте нет внешних ссылок — контакт либо дан текстом "
                     "(@ник, почта), либо спрятан в callback-кнопке")

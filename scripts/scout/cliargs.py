@@ -25,7 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     from .cli import (  # noqa: PLC0415
         DEFAULT_LIMIT, DEFAULT_MAX_ENRICH, RAW_SOURCES,
         cmd_ats, cmd_auth, cmd_brief, cmd_browse, cmd_budget, cmd_card,
-        cmd_channel, cmd_check_links, cmd_collect, cmd_coverage, cmd_detail,
+        cmd_channel, cmd_check_links, cmd_collect, cmd_coverage, cmd_crawl, cmd_detail,
         cmd_doctor, cmd_dups, cmd_employer, cmd_funnel, cmd_tg_wave, cmd_enrich, cmd_habr_sync, cmd_hh_auth, cmd_hh_sync,
         cmd_mail_ingest, cmd_mail_read, cmd_mail_sync, cmd_mark, cmd_new,
         cmd_profile, cmd_raw, cmd_render, cmd_research, cmd_resolve, cmd_reveal,
@@ -114,6 +114,40 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--format", choices=["text", "json"], default="text")
     r.set_defaults(func=cmd_resolve)
 
+    from .crawl import DEADLINE, GAP, MAX_DEPTH, MAX_PAGES, PER_HOST  # noqa: PLC0415
+
+    cr = sub.add_parser("crawl", help="обойти ВСЕ ссылки вакансии и построить карту: "
+                                      "лучший контакт, живость, работодатель, "
+                                      "непройденное",
+                        parents=[common])
+    cr.add_argument("urls", nargs="+", metavar="url",
+                    help="пост t.me/<канал>/<id> — тогда старт по всем его "
+                         "ссылкам; любой другой адрес — старт с него самого")
+    cr.add_argument("--depth", type=int, default=MAX_DEPTH,
+                    help=f"переходов от стартовой ссылки (по умолчанию {MAX_DEPTH}); "
+                         f"всё, что глубже, названо в разделе «не пошли»")
+    cr.add_argument("--max-pages", type=int, default=MAX_PAGES,
+                    help=f"потолок страниц на весь обход (по умолчанию {MAX_PAGES})")
+    cr.add_argument("--per-host", type=int, default=PER_HOST,
+                    help=f"потолок страниц на один хост (по умолчанию {PER_HOST}): "
+                         f"без него пагинация одного сайта съедает весь обход")
+    cr.add_argument("--gap", type=float, default=GAP,
+                    help=f"зазор между запросами К ОДНОМУ хосту, сек (по умолчанию "
+                         f"{GAP}); меньше ставить незачем — rabota.ru закрыла нам "
+                         f"TLS после ~25 запросов за 20 минут")
+    cr.add_argument("--deadline", type=float, default=DEADLINE,
+                    help=f"потолок времени на весь обход, сек (по умолчанию {DEADLINE:g})")
+    cr.add_argument("--render", action="store_true",
+                    help="раскрывать SPA-каркасы браузером 🌐 — дорого, поэтому "
+                         "по флагу; без него каркас честно помечен в карте")
+    cr.add_argument("--save", action="store_true",
+                    help="записать найденные маршруты и живость в базу (вакансия "
+                         "ищется по url) — их подхватят `brief`, `card` и `reveal`")
+    cr.add_argument("--force", action="store_true",
+                    help="с --save: переобойти, даже если факты в базе уже есть")
+    cr.add_argument("--format", choices=["text", "json"], default="text")
+    cr.set_defaults(func=cmd_crawl)
+
     tr = sub.add_parser("tg-rollback", help="вернуть чатам «непрочитано» и точки "
                                             "возобновления после неудачного прогона",
                         parents=[common])
@@ -156,6 +190,11 @@ def build_parser() -> argparse.ArgumentParser:
                     help="разложить карточки по каталогам волны "
                          ".jobs/<дата>/companies/<слаг>/ вместо печати; "
                          "безымянный работодатель уходит в _hidden/")
+    cd.add_argument("--no-crawl", action="store_true",
+                    help="не обходить ссылки вакансии. По умолчанию обход ИДЁТ "
+                         "(глубина 1, до 10 страниц на вакансию) и кладёт в карточку "
+                         "проверенный контакт и живость; результат кэшируется, так "
+                         "что пересборка карточки бесплатна")
     cd.add_argument("--date", help="дата волны (по умолчанию сегодня)")
     cd.add_argument("--force", action="store_true",
                     help="--write: перезаписать существующие файлы (по умолчанию "
@@ -283,6 +322,14 @@ def build_parser() -> argparse.ArgumentParser:
                     help="взять сессию из браузера пользователя вместо .auth/hirehi.json "
                          "(какой браузер — задаётся общим --cookies-from). ВНИМАНИЕ: "
                          "ротация refresh-токена разлогинит живую вкладку hirehi")
+    rv.add_argument("--dry-run", action="store_true",
+                    help="показать ПЛАН: на что лимит спишется и почему, на что нет. "
+                         "Ни одного клика, браузер не поднимается. Обход ссылок при "
+                         "этом делается — он бесплатный, и его результат остаётся в базе")
+    rv.add_argument("--no-crawl", action="store_true",
+                    help="не обходить ссылки вакансии перед раскрытием. По умолчанию "
+                         "обход ИДЁТ: он часто находит контакт даром (careers-страница, "
+                         "ATS, почта найма), и тогда невосполнимый лимит не тратится")
     rv.set_defaults(func=cmd_reveal)
 
     w = sub.add_parser("raw", help="страница источника без парсера", parents=[common])

@@ -655,6 +655,61 @@ def cmd_resolve(args) -> int:
     return 0
 
 
+def cmd_crawl(args) -> int:
+    """Обход ВСЕХ ссылок вакансии: куда они ведут и что там живо.
+
+    `resolve` отвечает про ОДНУ страницу и одну кнопку. Здесь — граф: каждая
+    ссылка проходится, с неё берутся ссылки дальше, и получается картина
+    целиком: лучший контакт с объяснением, живость, работодатель и список
+    непройденного. Код возврата 1, если ни по одной вакансии не нашлось живой
+    страницы: это ровно тот случай, когда пост висит, а набор закрыт.
+    """
+    from . import applyopt
+    from . import crawl as C
+    from . import store
+
+    opts = {"max_pages": args.max_pages, "per_host": args.per_host,
+            "gap": args.gap, "deadline": args.deadline, "render": args.render}
+    walked: list[tuple[str, C.Result | None, list[dict]]] = []
+    for url in args.urls:
+        # С `--save` обход идёт через `crawl.walk`: там кэш по базе, и второй
+        # раз за ту же вакансию мы не платим. Без `--save` это чистая
+        # диагностика — база не трогается вовсе.
+        if args.save:
+            with store.connect(args.db) as conn:
+                res, found = C.walk(conn, url, depth=args.depth,
+                                    force=args.force, **opts)
+            if res is None and not found:
+                print(f"{url}\n  такой вакансии в базе нет — сохранять некуда, "
+                      f"обхожу без записи", file=sys.stderr)
+                res = C.crawl_url(url, max_depth=args.depth, **opts)
+            walked.append((url, res, found))
+            continue
+        walked.append((url, C.crawl_url(url, max_depth=args.depth, **opts), []))
+
+    if args.format == "json":
+        print(json.dumps([r.to_dict() if r else {"url": u, "cached": f}
+                          for u, r, f in walked], ensure_ascii=False, indent=2))
+    else:
+        for i, (url, res, found) in enumerate(walked):
+            if i:
+                print("\n" + "─" * 70 + "\n")
+            if res is None:
+                print(f"{url}\n  обход уже был — факты из базы "
+                      f"(`--force` заставит переобойти):")
+                print("\n".join(applyopt.render(found)))
+                continue
+            print("\n".join(C.render(res)))
+    if args.save and args.format != "json":
+        # В JSON эта строка не идёт: она сломала бы разбор вывода тому, кто
+        # просил именно JSON.
+        print("\nмаршруты и живость записаны в базу — их подхватят `brief`, "
+              "`card` и `reveal`")
+    return 0 if any(C.liveness(res)[0] == "ЖИВА" if res is not None
+                    else any(o.get("liveness") == "ЖИВА" for o in found)
+                    for _u, res, found in walked) else 1
+
+
 def cmd_reveal(args) -> int:
     """Раскрытие прямого контакта hirehi. СПИСЫВАЕТ лимит раскрытий пользователя —
     разрешение на это дано им 30.07.2026 (релевантные вакансии, идемпотентно,
@@ -662,7 +717,9 @@ def cmd_reveal(args) -> int:
     from .reveal import reveal
     return reveal(args.urls, limit=args.limit, db=args.db,
                   from_browser=(getattr(args, "cookies_from", None) or "auto")
-                  if args.from_browser else None)
+                  if args.from_browser else None,
+                  walk=not getattr(args, "no_crawl", False),
+                  dry_run=getattr(args, "dry_run", False))
 
 
 def cmd_pending_reveals(args) -> int:
@@ -1360,13 +1417,16 @@ def cmd_check_links(args) -> int:
                 # своей страницы вакансии не имеют вовсе: они увозят на сайт
                 # работодателя или другой площадки. Проверять надо КОНЕЧНЫЙ
                 # адрес, иначе вердикт всегда «не похоже на страницу вакансии».
-                if host.endswith("jobviewtrack.com") or "/away/" in url:
+                # Кто такая витрина-редирект, знает `crawl.is_redirector` — и
+                # знает ОДИН на проект: второй список этих хостов разошёлся бы
+                # с первым на следующей же площадке.
+                from .crawl import is_redirector
+                if is_redirector(url):
                     from .resolve import follow
                     chain = follow(url).get("chain") or [url]
                     dest = next((u for u in reversed(chain)
-                                 if u.startswith("http")
-                                 and "jobviewtrack.com" not in u
-                                 and "/away/" not in u), None)
+                                 if u.startswith("http") and not is_redirector(u)),
+                                None)
                     if not dest:
                         # Витрина не раскрылась (стена или JS-редирект). Но та
                         # же вакансия часто лежит в базе и с прямой ссылки —

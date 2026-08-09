@@ -361,9 +361,103 @@ def preflight(urls: list[str], *, liveness: dict[str, str] | None = None,
     return plan
 
 
+def plan(urls: list[str], *, db: str = store.DEFAULT_DB, walk: bool = True,
+         depth: int = 1) -> list[dict]:
+    """План раскрытия ПО ФАКТАМ: где контакт есть даром, там лимит не тратим.
+
+    🔴 Требование владельца 09.08.2026 и причина, по которой обход ссылок
+    подключён именно сюда: раскрытие необратимо тратит маленький лимит, а
+    контакт часто лежит рядом бесплатно. Два источника, оба до единого клика:
+
+      1. своя база — та же компания на площадке, где контакт открыт
+         (`free_contact_for`); сети не требует вовсе;
+      2. обход ссылок вакансии — careers-страница, доска ATS или почта найма
+         на сайте работодателя (`crawl.walk`). Раньше это делалось руками и
+         потому делалось не всегда.
+
+    Обход кэшируется в базе, поэтому повторный прогон по тем же вакансиям
+    ничего не стоит. `walk=False` (флаг `--no-crawl`) оставлен для случая
+    «сеть недоступна или её жалко» — тогда решение принимается по базе.
+
+    Глубина здесь 1, а не 2: нужен факт «бесплатный контакт существует», а не
+    полная карта сайта компании. Полную даёт `scout crawl`.
+    """
+    from . import crawl as C  # noqa: PLC0415 — ленивый: reveal живёт и без обхода
+
+    live: dict[str, str] = {}
+    free: dict[str, str] = {}
+    with store.connect(db) as conn:
+        for url in urls:
+            same = free_contact_for(conn, url)
+            if same:
+                free[url] = f"та же вакансия там, где контакт открыт: {same}"
+                continue
+            if not walk:
+                continue
+            try:
+                res, found = C.walk(conn, url, depth=depth)
+            except Exception as e:  # noqa: BLE001 — обход не имеет права сорвать раскрытие
+                print(f"{url}\n  обход ссылок не вышел ({type(e).__name__}: {e}) — "
+                      f"решаю по базе", file=sys.stderr)
+                continue
+            best = C.best_contact(res) if res is not None else C.contact_from_routes(found)
+            verdict = (C.liveness(res)[0] if res is not None
+                       else C.liveness_from_routes(found))
+            if verdict:
+                live[url] = verdict
+            # Витрина бесплатным контактом НЕ считается: ради обхода витрины
+            # раскрытие и затевается. Годится только прямой канал работодателя.
+            if best and best["kind"] != "витрина":
+                free[url] = f"{best['kind']}: {best['value']} ({best['why']})"
+    return preflight(urls, liveness=live, free_contact=free)
+
+
+def plan_lines(steps: list[dict]) -> list[str]:
+    """План раскрытия строками. Отдельно от печати — чтобы его можно было
+    проверить тестом, не поднимая браузер."""
+    out = [f"План раскрытия: {sum(1 for s in steps if s['spend'])} из "
+           f"{len(steps)} — на остальные лимит не тратится"]
+    for s in steps:
+        out.append(f"  {'СПИСАТЬ' if s['spend'] else 'не тратить'}  {s['url']}")
+        out.append(f"      {s['why']}")
+    return out
+
+
 def reveal(urls: list[str], *, limit: int = 5, db: str = store.DEFAULT_DB,
-           from_browser: str | None = None) -> int:
-    """Раскрывает прямой контакт по каждому URL. Коды — в шапке модуля."""
+           from_browser: str | None = None, walk: bool = True,
+           dry_run: bool = False) -> int:
+    """Раскрывает прямой контакт по каждому URL. Коды — в шапке модуля.
+
+    Перед первым кликом считается план (`plan`): вакансии, где контакт есть
+    даром или где раскрывать уже нечего, из раскрытия выпадают — лимит на них
+    не тратится. Это единственный необратимый расход во всём сборщике, и
+    решение «тратить или нет» принимается по фактам, а не по памяти агента.
+
+    `dry_run=True` печатает этот план и выходит, не открывая браузер и не
+    списывая ничего: посмотреть, во что обойдётся прогон, до того как он
+    случится. Обход при этом всё равно выполняется — он бесплатный и его
+    результат остаётся в базе.
+    """
+    skipped: dict[str, str] = {}
+    if urls:
+        steps = plan(urls, db=db, walk=walk)
+        if dry_run:
+            # Выход ДО импорта playwright и до любой сессии: сухой прогон обязан
+            # работать там, где раскрытие не работает вовсе.
+            print("\n".join(plan_lines(steps)))
+            print("\nсухой прогон (--dry-run): ни одного клика, лимит не тронут")
+            return 0
+        for step in steps:
+            if not step["spend"]:
+                skipped[step["url"]] = step["why"]
+        for url, why in skipped.items():
+            print(f"{url}\n  лимит НЕ трачу: {why}")
+        urls = [u for u in urls if u not in skipped]
+        if not urls:
+            print("\nраскрывать нечего: по всем вакансиям контакт есть даром "
+                  "или раскрывать уже нечего")
+            return 0
+
     try:
         from playwright.sync_api import sync_playwright  # noqa: PLC0415
     except ImportError:
@@ -529,6 +623,8 @@ def reveal(urls: list[str], *, limit: int = 5, db: str = store.DEFAULT_DB,
 
     untouched = len(urls) - revealed - failed
     tail = f"раскрыто {revealed} из {len(urls)}"
+    if skipped:
+        tail += f", лимит сэкономлен на {len(skipped)} (контакт нашёлся даром)"
     if failed:
         tail += f", не раскрылось {failed}"
     if untouched:

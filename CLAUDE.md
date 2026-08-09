@@ -34,17 +34,17 @@ scripts/build_resume_formats.sh          # resume.yaml → en/, ru/, PDF, DOCX, 
 **Не читай этот README целиком — он на 1200 строк.** Открывай нужный раздел по
 оглавлению (`grep -n '^###' scripts/scout/README.md`) или ищи по команде.
 
-**Тесты — восемь отдельных модулей, каждый запускается сам, pytest не нужен**
+**Тесты — девять отдельных модулей, каждый запускается сам, pytest не нужен**
 (его тут и нет — ядро на одной стандартной библиотеке, см. инвариант 3).
 Список с назначением каждого — раздел «Тесты» того же README. Быстрая проверка
 без сети:
 
 ```bash
 for m in test_scout test_store test_coverage test_sources_web \
-         test_sources_auth test_atsapi test_profile; do
+         test_sources_auth test_atsapi test_profile test_crawl; do
   .venv/bin/python -m scripts.scout.$m || break
 done
-.venv/bin/python -m scripts.scout.test_e2e --offline   # восьмой, обязательно с --offline
+.venv/bin/python -m scripts.scout.test_e2e --offline   # девятый, обязательно с --offline
 ```
 
 **`test_e2e` БЕЗ `--offline` делает живой обход всех площадок** — это десятки
@@ -179,6 +179,7 @@ done
 | `cardfiles.py` | раскладка карточек по каталогам и `lint-cards` |
 | `wavedoc.py` | главный документ волны, слаг компании, индекс волн |
 | `lintletter.py` | проверка письма на маркеры генератора (её зовёт `lint-cards`) |
+| `crawl.py` | обход ВСЕХ ссылок вакансии: карта, лучший контакт, живость, работодатель. Зовётся сам из `reveal` (до траты лимита) и `card`; кэш в `apply_option` |
 | `contacts.py` | почта, телеграм, телефон из полей площадки и текста + вердикт о форме отклика |
 | `funnel.py` | воронка откликов и хвосты (`funnel`, `tails`) |
 | `doctor.py` | «что на этой машине сломано»; в сеть не ходит |

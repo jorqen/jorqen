@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 
 from . import applyopt, payband, store, untrusted
 from . import contacts
@@ -577,7 +578,9 @@ def flags(row: dict, payload: dict | None, years: int | None,
 # ── Сборка ───────────────────────────────────────────────────────────────────
 
 def build(conn, url: str, *, skills: list[str] | None = None,
-          skills_note: str | None = None, fetch_market: bool = False) -> str:
+          skills_note: str | None = None, fetch_market: bool = False,
+          walk: bool = True) -> str:
+    """Скелет карточки. `walk=False` — не обходить ссылки вакансии (без сети)."""
     row = conn.execute(
         "SELECT source, external_id, url, title, company, salary_from, salary_to, "
         "currency, salary_gross, salary_period, location, remote, published_at, "
@@ -651,7 +654,23 @@ def build(conn, url: str, *, skills: list[str] | None = None,
             raw_dict = json.loads(r["raw"])
         except (TypeError, ValueError):
             raw_dict = None
-    opts = store.apply_options(conn, r["source"], r["external_id"]) \
+    opts: list[dict] = []
+    if walk:
+        # Обход ссылок ЗДЕСЬ, а не отдельной командой, которую надо не забыть:
+        # карточка пишется только по отобранным вакансиям, их единицы, и именно
+        # у них ответ «куда откликаться» стоит дороже всего. Обход кэшируется в
+        # `apply_option`, поэтому вторая сборка карточки ничего не стоит; сеть
+        # недоступна или её жалко — `--no-crawl`.
+        from . import crawl as C  # noqa: PLC0415 — ленивый, сеть не всем нужна
+        try:
+            # Глубина 1 и десять страниц — числа ЗДЕСЬ, а не «на единицу меньше
+            # общей»: карточек в волне полтора десятка, и подъём общего предела
+            # обхода не должен молча удорожать каждую из них.
+            opts = C.ensure(conn, url, depth=1, max_pages=10)
+        except Exception as e:  # noqa: BLE001 — сеть не имеет права сорвать карточку
+            print(f"  обход ссылок не вышел ({type(e).__name__}: {e}) — "
+                  f"карточка собирается по тому, что уже известно", file=sys.stderr)
+    opts = opts or store.apply_options(conn, r["source"], r["external_id"]) \
         or applyopt.gather(dict(r, raw=raw_dict), payload)
     best = applyopt.best(opts)
     res = store.research(conn, r["source"], r["external_id"])
@@ -791,9 +810,10 @@ def build(conn, url: str, *, skills: list[str] | None = None,
 def cli(args) -> int:
     skills, note = load_skills()
     fetch_market = getattr(args, "fetch_market", False)
+    walk = not getattr(args, "no_crawl", False)
     with store.connect(args.db) as conn:
         chunks = [build(conn, u, skills=skills, skills_note=note,
-                        fetch_market=fetch_market) for u in args.urls]
+                        fetch_market=fetch_market, walk=walk) for u in args.urls]
     print("\n\n---\n\n".join(chunks))
     missing = sum(1 for c in chunks if "нет в базе" in c)
     return 1 if missing else 0

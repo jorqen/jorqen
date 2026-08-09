@@ -76,8 +76,12 @@ def _dead_links(text: str) -> list[str]:
 
 
 def write(db: str, urls: list[str], *, date: str, root: str = ".jobs",
-          force: bool = False, skills=None, skills_note=None) -> list[tuple[str, str]]:
-    """[(путь, что сделано)]. Существующие файлы не трогает без `force`."""
+          force: bool = False, skills=None, skills_note=None,
+          walk: bool = True) -> list[tuple[str, str]]:
+    """[(путь, что сделано)]. Существующие файлы не трогает без `force`.
+
+    `walk=False` — собирать без обхода ссылок вакансии (без сети).
+    """
     from . import card  # noqa: PLC0415 — тяжёлый импорт (резюме, разбор вилок)
 
     if skills is None:
@@ -96,7 +100,8 @@ def write(db: str, urls: list[str], *, date: str, root: str = ".jobs",
                 # письмо, которых в базе нет и восстановить их нечем.
                 out.append((path, "уже есть — не перезаписан (`--force`, если надо)"))
                 continue
-            text = card.build(conn, url, skills=skills, skills_note=skills_note)
+            text = card.build(conn, url, skills=skills, skills_note=skills_note,
+                              walk=walk)
             dead = _dead_links(text)
             if dead:
                 # Ссылка проверяется ДО записи, а не после. Ashby ротирует UUID
@@ -249,7 +254,8 @@ def lint(path: str) -> list[tuple[str, list[str]]]:
 def cli_write(args) -> int:
     date = getattr(args, "date", None) or store.now()[:10]
     rows = write(args.db, list(args.urls), date=date,
-                 force=getattr(args, "force", False))
+                 force=getattr(args, "force", False),
+                 walk=not getattr(args, "no_crawl", False))
     for path, what in rows:
         print(f"{path}: {what}")
     return 1 if any("нет в базе" in w for _, w in rows) else 0
