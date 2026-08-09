@@ -592,6 +592,36 @@ def test_requirement_tier_separates_must_have_from_nice_to_have():
        "раздел «плюсом» протёк на задачи — обязанность помечена желательной")
 
 
+def test_lint_catches_broken_links_in_the_wave_doc():
+    """Ссылки главного документа обязаны открываться.
+
+    🔴 Живой случай 09.08.2026: вся таблица волны — 49 ссылок — вела в никуда.
+    Документ лежит в `.jobs/<дата>.md`, то есть РЯДОМ с каталогом `.jobs/<дата>/`,
+    а ссылки были записаны как `companies/…` и резолвились в `.jobs/companies/…`.
+    Образец с этой ошибкой стоял в самом SKILL.md, поэтому воспроизводился бы
+    каждую волну. Человек это видит сразу (ссылка не открывается), а линт
+    молчал — то есть проверял что угодно, кроме главного: можно ли дойти до
+    карточки из таблицы."""
+    import os
+    import tempfile
+
+    from .cardfiles import lint_doc_links
+
+    with tempfile.TemporaryDirectory() as d:
+        root = pathlib.Path(d) if False else __import__("pathlib").Path(d)
+        (root / "2026-08-08" / "companies" / "acme").mkdir(parents=True)
+        (root / "2026-08-08" / "companies" / "acme" / "card.md").write_text("## Роль")
+        doc = root / "2026-08-08.md"
+        doc.write_text(
+            "| 1 | [Роль](2026-08-08/companies/acme/card.md) | Acme |\n"
+            "| 2 | [Роль](companies/acme/card.md) | Acme |\n"
+            "| 3 | [Внешняя](https://example.com/x.md) | — |\n")
+        bad = lint_doc_links(str(doc))
+    eq(len(bad), 1, f"поймано не ровно одна битая ссылка: {bad}")
+    if bad and "companies/acme/card.md" not in bad[0]:
+        FAILS.append(f"поймана не та ссылка: {bad}")
+
+
 def test_card_files_layout_and_lint():
     """Раскладка карточек и их проверка — механика, а не работа глазами.
 
@@ -1918,6 +1948,7 @@ def main() -> int:
             test_connect_works_without_a_directory_in_the_path,
             test_liveness_reads_archive_markers_not_only_http_code,
             test_requirement_tier_separates_must_have_from_nice_to_have,
+            test_lint_catches_broken_links_in_the_wave_doc,
             test_card_files_layout_and_lint,
             test_health_tells_a_dead_source_from_an_off_profile_one,
             test_cache_hit_does_not_pay_for_politeness,

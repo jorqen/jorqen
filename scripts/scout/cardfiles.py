@@ -226,12 +226,55 @@ def cli_write(args) -> int:
     return 1 if any("нет в базе" in w for _, w in rows) else 0
 
 
+_MD_LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+
+
+def lint_doc_links(doc_path: str) -> list[str]:
+    """Ссылки главного документа волны, которые никуда не ведут.
+
+    🔴 Проверяет главное, чего линт не проверял вовсе: можно ли из таблицы дойти
+    до карточки. Документ лежит в `.jobs/<дата>.md`, то есть РЯДОМ с каталогом
+    `.jobs/<дата>/`, и ссылка `companies/…` резолвится в `.jobs/companies/…`.
+    Волна 09.08.2026 вышла с 49 битыми ссылками — образец с этой ошибкой стоял
+    в самом SKILL.md, так что повторялось бы каждый раз.
+
+    Внешние адреса (http, mailto) не трогаем: их живость — дело `check-links`.
+    """
+    try:
+        with open(doc_path, encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return []
+    base = os.path.dirname(os.path.abspath(doc_path))
+    bad: list[str] = []
+    for target in _MD_LINK.findall(text):
+        target = target.split("#", 1)[0].strip()
+        if not target or "://" in target or target.startswith("mailto:"):
+            continue
+        if not os.path.exists(os.path.join(base, target)):
+            bad.append(target)
+    return bad
+
+
 def cli_lint(args) -> int:
     path = getattr(args, "path", None) or ".jobs"
     found, total = lint(path)
+    # Главный документ волны лежит РЯДОМ с каталогом карточек: `.jobs/<дата>.md`
+    # против `.jobs/<дата>/`. Проверяем его ссылки здесь же — из таблицы человек
+    # и ходит по карточкам, и битая ссылка обесценивает весь документ.
+    doc = path.rstrip("/") + ".md"
+    broken = lint_doc_links(doc)
+    if broken:
+        print(f"🔴 {doc}: {len(broken)} ссылок никуда не ведут — из таблицы "
+              f"до карточки не дойти. Путь считается ОТ каталога документа, "
+              f"поэтому он начинается с даты волны:")
+        for b in broken[:8]:
+            print(f"    - {b}")
+        if len(broken) > 8:
+            print(f"    … и ещё {len(broken) - 8}")
     if not found:
         print(f"{path}: {total} карточек, замечаний нет")
-        return 0
+        return 1 if broken else 0
     print(f"{path}: {len(found)} из {total} карточек с замечаниями")
     for f, bad in found:
         print(f"  {f}")
