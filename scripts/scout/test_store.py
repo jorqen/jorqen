@@ -1398,6 +1398,22 @@ def test_channel_render_fires_on_shells_not_only_on_emptiness():
         FAILS.append("рендер ничего не добавил, а в отчёте стоит «найдено "
                      "рендером» — это ложный успех")
 
+    # Третья сторона: рендер обязан смотреть КОРЕНЬ домена и страницу контактов.
+    # У компании без карьерного раздела почта найма лежит на главной, и
+    # перебор одних лишь /vacancies, /careers, career.<домен> проходил мимо
+    # (живой счёт 09.08.2026: у Remoby — рекламная платформа на Кипре — есть
+    # только info@remoby.com на главной, и `channel --render` отрапортовал
+    # «страница закрыта проверкой, нужен заход человека» вместо контакта).
+    probed = calls[0] if calls else []
+    # Сравнение ТОЧНОЕ, не по подстроке: «https://acme.com/» входит в
+    # «https://acme.com/vacancies», и проверка на вхождение зеленела бы при
+    # начисто отсутствующем корне (поймано нарочной поломкой при написании).
+    if "https://acme.com/" not in probed:
+        FAILS.append("рендер не смотрит корень домена — почта с главной "
+                     "страницы недостижима")
+    if not any("contact" in u for u in probed):
+        FAILS.append("рендер не смотрит страницу контактов")
+
 
 def test_channel_probe_logic():
     """Зондирование канала найма: агрегатор — не работодатель, каркас SPA —
@@ -2016,68 +2032,19 @@ def test_fetch_json_accepts_explicit_none_headers():
 
 
 def main() -> int:
-    for fn in (
-            test_query_count_and_summary_row,
-            test_decide_keeps_note,
-            test_blocked_retry_window,
-            test_search_negotiations,
-            test_country_matcher_word_boundaries,
-            test_split_requirements,
-            test_hh_date_normalization,
-            test_reveal_consume_contact_kinds,
-            test_reveal_consume_denied_and_rate_limited,
-            test_reveal_job_id_from_url,
-            test_reveal_page_state_guards,
-            test_tg_rollback_id_forms,
-            test_period_from_text_understands_slash_forms,
-            test_tgvacancy_parses_real_post_shapes,
-            test_tgvacancy_perks_are_not_salary,
-            test_tgvacancy_rejects_are_counted_not_silent,
-            test_tgvacancy_strips_hashtag_runs_from_title,
-            test_tgvacancy_styled_unicode_title_survives,
-            test_tg_flood_wait_is_waited_out_or_declared,
-            test_tg_watermark_is_monotonic_and_resumable,
-            test_tg_mirror_writes_nothing_without_explicit_apply,
-            test_merge_collapses_identical_urls_even_without_company,
-            test_merge_keeps_every_city_of_a_collapsed_group,
-            test_simhash_dedup_never_merges_across_grades_or_companies,
-            test_dup_decision_survives_and_respects_human,
-            test_other_language_penalty_reads_the_body_too,
-            test_company_name_is_not_a_domain,
-        test_channel_probe_cap_keeps_the_likeliest_candidates,
-            test_detail_cascade_names_the_layer_it_used,
-            test_apply_options_prefer_direct_and_are_stable,
-            test_raw_cache_roundtrip_and_scoping,
-            test_research_cache_never_erases_known_facts,
-            test_hh_api_rows_map_fields_and_never_invent_period,
-            test_hh_api_needs_token_not_just_keys,
-            test_habr_api_row_maps_fields_and_keeps_date_semantics,
-            test_trudvsem_maps_registry_fields_and_zero_salary,
-            test_hh_source_picks_api_only_with_token,
-            test_hh_negotiations_from_api_match_html_shape,
-            test_budget_estimates_and_refuses_to_understate,
-            test_source_health_catches_silent_degradation,
-            test_channel_render_fires_on_shells_not_only_on_emptiness,
-            test_channel_probe_logic,
-            test_wall_challenge_state,
-            test_wave_next_steps,
-            test_shortlist_required_years,
-            test_shortlist_match_score,
-            test_shortlist_dedup_stable_canon,
-            test_worked_index_finds_the_company_behind_the_mailbox_name,
-            test_free_contact_is_searched_before_spending_the_limit,
-            test_reveal_records_a_debt_when_the_limit_runs_out,
-            test_reveal_refuses_to_spend_the_limit_on_a_dead_or_free_vacancy,
-            test_resume_of_a_jobseeker_is_not_a_vacancy,
-            test_go_to_market_is_sales_not_the_language,
-            test_brief_shows_history_written_under_the_mailbox_name,
-            test_company_field_survives_a_post_without_line_breaks,
-            test_shortlist_dedup_and_profile,
-            test_cookiepush_encrypt_roundtrip,
-            test_cookiepush_refuses_foreign_domains,
-            test_careered_bearer_from_state,
-            test_fetch_json_accepts_explicit_none_headers,
-    ):
+    # Тесты собираются АВТОМАТИЧЕСКИ — все `test_*` этого модуля, в порядке
+    # определения. Ручной список означал, что забытое имя = тест, который не
+    # запускается и потому «зелёный» всегда: 09.08.2026 так молча не работали
+    # сразу две новые проверки, и обе ловили настоящие дефекты.
+    import inspect as _inspect
+    import sys as _sys
+    mod = _sys.modules[__name__]
+    tests = [f for _, f in _inspect.getmembers(mod, _inspect.isfunction)
+             if f.__name__.startswith("test_") and f.__module__ == __name__
+             and not any(pr.default is pr.empty
+                         for pr in _inspect.signature(f).parameters.values())]
+    tests.sort(key=lambda f: f.__code__.co_firstlineno)
+    for fn in tests:
         fn()
     if FAILS:
         print(f"ПРОВАЛЕНО {len(FAILS)}:")
