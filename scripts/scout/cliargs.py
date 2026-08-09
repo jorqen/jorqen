@@ -29,7 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
         cmd_doctor, cmd_dups, cmd_employer, cmd_funnel, cmd_tg_wave, cmd_enrich, cmd_habr_sync, cmd_hh_auth, cmd_hh_sync,
         cmd_mail_ingest, cmd_mail_read, cmd_mail_sync, cmd_mark, cmd_new,
         cmd_profile, cmd_raw, cmd_render, cmd_research, cmd_resolve, cmd_reveal,
-        cmd_lint_cards, cmd_lint_letter, cmd_scan, cmd_shortlist, cmd_status, cmd_wavedoc, cmd_tg, cmd_tg_auth, cmd_tg_dm,
+        cmd_lint_cards, cmd_lint_letter, cmd_pending_reveals, cmd_scan, cmd_shortlist, cmd_status, cmd_wavedoc, cmd_tg, cmd_tg_auth, cmd_tg_dm,
         cmd_tg_fetch, cmd_tg_mirror, cmd_tg_reparse, cmd_tg_rollback, cmd_wave,
     )
 
@@ -413,6 +413,11 @@ def build_parser() -> argparse.ArgumentParser:
                     help="перезаписать существующий файл (по умолчанию НЕ трогает: "
                          "там уже может лежать дописанное суждение)")
     wd.set_defaults(func=cmd_wavedoc)
+
+    pr = sub.add_parser("pending-reveals", parents=[common],
+                        help="долги по раскрытию контактов: где лимит кончился "
+                             "и надо вернуться")
+    pr.set_defaults(func=cmd_pending_reveals)
 
     m = sub.add_parser("mark", help="зафиксировать решение по вакансии", parents=[common])
     m.add_argument("source")

@@ -19,9 +19,11 @@
 
 from __future__ import annotations
 
+import re
 import urllib.parse
 
 from .channel import _AGGREGATORS, is_employer_domain
+from .tgpost import fetch_apply_links
 
 # Кто публикует. Порядок в кортеже = порядок предпочтения при выборе best_url.
 EMPLOYER = "employer"        # собственный сайт работодателя
@@ -140,6 +142,23 @@ def gather(row: dict, payload: dict | None = None) -> list[dict]:
     if isinstance(raw, dict):
         for link in (raw.get("links") or [])[:6]:
             add(link, "ссылка из текста вакансии")
+
+    # 🔴 Телеграм-пост контактом НЕ является: настоящая ссылка спрятана внутри
+    # него под словом «Откликнуться», а часть агрегаторов её ещё и подменяет
+    # («Доступно в источнике» у dreamoffer), так что в базе URL нет вовсе.
+    # Достаём из веб-версии поста — это единственный путь к нанимателю.
+    # Живой счёт 09.08.2026: у Kaspersky внутри поста лежала прямая вакансия
+    # careers.kaspersky.ru, у Авито — career.avito.com, уже мёртвая (404).
+    # Раньше это делалось руками и потому делалось не всегда.
+    url = str(row.get("url") or "")
+    if re.match(r"https?://t\.me/(?:s/)?[A-Za-z0-9_]+/\d+", url):
+        try:
+            found, _why = fetch_apply_links(url)
+        except Exception:  # noqa: BLE001 — сеть не должна ронять сбор маршрутов
+            found = []
+        for link in found[:4]:
+            add(link, "ссылка отклика ИЗ ТЕЛА поста (пост — витрина)")
+
     add(row.get("url"), "карточка на площадке")
     return out
 

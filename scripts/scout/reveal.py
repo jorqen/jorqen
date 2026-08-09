@@ -212,6 +212,74 @@ def _close_popups(popups: list) -> None:
     popups.clear()
 
 
+# Метка долга в `research.verdict`. Отдельного поля не заводим намеренно:
+# долг — это вердикт ресёрча («контакт не добыт, вот почему»), а не новая
+# сущность, и `brief`/`card` печатают вердикт и так.
+DEBT_MARK = "КОНТАКТ НЕ РАСКРЫТ"
+
+
+def note_debt(conn, url: str, *, why: str) -> bool:
+    """Запоминает, что контакт добыть не вышло. True — записали.
+
+    🔴 Лимит раскрытий у hirehi восстанавливается, поэтому «не смогли сегодня»
+    означает «вернуться завтра», а не «забыть». Раньше `reveal` печатал «лимит
+    исчерпан» в консоль, и вакансия жила дальше только в памяти агента — то
+    есть до конца сессии (требование владельца 09.08.2026 закрыть эту дыру).
+    """
+    row = conn.execute("SELECT source, external_id FROM vacancy WHERE url = ? LIMIT 1",
+                       (url,)).fetchone()
+    if not row:
+        return False
+    store.save_research(conn, row["source"], row["external_id"],
+                       verdict=f"{DEBT_MARK}: {why}. Вернуться, когда лимит восстановится")
+    return True
+
+
+def pending_reveals(conn) -> list[dict]:
+    """Вакансии, по которым контакт остался нераскрытым. Список для следующей волны."""
+    cur = conn.execute(
+        "SELECT r.source, r.external_id, r.verdict, v.url, v.title, v.company "
+        "FROM research r JOIN vacancy v "
+        "  ON v.source = r.source AND v.external_id = r.external_id "
+        "WHERE r.verdict LIKE ? ORDER BY r.checked_at DESC", (f"{DEBT_MARK}%",))
+    return [{"url": r["url"], "title": r["title"], "company": r["company"],
+             "why": r["verdict"]} for r in cur.fetchall()]
+
+
+def preflight(urls: list[str], *, liveness: dict[str, str] | None = None,
+              free_contact: dict[str, str] | None = None) -> list[dict]:
+    """План раскрытия: [{url, spend, why}] — на что лимит тратить, а на что нет.
+
+    🔴 Лимит раскрытий у hirehi очень маленький, и каждый клик необратим.
+    Требование владельца 09.08.2026: до траты убедиться, что вакансия жива и
+    что того же контакта нет бесплатно — та же вакансия часто лежит на другой
+    площадке, где контакт открыт, или у работодателя на careers-странице.
+
+    Функция ничего не решает за человека и никуда не ходит: она сводит уже
+    известные факты (живость от `check-links`, найденный бесплатный канал от
+    `channel`/`employer_channel`) в явный план. Раньше это решение принимал
+    агент по памяти — то есть иногда не принимал вовсе.
+    """
+    live = liveness or {}
+    free = free_contact or {}
+    plan: list[dict] = []
+    for url in urls:
+        verdict = (live.get(url) or "").upper()
+        if verdict == "МЕРТВА":
+            plan.append({"url": url, "spend": False,
+                         "why": "вакансия мертва — раскрывать нечего"})
+            continue
+        if free.get(url):
+            plan.append({"url": url, "spend": False,
+                         "why": f"контакт есть бесплатно: {free[url]}"})
+            continue
+        plan.append({"url": url, "spend": True,
+                     "why": ("живая, бесплатного контакта не нашлось — "
+                             + ("живость подтверждена" if verdict == "ЖИВА"
+                                else "живость не проверена, но и не опровергнута"))})
+    return plan
+
+
 def reveal(urls: list[str], *, limit: int = 5, db: str = store.DEFAULT_DB,
            from_browser: str | None = None) -> int:
     """Раскрывает прямой контакт по каждому URL. Коды — в шапке модуля."""
@@ -242,6 +310,8 @@ def reveal(urls: list[str], *, limit: int = 5, db: str = store.DEFAULT_DB,
         return 2
 
     revealed = failed = clicks = 0
+    # URL, по которым контакт получен: остальное при обрыве уйдёт в долг.
+    done: set[str] = set()
     stale = False
     stopped: str | None = None
 
@@ -267,6 +337,7 @@ def reveal(urls: list[str], *, limit: int = 5, db: str = store.DEFAULT_DB,
                     print(f"{url}\n  контакт уже раскрыт ранее: {cached} — "
                           f"повторно не списываю")
                     revealed += 1
+                    done.add(url)
                     continue
 
                 if clicks >= limit:
@@ -355,6 +426,7 @@ def reveal(urls: list[str], *, limit: int = 5, db: str = store.DEFAULT_DB,
                     break
 
                 revealed += 1
+                done.add(url)
                 line = f"{url}\n  контакт ({c.kind or '?'}): {c.open_url}"
                 if c.remaining is not None:
                     line += f"\n  остаток лимита раскрытий: {c.remaining}"
@@ -383,6 +455,17 @@ def reveal(urls: list[str], *, limit: int = 5, db: str = store.DEFAULT_DB,
     print(f"\n{tail}")
     if stopped:
         print(stopped, file=sys.stderr)
+    # 🔴 Нераскрытое записывается ДОЛГОМ, а не теряется. Лимит у hirehi
+    # восстанавливается, поэтому «не смогли сегодня» значит «вернуться завтра».
+    # Раньше строка «лимит исчерпан» уходила в консоль, и вакансия жила дальше
+    # только в памяти агента — до конца сессии (требование владельца 09.08.2026).
+    if stopped and (untouched or failed):
+        left = [u for u in urls if u not in done]
+        with store.connect(db) as conn:
+            noted = sum(1 for u in left if note_debt(conn, u, why=stopped))
+        if noted:
+            print(f"записано долгом: {noted} — вернуться, когда лимит "
+                  f"восстановится (`scout pending-reveals`)", file=sys.stderr)
     if stale:
         return 2
     return 0 if revealed == len(urls) else 1

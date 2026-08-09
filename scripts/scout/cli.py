@@ -665,6 +665,30 @@ def cmd_reveal(args) -> int:
                   if args.from_browser else None)
 
 
+def cmd_pending_reveals(args) -> int:
+    """Вакансии, по которым контакт добыть не вышло: лимит раскрытий кончился.
+
+    Лимит у hirehi восстанавливается, поэтому «не смогли» означает «вернуться»,
+    а не «забыть». Список ведёт `reveal` сам — здесь его просто показывают.
+    """
+    from .reveal import pending_reveals
+    from . import store
+    with store.connect(args.db) as conn:
+        rows = pending_reveals(conn)
+    if not rows:
+        print("долгов по раскрытию нет — контакты добыты либо не требовались")
+        return 0
+    print(f"# контакт не раскрыт: {len(rows)} — вернуться, когда лимит восстановится\n")
+    for r in rows:
+        print(f"· {r['company'] or 'работодатель не раскрыт'}: {(r['title'] or '')[:60]}")
+        print(f"    {r['url']}")
+        print(f"    {r['why']}")
+    print("\nПроверь остаток лимита и раскрой: "
+          "`scout reveal <url…>` (тратит лимит, поэтому сперва убедись, "
+          "что вакансия ещё жива: `scout check-links <url>`)")
+    return 0
+
+
 def cmd_raw(args) -> int:
     ctx = Ctx(query=args.query, days=args.days, area=args.area)
     if args.source not in RAW_SOURCES:

@@ -592,6 +592,53 @@ def test_requirement_tier_separates_must_have_from_nice_to_have():
        "раздел «плюсом» протёк на задачи — обязанность помечена желательной")
 
 
+def test_gather_digs_the_apply_link_out_of_a_telegram_post():
+    """Для телеграм-вакансии маршрут отклика берётся ИЗ ТЕЛА поста.
+
+    🔴 Иначе «лучшим маршрутом» становится сам пост — витрина, а не наниматель.
+    Живой счёт 09.08.2026: у Авито внутри поста лежала ссылка на career.avito.com
+    (и она оказалась мёртвой — вакансию закрыли), у Kaspersky — прямая страница
+    careers.kaspersky.ru. По ссылке на пост не видно ни того, ни другого.
+
+    Раскопка делалась руками, и это ровно тот случай, где агент забывает, а
+    алгоритм нет. Сеть здесь подменяется: важно, что gather ходит за постом
+    и кладёт найденное ВЫШЕ ссылки на сам пост."""
+    from . import applyopt
+
+    calls: list[str] = []
+
+    def fake_fetch(url, *, timeout=20):
+        calls.append(url)
+        return ["https://careers.kaspersky.ru/vacancy/25712"], "из тела поста"
+
+    old = applyopt.fetch_apply_links
+    applyopt.fetch_apply_links = fake_fetch
+    try:
+        opts = applyopt.gather({"url": "https://t.me/ch/519", "source": "dreamoffer"})
+    finally:
+        applyopt.fetch_apply_links = old
+
+    if not calls:
+        FAILS.append("gather не пошёл в тело телеграм-поста за настоящей ссылкой")
+    urls = [o["url"] for o in opts]
+    if "https://careers.kaspersky.ru/vacancy/25712" not in urls:
+        FAILS.append(f"ссылка из поста не попала в маршруты: {urls}")
+    elif urls.index("https://careers.kaspersky.ru/vacancy/25712") > urls.index("https://t.me/ch/519"):
+        FAILS.append("ссылка из тела поста стоит НИЖЕ ссылки на сам пост")
+    eq(applyopt.best(opts), "https://careers.kaspersky.ru/vacancy/25712",
+       "лучшим маршрутом остался пост, а не найденный в нём контакт")
+
+    # Не телеграм — в сеть не ходим вовсе: лишний запрос на каждую вакансию.
+    calls.clear()
+    applyopt.fetch_apply_links = fake_fetch
+    try:
+        applyopt.gather({"url": "https://hh.ru/vacancy/1", "source": "hh"})
+    finally:
+        applyopt.fetch_apply_links = old
+    if calls:
+        FAILS.append(f"для нетелеграмной вакансии полезли в t.me: {calls}")
+
+
 def test_card_carries_no_commands_and_gate_runs_in_lint():
     """В карточке не должно быть команд, а гейт обязан гоняться линтом.
 
@@ -2015,6 +2062,7 @@ def main() -> int:
             test_connect_works_without_a_directory_in_the_path,
             test_liveness_reads_archive_markers_not_only_http_code,
             test_requirement_tier_separates_must_have_from_nice_to_have,
+            test_gather_digs_the_apply_link_out_of_a_telegram_post,
             test_card_carries_no_commands_and_gate_runs_in_lint,
             test_lint_catches_broken_links_in_the_wave_doc,
             test_card_files_layout_and_lint,

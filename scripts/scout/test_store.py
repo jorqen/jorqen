@@ -1633,6 +1633,72 @@ def test_brief_shows_history_written_under_the_mailbox_name():
         FAILS.append("brief объявил компанию с отказом холодным контактом")
 
 
+def test_reveal_records_a_debt_when_the_limit_runs_out():
+    """Кончился лимит — вакансия не забывается, а становится ДОЛГОМ.
+
+    🔴 Требование владельца 09.08.2026: «была хорошая вакансия, но мы не смогли
+    раскрыть контакт — нужно потом вернуться». Лимит у hirehi восстанавливается,
+    поэтому единственное, что нужно, — не потерять список. Раньше `reveal`
+    просто печатал «лимит исчерпан», и вакансия жила дальше только в памяти
+    агента, то есть до конца сессии.
+
+    Долг пишется в `research.verdict`, откуда его показывают `brief` и `card`,
+    и оттуда же его берёт следующая волна."""
+    import os
+    import tempfile
+
+    from . import store
+    from .model import Vacancy
+    from .reveal import note_debt, pending_reveals
+
+    with tempfile.TemporaryDirectory() as d:
+        db = os.path.join(d, "r.db")
+        with store.connect(db) as conn:
+            store.upsert(conn, [Vacancy(source="hirehi", external_id="73281",
+                                        url="https://hirehi.ru/development/x-73281",
+                                        title="разработчик go", company="Remoby")])
+            note_debt(conn, "https://hirehi.ru/development/x-73281",
+                      why="лимит раскрытий исчерпан (direct_left=0)")
+            debts = pending_reveals(conn)
+    eq(len(debts), 1, f"долг не записался или задвоился: {debts}")
+    if debts and "лимит" not in (debts[0].get("why") or ""):
+        FAILS.append(f"причина долга потеряна: {debts[0]}")
+    if debts and debts[0].get("url") != "https://hirehi.ru/development/x-73281":
+        FAILS.append(f"долг записан не на ту вакансию: {debts[0]}")
+
+
+def test_reveal_refuses_to_spend_the_limit_on_a_dead_or_free_vacancy():
+    """Лимит раскрытий тратится только на то, что этого стоит.
+
+    🔴 Требование владельца 09.08.2026: лимит очень маленький, поэтому ДО
+    раскрытия надо убедиться, что вакансия жива и что того же контакта нет
+    бесплатно — например, та же вакансия лежит на площадке, где контакт открыт.
+    Раньше `reveal` тратил лимит на всё, что ему дали, а решение «стоит ли»
+    принимал агент по памяти.
+
+    Проверяется предполётная функция: она НЕ ходит в сеть за раскрытием, а
+    только говорит, что с каждым URL делать."""
+    from .reveal import preflight
+
+    plan = preflight(
+        ["https://hirehi.ru/development/x-1",
+         "https://hirehi.ru/development/x-2",
+         "https://hirehi.ru/development/x-3"],
+        liveness={"https://hirehi.ru/development/x-2": "МЕРТВА"},
+        free_contact={"https://hirehi.ru/development/x-3":
+                      "https://acme.example/careers"},
+    )
+    by_url = {p["url"]: p for p in plan}
+    eq(by_url["https://hirehi.ru/development/x-1"]["spend"], True,
+       "живая вакансия без бесплатного контакта — раскрывать стоит")
+    eq(by_url["https://hirehi.ru/development/x-2"]["spend"], False,
+       "лимит потрачен на МЁРТВУЮ вакансию")
+    eq(by_url["https://hirehi.ru/development/x-3"]["spend"], False,
+       "лимит потрачен там, где контакт есть бесплатно")
+    if "acme.example" not in (by_url["https://hirehi.ru/development/x-3"]["why"] or ""):
+        FAILS.append("не сказано, ГДЕ найден бесплатный контакт")
+
+
 def test_resume_of_a_jobseeker_is_not_a_vacancy():
     """Резюме соискателя — не вакансия, даже если площадка зовёт его job.
 
@@ -1942,6 +2008,8 @@ def main() -> int:
             test_shortlist_match_score,
             test_shortlist_dedup_stable_canon,
             test_worked_index_finds_the_company_behind_the_mailbox_name,
+            test_reveal_records_a_debt_when_the_limit_runs_out,
+            test_reveal_refuses_to_spend_the_limit_on_a_dead_or_free_vacancy,
             test_resume_of_a_jobseeker_is_not_a_vacancy,
             test_go_to_market_is_sales_not_the_language,
             test_brief_shows_history_written_under_the_mailbox_name,

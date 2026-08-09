@@ -106,13 +106,47 @@ def next_steps(res: dict, sl: dict, cookies_from: str | None = None) -> list[str
             f"Нет выжимки у {len(not_enriched)} строк топа — полный текст и "
             f"требования: `scout brief {urls}`")
 
+    # 🔴 Долги по раскрытию контактов. Лимит hirehi восстанавливается, поэтому
+    # «не смогли в прошлый раз» означает «вернуться сейчас», а не «забыть».
+    # Напоминает алгоритм, а не память агента (требование владельца 09.08.2026).
+    try:
+        from . import store  # noqa: PLC0415
+        from .reveal import pending_reveals  # noqa: PLC0415
+        with store.connect(store.DEFAULT_DB) as conn:
+            debts = pending_reveals(conn)
+    except Exception:  # noqa: BLE001 — напоминание не должно ронять волну
+        debts = []
+    if debts:
+        steps.append(
+            f"ДОЛГИ ПО КОНТАКТАМ: {len(debts)} вакансий ждут раскрытия с прошлых "
+            f"волн (напр. {', '.join((d.get('company') or '—')[:18] for d in debts[:3])}). "
+            f"Список — `scout pending-reveals`. Сначала проверь живость "
+            f"(`scout check-links <url>`), потом трать лимит.")
+
+    # Телеграм-посты: ссылка на пост контактом НЕ является, настоящая спрятана
+    # внутри. Раскопка автоматизирована (applyopt зовёт tgpost), но напомнить
+    # надо — по такой ссылке не видно, что вакансия давно закрыта.
+    tg_rows = [r for r in rows[:40] if "t.me/" in str(r.get("url") or "")]
+    if tg_rows:
+        steps.append(
+            f"Телеграм-постов в топе: {len(tg_rows)}. Ссылка на пост — НЕ контакт: "
+            f"настоящая спрятана под словом «Откликнуться» и достаётся сама "
+            f"(`applyopt` → `tgpost`). По посту живость не читается вовсе — "
+            f"проверь ту ссылку, что внутри: `scout check-links <url из поста>`.")
+
     steps.append(
         "Отобрал — зафиксируй решение: "
         "`scout mark <источник> <id> --state shortlist|skip --note \"почему\"`, "
         "и найденный канал в кэш: `scout employer set \"<компания>\" <канал>`.")
     steps.append(
         "Карточки и главный документ волны — по формату SKILL.md "
-        "(.jobs/<дата>.md + .jobs/companies/<компания>/…).")
+        "(.jobs/<дата>.md + .jobs/<дата>/companies/<компания>/…). "
+        "Ссылки в таблице считаются ОТ каталога документа, поэтому начинаются "
+        "с даты волны — иначе они не откроются. Проверяет `lint-cards`.")
+    steps.append(
+        "🔴 ПЕРЕД СДАЧЕЙ: `scout lint-cards .jobs/<дата>` — он проверяет письма "
+        "(канон + гейт на чужие ссылки), битые ссылки документа и незакрытые "
+        "вопросы. Ноль замечаний — обязательное условие, а не пожелание.")
     return steps
 
 
