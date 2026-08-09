@@ -1740,6 +1740,43 @@ def test_reveal_records_a_debt_when_the_limit_runs_out():
         FAILS.append(f"долг записан не на ту вакансию: {debts[0]}")
 
 
+def test_who_publishes_is_recomputed_on_read_not_trusted_from_the_db():
+    """Кто публикует — функция от адреса, а не запомненный факт.
+
+    🔴 Живой счёт 09.08.2026: реестр витрин научился видеть `jooble.org`,
+    `adzuna.*` и `jobviewtrack.com`, база пересобралась, карточки пересобрались
+    — а маршруты в них остались «[employer, прямой]». Классификация лежала в
+    колонке `apply_option.publisher` и не пересчитывалась ни при чтении, ни при
+    записи: значение жило в двух местах и разошлось ровно так, как обещает
+    инвариант проекта.
+
+    Живость и заметки — наоборот, НАБЛЮДЕНИЯ: их пересчитать нельзя, они
+    берутся из базы как есть.
+    """
+    import os
+    import tempfile
+
+    from . import applyopt, store
+
+    with tempfile.TemporaryDirectory() as d:
+        db = os.path.join(d, "a.db")
+        with store.connect(db) as conn:
+            # Кладём с ЗАВЕДОМО устаревшей классификацией — так и было в базе.
+            store.save_apply_options(conn, "careerjet", "1", [
+                {"url": "https://jooble.org/away/-250?p=5", "publisher": "employer",
+                 "is_direct": True, "note": "маршрут прошлой волны", "rank": 0,
+                 "liveness": "ЖИВА"}])
+            got = store.apply_options(conn, "careerjet", "1")
+    if not got:
+        FAILS.append("маршрут пропал при чтении")
+        return
+    eq(got[0]["publisher"], applyopt.AGGREGATOR,
+       "устаревшая классификация из базы принята на веру")
+    eq(got[0]["is_direct"], False, "витрина осталась «прямым каналом»")
+    eq(got[0]["liveness"], "ЖИВА", "живость — наблюдение, её пересчитывать нечем")
+    eq(got[0]["note"], "маршрут прошлой волны", "заметка о маршруте потеряна")
+
+
 def test_a_showcase_is_a_showcase_in_every_country_zone():
     """adzuna.de и adzuna.co.uk — та же витрина, что adzuna.com.
 

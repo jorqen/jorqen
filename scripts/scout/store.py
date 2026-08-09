@@ -832,10 +832,21 @@ def apply_options(conn, source: str, external_id: str) -> list[dict]:
         "FROM apply_option WHERE source=? AND external_id=? "
         "ORDER BY is_direct DESC, rank, url",
         (source, str(external_id))).fetchall()
-    return [{"url": r["url"], "publisher": r["publisher"],
-             "is_direct": bool(r["is_direct"]), "note": r["note"],
-             "rank": r["rank"], "liveness": r["liveness"], "state": r["state"]}
-            for r in rows]
+    # 🔴 Кто публикует — ФУНКЦИЯ ОТ АДРЕСА, а не факт наблюдения: она считается
+    # по реестру витрин, и реестр пополняется. Записанное в базе значение
+    # устаревает молча. Живой счёт 09.08.2026: реестр научился видеть
+    # `jooble.org`, `adzuna.*` и `jobviewtrack.com`, а в карточках они остались
+    # «[employer, прямой]» — то есть человеку по-прежнему обещали прямой канал
+    # в компанию. Живость и заметки — наоборот, наблюдения, и берутся из базы
+    # как есть.
+    from .applyopt import classify  # noqa: PLC0415 — цикл импорта иначе
+    out = []
+    for r in rows:
+        publisher, direct = classify(r["url"])
+        out.append({"url": r["url"], "publisher": publisher, "is_direct": direct,
+                    "note": r["note"], "rank": r["rank"],
+                    "liveness": r["liveness"], "state": r["state"]})
+    return out
 
 
 def save_mirror(conn, source: str, external_id: str, chat_id: str,
