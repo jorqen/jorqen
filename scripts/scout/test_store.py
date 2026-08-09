@@ -1633,6 +1633,63 @@ def test_brief_shows_history_written_under_the_mailbox_name():
         FAILS.append("brief объявил компанию с отказом холодным контактом")
 
 
+def test_free_contact_is_searched_before_spending_the_limit():
+    """Прежде чем тратить раскрытие — поискать тот же контакт бесплатно.
+
+    🔴 Требование владельца 09.08.2026: «важно лишний раз не тратить лимит на
+    вакансию, которую можно найти в интернете». Первое место, где надо искать,
+    — СВОЯ БАЗА: та же компания часто висит ещё и на hh, и на careered, и на
+    доске ATS, где контакт открыт бесплатно. Живой счёт: у Remoby с hirehi
+    нашлись записи на careered и на hh.
+
+    Ищем по компании, а не по тексту: тексты у площадок переписаны, а имя
+    работодателя совпадает. Сама исходная вакансия в результат не попадает."""
+    import os
+    import tempfile
+
+    from . import store
+    from .model import Vacancy
+    from .reveal import free_contact_for
+
+    with tempfile.TemporaryDirectory() as d:
+        db = os.path.join(d, "f.db")
+        with store.connect(db) as conn:
+            store.upsert(conn, [
+                Vacancy(source="hirehi", external_id="1", company="Remoby",
+                        url="https://hirehi.ru/development/x-1", title="Go dev"),
+                Vacancy(source="hh", external_id="2", company="Remoby",
+                        url="https://hh.ru/vacancy/2", title="Go разработчик"),
+                Vacancy(source="dreamoffer", external_id="3", company="Remoby",
+                        url="https://t.me/ch/9", title="Go dev"),
+            ])
+            got = free_contact_for(conn, "https://hirehi.ru/development/x-1")
+            none = free_contact_for(conn, "https://hh.ru/vacancy/2")
+
+    eq(got, "https://hh.ru/vacancy/2",
+       f"бесплатный контакт у той же компании не найден: {got}")
+    # Для самой hh-вакансии искать нечего: она и так открыта, а телеграм-пост
+    # контактом не является (см. tgpost) — предлагать его как «бесплатный» нельзя.
+    eq(none, None, f"телеграм-пост выдан за бесплатный контакт: {none}")
+
+    # 🔴 careered делит вакансии на бесплатные и платные: у платных контакт
+    # зарезан даже с живой сессией (mode=preview, links.telegram="#"). Считать
+    # такую ссылку «бесплатным контактом» — значит отговорить от раскрытия
+    # там, где раскрытие и было единственным путём (живой случай с Remoby,
+    # 09.08.2026). Доступность проверяется, а не предполагается по домену.
+    from .reveal import careered_contact_open
+
+    eq(careered_contact_open({"mode": "preview",
+                              "links": [{"key": "telegram", "value": "#"}]}), False,
+       "платная careered-вакансия принята за открытую")
+    eq(careered_contact_open({"mode": "full",
+                              "links": [{"key": "telegram", "value": "https://t.me/hr"}]}), True,
+       "открытый контакт careered не распознан")
+    eq(careered_contact_open({"mode": "full",
+                              "links": [{"key": "other_apply",
+                                         "value": "https://careered.io/jobs/x"}]}), False,
+       "ссылка обратно на careered принята за контакт работодателя")
+
+
 def test_reveal_records_a_debt_when_the_limit_runs_out():
     """Кончился лимит — вакансия не забывается, а становится ДОЛГОМ.
 
@@ -2008,6 +2065,7 @@ def main() -> int:
             test_shortlist_match_score,
             test_shortlist_dedup_stable_canon,
             test_worked_index_finds_the_company_behind_the_mailbox_name,
+            test_free_contact_is_searched_before_spending_the_limit,
             test_reveal_records_a_debt_when_the_limit_runs_out,
             test_reveal_refuses_to_spend_the_limit_on_a_dead_or_free_vacancy,
             test_resume_of_a_jobseeker_is_not_a_vacancy,

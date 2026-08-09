@@ -215,6 +215,87 @@ def _close_popups(popups: list) -> None:
 # Метка долга в `research.verdict`. Отдельного поля не заводим намеренно:
 # долг — это вердикт ресёрча («контакт не добыт, вот почему»), а не новая
 # сущность, и `brief`/`card` печатают вердикт и так.
+# Площадки, где контакт работодателя виден БЕЗ траты лимита: у hh и ATS есть
+# форма отклика, у careered контакт открывается сессией. Телеграм-пост сюда не
+# входит намеренно — он витрина, а не контакт (см. tgpost).
+_FREE_HOSTS = ("hh.ru", "career.habr.com", "careered.io", "getmatch.ru",
+               "geekjob.ru", "rabota.ru", "trudvsem.ru",
+               "greenhouse.io", "lever.co", "ashbyhq.com", "workable.com",
+               "recruitee.com", "smartrecruiters.com", "teamtailor.com",
+               "huntflow.ru")
+
+
+def careered_contact_open(job: dict) -> bool:
+    """У careered контакт РЕАЛЬНО открыт? (по ответу их API)
+
+    🔴 careered делит вакансии на бесплатные и платные. У бесплатных живая
+    сессия открывает контакт всегда; у платных он зарезан даже с Bearer:
+    `mode: "preview"` и `links.telegram == "#"`. Считать такую вакансию
+    «контакт есть бесплатно» — значит отговорить от раскрытия там, где оно и
+    было единственным путём (живой случай с Remoby 09.08.2026).
+
+    Ссылки обратно на сам careered контактом работодателя не являются: это
+    витрина, а не наниматель.
+    """
+    if not isinstance(job, dict) or job.get("mode") != "full":
+        return False
+    for link in (job.get("links") or []):
+        val = str((link or {}).get("value") or "")
+        if not val or val == "#" or "careered.io" in val:
+            continue
+        if val.startswith(("http://", "https://", "mailto:", "tg:")):
+            return True
+    return False
+
+
+def free_contact_for(conn, url: str) -> str | None:
+    """Та же вакансия на площадке, где контакт бесплатен. None — не нашлось.
+
+    🔴 Раскрытие у hirehi тратит невосполнимый в моменте лимит, поэтому сначала
+    ищем то же самое даром (требование владельца 09.08.2026). Первое место —
+    СВОЯ БАЗА: одна компания обычно висит на нескольких площадках сразу, и на
+    hh или ATS её контакт открыт. Живой счёт: у Remoby с hirehi нашлись записи
+    на careered и на hh.
+
+    Ищем по имени компании, а не по тексту: тексты площадки переписывают, а имя
+    работодателя совпадает. Сама исходная вакансия из результата исключается.
+    """
+    row = conn.execute("SELECT company, source, external_id FROM vacancy "
+                       "WHERE url = ? LIMIT 1", (url,)).fetchone()
+    if not row or not row["company"]:
+        return None
+    from .shortlist import company_aliases  # noqa: PLC0415 — общий нормализатор
+    keys = set(company_aliases(row["company"]))
+    if not keys:
+        return None
+    cur = conn.execute(
+        "SELECT url, company FROM vacancy WHERE url != ? AND company IS NOT NULL "
+        "ORDER BY last_seen DESC", (url,))
+    for cand in cur:
+        if not (keys & set(company_aliases(cand["company"]))):
+            continue
+        host = (cand["url"].split("/")[2] if "://" in cand["url"] else "").lower()
+        host = host.removeprefix("www.")
+        if not any(host == h or host.endswith("." + h) for h in _FREE_HOSTS):
+            continue
+        # careered обещает контакт не всегда: у платных вакансий он зарезан
+        # даже с живой сессией. Проверяем, а не верим домену.
+        if host.endswith("careered.io"):
+            try:
+                from . import auth as _auth  # noqa: PLC0415
+                from .net import fetch_json  # noqa: PLC0415
+                jid = cand["url"].rstrip("/").rsplit("/", 1)[-1]
+                tok, _ = _auth.bearer_from_state("careered")
+                job = fetch_json(f"https://careered.io/api/jobs/{jid}",
+                                 headers={"Authorization": f"Bearer {tok}"} if tok else None)
+            except Exception:  # noqa: BLE001 — сеть не должна ронять предполёт
+                continue
+            if not careered_contact_open(job if isinstance(job, dict) else {}):
+                continue
+        return cand["url"]
+    return None
+
+
 DEBT_MARK = "КОНТАКТ НЕ РАСКРЫТ"
 
 
