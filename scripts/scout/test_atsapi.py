@@ -98,11 +98,19 @@ def test_workable_empty_board_yields_nothing() -> None:
 
 
 def main() -> int:
-    for fn in (test_workable_header_is_not_a_vacancy,
-               test_workable_ids_belong_to_their_own_rows,
-               test_workable_cells_do_not_leak_across_lines,
-               test_workable_separator_line_is_not_a_vacancy,
-               test_workable_empty_board_yields_nothing):
+    # Тесты собираются АВТОМАТИЧЕСКИ — все `test_*` этого модуля, в порядке
+    # определения. Ручной список означал, что забытое имя = тест, который не
+    # запускается и потому «зелёный» всегда: 09.08.2026 так молча не работали
+    # сразу две новые проверки, и обе ловили настоящие дефекты.
+    import inspect as _inspect
+    import sys as _sys
+    mod = _sys.modules[__name__]
+    tests = [f for _, f in _inspect.getmembers(mod, _inspect.isfunction)
+             if f.__name__.startswith("test_") and f.__module__ == __name__
+             and not any(pr.default is pr.empty
+                         for pr in _inspect.signature(f).parameters.values())]
+    tests.sort(key=lambda f: f.__code__.co_firstlineno)
+    for fn in tests:
         fn()
     if FAILS:
         print(f"ПРОВАЛЕНО {len(FAILS)}:")

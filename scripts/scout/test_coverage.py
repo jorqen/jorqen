@@ -2047,52 +2047,19 @@ def test_every_ats_engine_is_wired_into_the_run():
 
 
 def main() -> int:
-    for fn in (
-            test_hh_walks_every_page,
-            test_hh_truncation_is_never_silent,
-            test_hh_limit_below_default_does_not_shrink_the_window,
-            test_habr_paginates_until_the_window_edge,
-            test_habr_stops_where_the_site_says_it_ends,
-            test_careered_filters_profession_and_reads_to_the_window_edge,
-            test_linkedin_paginates_by_start_and_drops_other_professions,
-            test_linkedin_asks_every_formulation,
-            test_card_write_flags_dead_ats_links_before_writing,
-            test_brief_shows_other_roles_of_the_same_company,
-            test_since_auto_never_narrows_below_a_day,
-            test_connect_works_without_a_directory_in_the_path,
-            test_liveness_reads_archive_markers_not_only_http_code,
-            test_requirement_tier_separates_must_have_from_nice_to_have,
-            test_gather_digs_the_apply_link_out_of_a_telegram_post,
-            test_card_carries_no_commands_and_gate_runs_in_lint,
-            test_lint_catches_broken_links_in_the_wave_doc,
-            test_card_files_layout_and_lint,
-            test_health_tells_a_dead_source_from_an_off_profile_one,
-            test_cache_hit_does_not_pay_for_politeness,
-            test_raw_cache_prunes_stale_days_on_start,
-            test_lint_letter_catches_the_generator_markers,
-            test_wavedoc_slug_folds_legal_forms_and_transliterates,
-            test_wavedoc_never_overwrites_a_document_with_judgement_in_it,
-            test_card_gives_the_whole_contact_picture_and_names_the_barriers,
-            test_tally_splits_the_gap_between_claimed_and_kept,
-            test_vetted_query_sets_actually_reach_the_platform,
-            test_rabota_names_the_formulations_it_never_asked,
-            test_tg_wave_is_one_post_and_never_sends_by_default,
-            test_tg_wave_bot_path_is_stdlib_and_never_leaks_the_token,
-            test_funnel_does_not_call_a_page_view_an_answer,
-            test_doctor_diagnoses_without_touching_the_network,
-            test_pause_charges_the_request_time_against_the_interval,
-            test_linkedin_empty_page_is_rechecked_before_calling_it_the_end,
-            test_linkedin_throttling_is_a_pause_not_the_end_of_the_region,
-            test_linkedin_network_failure_keeps_what_was_already_collected,
-            test_linkedin_dead_network_gives_up_instead_of_grinding_every_pair,
-            test_linkedin_stops_where_the_search_drifts_off_topic,
-            test_linkedin_asks_nested_windows_because_they_return_different_jobs,
-            test_linkedin_depth_is_the_platform_ceiling_and_limit_cannot_move_it,
-            test_linkedin_ru_only_still_reports_itself,
-            test_ats_role_filter_covers_the_audit_list,
-            test_trudvsem_asks_in_the_language_of_the_state_portal,
-            test_every_ats_engine_is_wired_into_the_run,
-    ):
+    # Тесты собираются АВТОМАТИЧЕСКИ — все `test_*` этого модуля, в порядке
+    # определения. Ручной список означал, что забытое имя = тест, который не
+    # запускается и потому «зелёный» всегда: 09.08.2026 так молча не работали
+    # сразу две новые проверки, и обе ловили настоящие дефекты.
+    import inspect as _inspect
+    import sys as _sys
+    mod = _sys.modules[__name__]
+    tests = [f for _, f in _inspect.getmembers(mod, _inspect.isfunction)
+             if f.__name__.startswith("test_") and f.__module__ == __name__
+             and not any(pr.default is pr.empty
+                         for pr in _inspect.signature(f).parameters.values())]
+    tests.sort(key=lambda f: f.__code__.co_firstlineno)
+    for fn in tests:
         fn()
     if FAILS:
         print(f"ПРОВАЛЕНО {len(FAILS)}:")

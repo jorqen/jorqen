@@ -1836,64 +1836,19 @@ def test_query_relevance_understands_go():
 
 
 def main() -> int:
-    for fn in (test_tally_shows_mismatch,
-               test_json_about_captcha_is_data_not_wall,
-               test_wall_is_recognized_not_parsed,
-               test_glassdoor_reports_wall_and_never_bypasses,
-               test_glassdoor_parses_when_wall_is_down,
-               test_glassdoor_parses_search_cards_when_there_is_no_ldjson,
-               test_glassdoor_walks_pages_and_stops_on_repeats,
-               test_glassdoor_wall_mid_pagination_keeps_what_was_collected,
-               test_glassdoor_broken_markup_is_a_failure_not_zero,
-               test_hackoffer_parses_ssr_json,
-               test_hackoffer_stops_on_empty_page_not_on_error,
-               test_hackoffer_pages_are_counted_by_window_not_by_limit,
-               test_hackoffer_says_out_loud_when_the_fuse_cut_the_crawl,
-               test_hackoffer_refuses_unknown_group,
-               test_hackoffer_warns_when_group_returns_whole_catalog,
-               test_dreamoffer_two_step_query_and_period,
-               test_dreamoffer_searches_by_words_because_ilike_is_literal,
-               test_dreamoffer_filters_alien_professions_from_a_wide_net,
-               test_dreamoffer_title_is_not_a_channel_label,
-               test_dreamoffer_one_dead_word_does_not_kill_the_source,
-               test_dreamoffer_refuses_anything_but_select,
-               test_dreamoffer_quotes_query,
-               test_rabota_reads_ldjson_and_zero_max_is_not_zero,
-               test_rabota_reads_the_second_page_and_pauses_between_requests,
-               test_rabota_tls_drop_is_throttling_not_a_crash,
-               test_rabota_keeps_what_it_managed_to_collect_before_the_throttle,
-               test_rabota_skips_two_letter_query,
-               test_rabota_without_ldjson_is_a_failure,
-               test_rabota_api_keeps_the_recruiter_contact_and_zero_is_not_a_salary,
-               test_rabota_falls_back_to_ldjson_when_the_api_refuses,
-               test_getmatch_drops_promo_and_prefixes_url,
-               test_getmatch_ats_all_keeps_everything,
-               test_eures_filters_fuzzy_hits_and_takes_period_from_source,
-               test_eures_asks_for_full_pages_only,
-               test_eures_does_not_stop_at_the_first_page_without_hits,
-               test_eures_limit_raises_the_page_ceiling,
-               test_eures_page_ceiling_follows_the_platforms_own_count,
-               test_eures_ceiling_does_not_carry_over_between_queries,
-               test_json_about_antifraud_is_not_a_wall,
-               test_relocateme_takes_the_whole_board_and_filters_itself,
-               test_relocateme_stops_when_a_page_brings_nothing_new,
-               test_jobsdb_salary_range_keeps_upper_bound,
-               test_jobsdb_sorts_by_date_and_walks_the_whole_window,
-               test_jobsdb_salary_helper,
-               test_hnhiring_takes_direct_employer_link_and_scales_k,
-               test_apply_links_are_dug_out_of_the_telegram_post,
-        test_hnhiring_title_keeps_the_role_wherever_it_stands,
-        test_hnhiring_asks_two_threads_by_separate_words,
-               test_hnhiring_paginates_and_drops_prefix_noise_and_replies,
-               test_hn_salary_helper,
-               test_levels_benchmark_is_a_reference_not_a_vacancy,
-               test_levels_wall_is_not_data,
-               test_levels_note_admits_what_the_md_route_lost,
-               test_hirehi_detail_reads_json_api_not_the_spa_shell,
-               test_careered_preview_needs_free_login_and_offers_are_not_contacts,
-               test_careered_full_mode_reveals_employer_telegram,
-               test_registry_is_coherent,
-               test_query_relevance_understands_go):
+    # Тесты собираются АВТОМАТИЧЕСКИ — все `test_*` этого модуля, в порядке
+    # определения. Ручной список означал, что забытое имя = тест, который не
+    # запускается и потому «зелёный» всегда: 09.08.2026 так молча не работали
+    # сразу две новые проверки, и обе ловили настоящие дефекты.
+    import inspect as _inspect
+    import sys as _sys
+    mod = _sys.modules[__name__]
+    tests = [f for _, f in _inspect.getmembers(mod, _inspect.isfunction)
+             if f.__name__.startswith("test_") and f.__module__ == __name__
+             and not any(pr.default is pr.empty
+                         for pr in _inspect.signature(f).parameters.values())]
+    tests.sort(key=lambda f: f.__code__.co_firstlineno)
+    for fn in tests:
         fn()
     if FAILS:
         print(f"ПРОВАЛЕНО {len(FAILS)}:")

@@ -2041,101 +2041,19 @@ def test_wave_post_tells_a_quiet_day_from_a_broken_crawl():
 
 
 def main() -> int:
-    for fn in (test_k_suffix_is_thousands, test_k_suffix_does_not_eat_words,
-               test_zero_salary_is_not_a_salary,
-               test_ignored_filter_is_a_failure_not_a_jackpot,
-               test_tally_accounts_for_every_record,
-               test_deliberate_cuts_are_not_losses,
-               test_summary_carries_numbers_for_later,
-               # ── формулировки: одна не покрывает выдачу ─────────────────
-               test_cyrillic_query_becomes_latin_words,
-               test_platform_query_set_extends_but_never_replaces,
-               test_query_sets_are_measured_not_guessed,
-               # ── hirehi: 403 был ложной стеной, выдача анонимна ─────────
-               test_hirehi_walks_every_page, test_hirehi_dies_on_ignored_filter,
-               test_hirehi_unknown_subcategory_is_caught_by_the_category_total,
-               test_hirehi_looks_wider_than_go_and_backend,
-               test_hirehi_applies_the_freshness_window_itself,
-               test_hirehi_never_asks_in_cyrillic,
-               test_hirehi_hybrid_is_not_a_yes_or_no, test_hirehi_url_needs_only_id,
-               test_hirehi_salary_period_is_not_invented,
-               test_hirehi_no_salary_means_no_period,
-               test_ld_json_survives_nonce_attribute,
-               # ── geekjob: маленький объём — свойство, а не поломка ──────
-               test_geekjob_does_not_invent_the_year,
-               test_geekjob_empty_salary_is_not_zero, test_geekjob_parses_k_salary,
-               test_geekjob_merges_queries_by_id, test_geekjob_asks_more_than_one_wording,
-               test_geekjob_dedupes_inside_one_answer,
-               test_geekjob_empty_answer_is_a_failure,
-               # ── wantapply: приманки и прямые ссылки в ATS ──────────────
-               test_wantapply_decoys_never_become_a_contact,
-               test_wantapply_html_description_becomes_text,
-               test_wantapply_period_comes_from_its_own_field,
-               test_wantapply_takes_the_union_of_wordings,
-               test_wantapply_says_that_days_is_not_applied,
-               test_wantapply_missing_session_does_not_lose_the_catalog,
-               test_wantapply_apply_url_reads_the_real_link,
-               # ── wantapply: живость — это status, а не наличие записи ───
-               test_wantapply_dead_statuses_are_filtered_and_named,
-               test_wantapply_check_reads_status_not_presence,
-               test_wantapply_check_does_not_trust_an_ignored_filter,
-               test_wantapply_check_rechecks_by_id_before_declaring_death,
-               # ── shadowhint: без входа нет ничего ───────────────────────
-               test_shadowhint_without_session_says_so,
-               test_shadowhint_401_is_login_not_breakage,
-               test_shadowhint_unknown_shape_fails_loudly,
-               test_shadowhint_maps_flexible_field_names,
-               test_shadowhint_nested_values_do_not_crash,
-               test_shadowhint_link_points_at_the_telegram_post,
-               test_shadowhint_walks_to_the_last_page,
-               test_shadowhint_truncated_answer_shrinks_the_page_instead_of_dying,
-               test_shadowhint_merges_wordings_by_id,
-               test_shadowhint_stops_at_the_edge_of_the_window,
-               test_a_seen_record_does_not_block_the_early_stop,
-               test_shadowhint_junk_rows_are_not_a_loss,
-               # ── ключ дубля: ложная склейка дороже лишнего раскола ──────
-               test_hidden_employer_never_merges_strangers,
-               test_aggregator_token_is_not_an_employer,
-               test_one_employer_many_openings_do_not_merge,
-               test_a_real_cross_platform_duplicate_still_merges,
-               test_the_reason_for_not_merging_is_named,
-               test_bare_key_call_stays_conservative,
-               test_grade_is_not_noise,
-               # ── сессии: что именно даёт вход ───────────────────────────
-               test_expired_token_is_reported_with_a_date,
-               test_plain_token_cookie_is_taken_as_is,
-               test_geekjob_login_is_never_requested,
-               test_anonymous_platforms_are_not_in_the_todo_list,
-               test_hirehi_anonymous_view_is_not_advertised_as_broken,
-               test_login_value_matches_the_registry,
-               # ── настоящий браузер вместо подделанного headless ─────────
-               test_mock_keychain_is_always_disabled,
-               test_real_browser_never_spoofs_the_user_agent,
-               test_unknown_browser_is_rejected_by_name,
-               test_lock_holder_ignores_a_dead_pid, test_busy_profile_explains_itself,
-               test_profile_keeps_only_platform_domains,
-               test_top_up_never_overwrites_a_rotated_cookie,
-               test_rotating_hosts_are_known, test_registry_is_complete,
-               # ── продление сессий: точность предупреждения ───────────────
-               test_hirehi_session_is_read_only_from_our_own_file,
-               test_unreadable_cookie_db_is_not_a_logout,
-               test_unreadable_browser_does_not_hide_a_live_session_in_another,
-               test_preflight_reports_only_what_it_knows,
-               test_preflight_is_silent_about_platforms_that_lose_nothing,
-               test_hirehi_is_not_promised_to_renew_itself_without_a_session,
-               test_localstorage_token_is_merged_not_overwritten,
-               test_hirehi_saves_rotation_even_when_the_page_dies,
-               test_hirehi_renewal_confirms_by_the_page_not_by_the_absence_of_errors,
-               test_careered_snapshot_comes_from_the_persistent_profile,
-               test_snapshot_is_taken_even_when_already_logged_in,
-               test_private_endpoint_outranks_the_markup,
-               test_live_session_is_found_in_another_browser,
-               test_dead_critical_session_is_the_first_next_step,
-               test_login_runs_beside_the_crawl_not_instead_of_it,
-               test_shadowhint_renewal_never_overwrites_a_good_snapshot,
-               test_expired_token_is_dead_even_when_the_cookie_is_there,
-               test_session_travels_to_the_cloud_only_through_the_environment,
-               test_wave_post_tells_a_quiet_day_from_a_broken_crawl):
+    # Тесты собираются АВТОМАТИЧЕСКИ — все `test_*` этого модуля, в порядке
+    # определения. Ручной список означал, что забытое имя = тест, который не
+    # запускается и потому «зелёный» всегда: 09.08.2026 так молча не работали
+    # сразу две новые проверки, и обе ловили настоящие дефекты.
+    import inspect as _inspect
+    import sys as _sys
+    mod = _sys.modules[__name__]
+    tests = [f for _, f in _inspect.getmembers(mod, _inspect.isfunction)
+             if f.__name__.startswith("test_") and f.__module__ == __name__
+             and not any(pr.default is pr.empty
+                         for pr in _inspect.signature(f).parameters.values())]
+    tests.sort(key=lambda f: f.__code__.co_firstlineno)
+    for fn in tests:
         fn()
     if FAILS:
         print(f"ПРОВАЛЕНО {len(FAILS)}:")

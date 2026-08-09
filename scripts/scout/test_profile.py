@@ -241,20 +241,19 @@ def _evidence(data: dict) -> dict[str, str]:
 
 
 def main() -> int:
-    for fn in (test_shape_knows_tech_spelling_from_ats_caps,
-               test_gender_marker_is_not_a_technology,
-               test_ats_boilerplate_never_reaches_demand,
-               test_enumeration_is_what_separates_tech_from_capitalized_words,
-               test_single_odd_spelling_does_not_make_a_word_a_technology,
-               test_location_of_the_vacancy_is_not_demand,
-               test_resume_terms_are_measured_even_when_they_look_like_common_words,
-               test_multiword_resume_term_survives_a_noisy_first_word,
-               test_evidence_levels_tell_a_claim_from_a_proof,
-               test_localized_skill_item_does_not_leak_a_python_dict,
-               test_pet_project_is_neither_a_proof_of_work_nor_an_empty_claim,
-               test_same_skill_in_another_word_form_still_counts,
-               test_spoken_language_is_not_a_claim_to_prove_with_a_bullet,
-               test_short_terms_are_not_matched_by_prefix):
+    # Тесты собираются АВТОМАТИЧЕСКИ — все `test_*` этого модуля, в порядке
+    # определения. Ручной список означал, что забытое имя = тест, который не
+    # запускается и потому «зелёный» всегда: 09.08.2026 так молча не работали
+    # сразу две новые проверки, и обе ловили настоящие дефекты.
+    import inspect as _inspect
+    import sys as _sys
+    mod = _sys.modules[__name__]
+    tests = [f for _, f in _inspect.getmembers(mod, _inspect.isfunction)
+             if f.__name__.startswith("test_") and f.__module__ == __name__
+             and not any(pr.default is pr.empty
+                         for pr in _inspect.signature(f).parameters.values())]
+    tests.sort(key=lambda f: f.__code__.co_firstlineno)
+    for fn in tests:
         fn()
     if FAILS:
         print(f"ПРОВАЛЕНО {len(FAILS)}:")
