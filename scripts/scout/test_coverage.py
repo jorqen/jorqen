@@ -316,6 +316,54 @@ def test_linkedin_asks_every_formulation():
        "«формулировка × регион × окно»")
 
 
+def test_a_card_is_found_when_the_showcase_shuffles_its_tracking_params():
+    """Ссылка карточки находится в базе, даже если витрина перетасовала счётчики.
+
+    🔴 У jooble один и тот же `/away/-2503628600313974170` приезжает то с
+    `pos=446`, то с `pos=456`, плюс `scr`, `bscr`, `aq`, `relb` — счётчики
+    выдачи, а не адрес вакансии. Ссылка готовой карточки становилась «нет в
+    базе», и `--refresh` молча её пропускал: 4 карточки волны 08.08.2026
+    остались с устаревшими фактами (09.08.2026).
+
+    Обратная сторона: по пути ищем только когда он даёт РОВНО ОДНУ запись.
+    Там, где id сидит в query, путь общий для всех вакансий площадки, и
+    подставить чужую карточку было бы хуже, чем не найти свою.
+    """
+    import os
+    import tempfile
+
+    from . import cardfiles, store
+    from .model import Vacancy
+
+    with tempfile.TemporaryDirectory() as d:
+        db = os.path.join(d, "c.db")
+        with store.connect(db) as conn:
+            store.upsert(conn, [
+                Vacancy(source="jooble", external_id="1",
+                        url="https://jooble.org/away/-250?p=5&pos=456&scr=2276",
+                        title="Software Engineer, Infrastructure (Go)",
+                        company="Mirantis"),
+                # Две вакансии с ОДНИМ путём и разными id в query.
+                Vacancy(source="board", external_id="a",
+                        url="https://board.example/job?id=1", title="A", company="X"),
+                Vacancy(source="board", external_id="b",
+                        url="https://board.example/job?id=2", title="B", company="X")])
+
+            got = cardfiles.find_vacancy(
+                conn, "https://jooble.org/away/-250?p=5&pos=446&scr=840&aq=27")
+            if got is None or got["company"] != "Mirantis":
+                FAILS.append(f"карточка не нашлась после перетасовки счётчиков: {got}")
+
+            # Точное совпадение по-прежнему работает.
+            exact = cardfiles.find_vacancy(conn, "https://board.example/job?id=1")
+            if exact is None or exact["title"] != "A":
+                FAILS.append(f"точное совпадение сломалось: {exact}")
+
+            # А неоднозначный путь не даёт подставить чужую вакансию.
+            if cardfiles.find_vacancy(conn, "https://board.example/job?id=99") is not None:
+                FAILS.append("по общему пути подставлена ЧУЖАЯ вакансия")
+
+
 def _check_refresh_keeps_the_letter(cardfiles):
     """`--refresh`: факты обновляются, фит и письмо остаются нетронутыми.
 

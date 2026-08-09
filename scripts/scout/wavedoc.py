@@ -43,7 +43,16 @@ def slug(name: str | None) -> str:
     Пустое имя — это НЕ ошибка, а частый штатный случай: работодатель за
     заглушкой агрегатора. Такие карточки лежат отдельно (`_hidden`), потому что
     складывать их в каталог с именем «» значит смешать разные компании в одну.
+
+    🔴 Заглушка-СЛОВО («N/A», «Confidential», «NDA») — тот же случай, что пустое
+    имя, и список таких слов в проекте один: `model.PLACEHOLDER_COMPANY`. Пока
+    `slug` его не знал, «N/A» давала каталог `companies/n-a/` — то есть
+    «компанию» с именем N/A, куда попадали бы разные наниматели (09.08.2026).
     """
+    from .model import PLACEHOLDER_COMPANY  # noqa: PLC0415 — общий список заглушек
+
+    if (name or "").strip().lower() in {p.lower() for p in PLACEHOLDER_COMPANY}:
+        return "_hidden"
     s = _LEGAL.sub("", (name or "").strip().lower())
     out = []
     for ch in s:

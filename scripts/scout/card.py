@@ -593,10 +593,20 @@ def build(conn, url: str, *, skills: list[str] | None = None,
           skills_note: str | None = None, fetch_market: bool = False,
           walk: bool = True) -> str:
     """Скелет карточки. `walk=False` — не обходить ссылки вакансии (без сети)."""
-    row = conn.execute(
-        "SELECT source, external_id, url, title, company, salary_from, salary_to, "
-        "currency, salary_gross, salary_period, location, remote, published_at, "
-        "employer_url, description, raw FROM vacancy WHERE url = ?", (url,)).fetchone()
+    cols = ("SELECT source, external_id, url, title, company, salary_from, salary_to, "
+            "currency, salary_gross, salary_period, location, remote, published_at, "
+            "employer_url, description, raw FROM vacancy")
+    row = conn.execute(f"{cols} WHERE url = ?", (url,)).fetchone()
+    if row is None:
+        # Витрины перетасовывают счётчики в ссылке между прогонами (у jooble
+        # `pos`, `scr`, `bscr`, `aq`), и точное совпадение отваливается на
+        # ровном месте. Значащая часть — путь; берём его, но только если он
+        # даёт РОВНО ОДНУ запись. Тот же приём, что в `cardfiles.find_vacancy`.
+        base = (url or "").split("?", 1)[0].split("#", 1)[0]
+        if base and base != url:
+            same = conn.execute(f"{cols} WHERE url = ? OR url LIKE ? LIMIT 2",
+                                (base, base + "?%")).fetchall()
+            row = same[0] if len(same) == 1 else None
     if row is None:
         return (f"## {url}\n\nнет в базе — возьми ссылку из `scout shortlist` "
                 f"или собери площадку заново")

@@ -99,6 +99,32 @@ def refresh_text(old: str, fresh: str) -> str | None:
     return head + old[i:]
 
 
+def find_vacancy(conn, url: str):
+    """Запись вакансии по ссылке. Сначала точное совпадение, потом — по ПУТИ.
+
+    🔴 Витрины меняют параметры ссылки между прогонами. У jooble один и тот же
+    `/away/-2503628600313974170` приезжает то с `pos=446`, то с `pos=456`, плюс
+    `scr`, `bscr`, `aq`, `relb` — всё это счётчики выдачи, а не адрес вакансии.
+    Ссылка в готовой карточке становилась «не в базе», и `--refresh` молча
+    пропускал её: 4 карточки волны 08.08.2026 (Censys, Cirrus Data, Mirantis,
+    goteleport) остались с устаревшими фактами (09.08.2026).
+
+    По пути ищем ТОЛЬКО когда он даёт ровно одну запись: у площадок, где id
+    сидит в query, путь общий для всех вакансий, и «одна» там не выйдет.
+    """
+    row = conn.execute(
+        "SELECT title, company FROM vacancy WHERE url = ?", (url,)).fetchone()
+    if row is not None:
+        return row
+    base = (url or "").split("?", 1)[0].split("#", 1)[0]
+    if not base or base == url:
+        return None
+    rows = conn.execute(
+        "SELECT title, company FROM vacancy WHERE url = ? OR url LIKE ? LIMIT 2",
+        (base, base + "?%")).fetchall()
+    return rows[0] if len(rows) == 1 else None
+
+
 def write(db: str, urls: list[str], *, date: str, root: str = ".jobs",
           force: bool = False, skills=None, skills_note=None,
           walk: bool = True, refresh: bool = False) -> list[tuple[str, str]]:
@@ -114,8 +140,7 @@ def write(db: str, urls: list[str], *, date: str, root: str = ".jobs",
     out: list[tuple[str, str]] = []
     with store.connect(db) as conn:
         for url in urls:
-            row = conn.execute(
-                "SELECT title, company FROM vacancy WHERE url = ?", (url,)).fetchone()
+            row = find_vacancy(conn, url)
             if row is None:
                 out.append((url, "нет в базе — ссылку возьми из `scout shortlist`"))
                 continue
@@ -176,6 +201,23 @@ _GENERATED_WARNING = re.compile(
     r"generic: парсера под источник нет")
 
 
+# Разделы, которые печатает САМ генератор от первой до последней строки.
+# Всё внутри них — вывод scout, а не работа модели, и требовать «сними вопрос»
+# там бессмысленно: вопрос задал не человек.
+_GENERATED_SECTIONS = ("### Сколько просить",)
+
+
+def _outside_generated_sections(text: str) -> list[str]:
+    """Строки карточки ВНЕ разделов, целиком принадлежащих генератору."""
+    out, skipping = [], False
+    for ln in text.splitlines():
+        if ln.startswith("#"):
+            skipping = any(ln.startswith(h) for h in _GENERATED_SECTIONS)
+        if not skipping:
+            out.append(ln)
+    return out
+
+
 def letter_of(text: str) -> str:
     """Тело письма из карточки. Пусто — модель его ещё не написала.
 
@@ -219,7 +261,13 @@ def check_card(text: str) -> list[str]:
     # разобран эвристикой. Пока правило ловило любой знак, `lint-cards` ругался
     # на собственный вывод `card --write` — три карточки волны 08.08.2026 были
     # объявлены недоделанными из-за строки, которую scout обязан печатать.
-    own = [ln for ln in text.splitlines()
+    #
+    # 🔴 Список формулировок оказался хрупким сам по себе: генератор добавил
+    # «Выборка маленькая (8 вакансий)» и «Регион вакансии не назван», и семь
+    # карточек снова стали «недоделанными» (09.08.2026). Поэтому разделы,
+    # которые целиком печатает scout, исключаются ЦЕЛИКОМ — это механизм, а не
+    # очередная строка в списке, за которым надо гоняться.
+    own = [ln for ln in _outside_generated_sections(text)
            if "⚠️" in ln and not _GENERATED_WARNING.search(ln)]
     if own:
         bad.append(f"осталось предупреждение ⚠️ ({len(own)} шт.) — сними вопрос "
