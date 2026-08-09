@@ -158,6 +158,19 @@ _AGGREGATOR_NAMES = {
 }
 
 
+# Домены, которые работодателем не бывают в принципе: отзывы, поисковики,
+# медиа, справочники. Витринами вакансий они тоже не являются — но для вопроса
+# «прямой ли это канал в компанию» ответ тот же: нет.
+# 🔴 Живой счёт 09.08.2026: в маршрутах вакансии Wirex стоял
+# `trustpilot.com/review/wantapply.com` — отзыв о САМОЙ ПЛОЩАДКЕ — с пометкой
+# «[employer, прямой]». До этого так же попадали `ya.ru` и статья на `vc.ru`.
+_NOT_EMPLOYER_NAMES = {
+    "trustpilot", "glassdoor", "wikipedia", "vc", "habr", "medium", "reddit",
+    "youtube", "google", "yandex", "ya", "bing", "duckduckgo", "twitter", "x",
+    "facebook", "instagram", "tiktok", "telegram", "whatsapp", "quora",
+}
+
+
 def is_aggregator_domain(dom: str) -> bool:
     """Витрина ли это. Обратная сторона `is_employer_domain`, но отдельным
     именем: `applyopt` спрашивает именно «витрина ли», и второго списка витрин
@@ -169,7 +182,8 @@ def is_aggregator_domain(dom: str) -> bool:
     if any(dom == a or dom.endswith("." + a) for a in _AGGREGATORS):
         return True
     parts = [x for x in dom.split(".") if x]
-    return any(len(parts) >= -i and parts[i] in _AGGREGATOR_NAMES for i in (-2, -3))
+    names = _AGGREGATOR_NAMES | _NOT_EMPLOYER_NAMES
+    return any(len(parts) >= -i and parts[i] in names for i in (-2, -3))
 
 
 def is_employer_domain(dom: str) -> bool:

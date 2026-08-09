@@ -1795,6 +1795,13 @@ def test_a_showcase_is_a_showcase_in_every_country_zone():
                 "glassdoor.de", "jobviewtrack.com", "careerjet.fr"):
         if is_employer_domain(dom):
             FAILS.append(f"витрина принята за домен работодателя: {dom}")
+    # Отзывы, поисковики и медиа работодателем не бывают в принципе. Живой
+    # счёт: в маршрутах вакансии Wirex стоял `trustpilot.com/review/wantapply.com`
+    # — отзыв о САМОЙ ПЛОЩАДКЕ — с пометкой «прямой канал в компанию».
+    for dom in ("trustpilot.com", "ya.ru", "vc.ru", "www.youtube.com", "medium.com"):
+        if is_employer_domain(dom):
+            FAILS.append(f"домен, который не бывает работодателем, принят за него: {dom}")
+
     # Настоящие работодатели остаются работодателями — в том числе те, у кого
     # в домене есть слово из карьерного словаря.
     for dom in ("careers.datadoghq.com", "fundraiseup.com", "plata.careers",
