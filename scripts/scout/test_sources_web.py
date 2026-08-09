@@ -1428,6 +1428,47 @@ def test_hnhiring_takes_direct_employer_link_and_scales_k():
          "в сводке не назван тред, из которого взяты посты")
 
 
+def test_apply_links_are_dug_out_of_the_telegram_post():
+    """Ссылка отклика прячется ВНУТРИ поста, а не лежит рядом с ним.
+
+    🔴 Живой случай 09.08.2026, замеченный владельцем. В карточке Авито
+    контактом стоял `t.me/rabota_golang/1236` — то есть сам пост, а не то, куда
+    писать. Настоящая ссылка спрятана под словом «Откликнуться» и ведёт на
+    career.avito.com. Агрегатор (dreamoffer) её при этом подменяет строкой
+    «Доступно в источнике», так что в базе её нет вовсе — достать можно только
+    из первоисточника, с веб-версии поста `t.me/s/<канал>/<id>`.
+
+    Вырезать надо БЛОК КОНКРЕТНОГО ПОСТА: страница `/s/` отдаёт ленту канала, и
+    без этого в карточку уехала бы ссылка из соседней вакансии — тихая подмена
+    работодателя, которую человек заметит уже после отклика."""
+    from .tgpost import apply_links_from_post
+
+    page = (
+        '<div class="tgme_widget_message" data-post="ch/100">'
+        '  <a href="https://career.example.com/vacancies/OTHER/">Откликнуться</a>'
+        '</div>'
+        '<div class="tgme_widget_message" data-post="ch/101">'
+        '  Go-разработчик в команду коммуникаций'
+        '  <a href="https://career.avito.com/vacancies/razrabotka/19383/">Откликнуться</a>'
+        '  <a href="https://t.me/some_channel">наш канал</a>'
+        '  <a href="https://vk.com/job_for_programmers">VK</a>'
+        '</div>'
+        '<div class="tgme_widget_message" data-post="ch/102">'
+        '  <a href="https://career.example.com/vacancies/THIRD/">Откликнуться</a>'
+        '</div>')
+    got = apply_links_from_post(page, "ch", 101)
+    eq(got, ["https://career.avito.com/vacancies/razrabotka/19383/"],
+       f"из поста вынуто не то: {got}")
+
+    # Соцсети и сам телеграм контактами не считаются (field-notes), поэтому
+    # в результат не попадают, даже когда в посте они единственные ссылки.
+    only_social = ('<div class="tgme_widget_message" data-post="ch/7">'
+                   '<a href="https://t.me/x">t</a><a href="https://vk.com/y">v</a>'
+                   '<a href="https://max.ru/z">m</a></div>')
+    eq(apply_links_from_post(only_social, "ch", 7), [],
+       "соцсети приняты за контакт работодателя")
+
+
 def test_hnhiring_title_keeps_the_role_wherever_it_stands():
     """Роль обязана попасть в заголовок, даже если стоит четвёртой.
 
@@ -1840,7 +1881,8 @@ def main() -> int:
                test_jobsdb_sorts_by_date_and_walks_the_whole_window,
                test_jobsdb_salary_helper,
                test_hnhiring_takes_direct_employer_link_and_scales_k,
-               test_hnhiring_title_keeps_the_role_wherever_it_stands,
+               test_apply_links_are_dug_out_of_the_telegram_post,
+        test_hnhiring_title_keeps_the_role_wherever_it_stands,
         test_hnhiring_asks_two_threads_by_separate_words,
                test_hnhiring_paginates_and_drops_prefix_noise_and_replies,
                test_hn_salary_helper,

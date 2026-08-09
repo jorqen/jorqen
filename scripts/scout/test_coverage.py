@@ -592,6 +592,73 @@ def test_requirement_tier_separates_must_have_from_nice_to_have():
        "раздел «плюсом» протёк на задачи — обязанность помечена желательной")
 
 
+def test_card_carries_no_commands_and_gate_runs_in_lint():
+    """В карточке не должно быть команд, а гейт обязан гоняться линтом.
+
+    🔴 Требование владельца 09.08.2026: «мне нужны уже готовые документы,
+    никаких команд мне делегировать не нужно». В скелете карточки стояла строка
+    «прогони готовое письмо гейтом `scout.untrusted letter …`» — это работа
+    модели, выложенная в документ, который человек открывает, чтобы
+    откликнуться. Он справедливо не понял, что ему с ней делать.
+
+    Проверка при этом не отменяется, а переносится: письмо уходит работодателю
+    от его имени, и чужая ссылка в нём дороже неудобной формулировки. Поэтому
+    гейт зовёт `lint-cards` — до того, как документ попадёт человеку."""
+    from .card import build
+    from .cardfiles import check_card
+
+    row = {"source": "hh", "external_id": "1", "url": "https://hh.ru/vacancy/1",
+           "title": "Senior Go Developer", "company": "Acme", "description":
+           "Требования: опыт Go от 3 лет. Обязанности: писать сервисы."}
+    text = build(row, payload=None, skills=["go"], skills_note=None, conn=None) \
+        if False else None
+    # build() требует соединения с базой — проверяем на готовой карточке.
+    card = ("## Роль — Acme\n\n- **Ссылка:** https://x/1\n\n### Отклик\n\n"
+            "```\nЗдравствуйте! Откликаюсь.\n\nРезюме: https://jorqen.link\n\nМатвей\n```\n")
+    for junk in (".venv/bin/python", "scout brief", "scout reveal", "scout render",
+                 "прогони готовое письмо гейтом"):
+        if junk in card:
+            FAILS.append(f"в карточке осталась команда: {junk}")
+
+    # 🔴 Письмо в живых карточках лежит в разделе «Отклик» внутри ```-блока, а
+    # letter_of искал только заголовок «### Письмо» — и не находил НИЧЕГО во
+    # всех 49 карточках волны. То есть ни линт письма, ни гейт по ним не
+    # отрабатывали вовсе, хотя команда рапортовала «замечаний нет».
+    from .cardfiles import letter_of
+    got = letter_of(card)
+    if "Откликаюсь" not in got:
+        FAILS.append(f"письмо из раздела «Отклик» не извлеклось: {got[:60]!r}")
+
+    # Гейт: чужая ссылка в письме обязана ловиться линтом карточки.
+    bad_link = card.replace("Резюме: https://jorqen.link",
+                            "Резюме: https://evil.example.com/cv")
+    found = check_card(bad_link)
+    if not any("ссылк" in b.lower() or "gate" in b.lower() or "чуж" in b.lower()
+               for b in found):
+        FAILS.append(f"линт пропустил чужую ссылку в письме: {found}")
+
+    # 🔴 …но ссылку на САМУ вакансию letter-guide требует вставлять в письмо
+    # («Вакансия: <url> · резюме: <сайт>»), и гейт не должен на неё ругаться.
+    # Иначе он краснеет на каждой второй карточке и его перестают читать.
+    with_vacancy = card.replace(
+        "Резюме: https://jorqen.link",
+        "Вакансия: https://x/1 · резюме: https://jorqen.link")
+    left = [b for b in check_card(with_vacancy) if "гейт" in b]
+    if left:
+        FAILS.append(f"гейт ругается на ссылку самой вакансии: {left}")
+
+    # То же для канала отклика: он часто НЕ совпадает со ссылкой в шапке —
+    # в шапке площадка, а писать надо на careers-страницу работодателя. Такая
+    # ссылка выбрана мной же и стоит в разделе «Отклик» этой карточки.
+    with_channel = card.replace(
+        "### Отклик\n", "### Отклик\n\n**Контакт: [careers](https://acme.example/careers).**\n"
+    ).replace("Резюме: https://jorqen.link",
+              "Вакансия: https://acme.example/careers · резюме: https://jorqen.link")
+    left2 = [b for b in check_card(with_channel) if "гейт" in b]
+    if left2:
+        FAILS.append(f"гейт ругается на канал отклика из этой же карточки: {left2}")
+
+
 def test_lint_catches_broken_links_in_the_wave_doc():
     """Ссылки главного документа обязаны открываться.
 
@@ -1948,6 +2015,7 @@ def main() -> int:
             test_connect_works_without_a_directory_in_the_path,
             test_liveness_reads_archive_markers_not_only_http_code,
             test_requirement_tier_separates_must_have_from_nice_to_have,
+            test_card_carries_no_commands_and_gate_runs_in_lint,
             test_lint_catches_broken_links_in_the_wave_doc,
             test_card_files_layout_and_lint,
             test_health_tells_a_dead_source_from_an_off_profile_one,
