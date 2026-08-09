@@ -259,6 +259,11 @@ class Result:
     origin: str = ""              # с чего начали
     note: str = ""                # откуда взялись стартовые ссылки
     seeds: list[str] = field(default_factory=list)
+    # Имя работодателя, если площадка его назвала. Живёт в результате, а не в
+    # параметрах производных функций: `employer_guess` обязан знать его всегда,
+    # а параметр, который можно забыть передать, — это тот же дефект через
+    # прогон (проверка «домен связан с именем» без имени просто не работает).
+    company: str = ""
     nodes: list[Node] = field(default_factory=list)
     dropped: list[dict] = field(default_factory=list)   # {"url", "why"}
     deduped: int = 0              # сколько раз ссылка оказалась уже известной
@@ -776,13 +781,38 @@ def _ats_company(url: str) -> str | None:
     return None
 
 
-def employer_guess(res: Result) -> dict | None:
+def _name_touches_domain(company: str, host: str) -> bool:
+    """Связан ли домен с названием компании — хотя бы буквами.
+
+    Сравниваются только буквы и цифры в нижнем регистре: «Kaspersky Lab» ↔
+    `careers.kaspersky.ru` связаны, «Teleport» ↔ `vseti.app` — нет. Проверка
+    заведомо грубая и признаёт связь охотно; её задача — отсечь заведомо чужое,
+    а не доказать принадлежность.
+    """
+    name = re.sub(r"[^a-z0-9]+", "", (company or "").lower())
+    dom = re.sub(r"[^a-z0-9]+", "", _org((host or "").lower().removeprefix("www.")))
+    if len(name) < 3 or len(dom) < 3:
+        return False
+    return name in dom or dom.startswith(name[:6]) or name.startswith(dom[:6])
+
+
+def employer_guess(res: Result, company: str | None = None) -> dict | None:
     """Кто наниматель, если площадка его не назвала. Догадка С УЛИКОЙ.
 
     Только то, что видно в адресе: слаг компании на доске ATS или её
     собственный домен. Ничего не выдумывается — без улики лучше вернуть None,
     чем назвать вероятного работодателя.
+
+    🔴 Когда имя компании ИЗВЕСТНО, домен обязан быть с ним связан. Признак
+    «не витрина» уликой не является: у вакансии Teleport обход прошёл по
+    `vseti.app`, `ya.ru` и статье на `vc.ru`, и каждый из них объявлялся
+    «собственным доменом работодателя» — просто потому, что их нет в списке
+    агрегаторов (09.08.2026). Догадка без улики уводит письмо в чужую компанию
+    так же, как чужая почта с баннера.
     """
+    # Имя берётся из результата, если не передано явно: так о нём не может
+    # забыть ни один вызывающий.
+    company = company if company is not None else (res.company or "")
     for n in res.nodes:
         url = n.final_url or n.url
         if n.publisher == applyopt.ATS:
@@ -794,6 +824,8 @@ def employer_guess(res: Result) -> dict | None:
         url = n.final_url or n.url
         host = host_of(url)
         if n.publisher == applyopt.EMPLOYER and host:
+            if company and not _name_touches_domain(company, host):
+                continue
             for pref in CAREERS_HOST:
                 host = host.removeprefix(pref)
             return {"value": host, "why": f"собственный домен работодателя: {url}",
@@ -943,6 +975,10 @@ def walk(conn, url: str, *, depth: int = MAX_DEPTH, max_pages: int = MAX_PAGES,
                                + [o["url"] for o in known]))
     res = crawl(seeds, max_depth=depth, max_pages=max_pages, origin=url,
                 note="ссылки вакансии", **kw)
+    # Имя работодателя едет вместе с обходом: по нему `employer_guess` отличает
+    # свой домен от случайного попутчика (витрина, поисковик, статья на vc.ru).
+    known_company = (row["company"] or "").strip()
+    res.company = "" if known_company == PLACEHOLDER_COMPANY else known_company
     found = routes(res)
     if not save:
         return res, found

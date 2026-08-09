@@ -599,6 +599,35 @@ def test_the_employer_slug_comes_from_the_right_part_of_the_ats_url():
         eq(got, want, f"работодатель из {url}")
 
 
+def test_a_stranger_domain_is_not_guessed_as_the_employer():
+    """Имя компании известно → домен, с ним не связанный, работодателем не назвать.
+
+    Живой счёт 09.08.2026: вакансия Teleport, обход дошёл до `vseti.app` (витрина
+    вакансий), `ya.ru` и статьи на `vc.ru` — и все трое считались «собственным
+    доменом работодателя» просто потому, что их нет в списке агрегаторов.
+    «Не витрина» — это не улика. Догадка без улики хуже молчания: она уводит
+    письмо в чужую компанию ровно так же, как чужая почта с баннера.
+    """
+    url = "https://www.vseti.app/vakansii/123"
+    web = Web({url: page(title="Вакансия Go Developer, компания Teleport")})
+    res = crawl.crawl([url], gap=0, fetcher=web)
+    got = crawl.employer_guess(res, company="Teleport")
+    if got:
+        FAILS.append(f"чужой домен назван работодателем: {got.get('value')}")
+
+    # Обратная сторона: связь есть — догадка обязана остаться.
+    own = "https://careers.kaspersky.ru/vacancy/1"
+    web2 = Web({own: page(title="Вакансия")})
+    res2 = crawl.crawl([own], gap=0, fetcher=web2)
+    got2 = (crawl.employer_guess(res2, company="Kaspersky") or {}).get("value")
+    eq(got2, "kaspersky.ru", "свой домен работодателя потерян из-за проверки")
+
+    # И третья: имени нет вовсе — ради этого случая догадка и заведена.
+    res3 = crawl.crawl([own], gap=0, fetcher=Web({own: page(title="Вакансия")}))
+    if not crawl.employer_guess(res3, company=None):
+        FAILS.append("при скрытом работодателе догадка пропала — а она тут и нужна")
+
+
 def test_opened_but_speechless_is_not_called_unreachable():
     """«Открылась, но это не вакансия» ≠ «не открылась».
 
@@ -808,38 +837,19 @@ def test_post_links_reach_the_walk_with_shorteners_kept():
 
 
 def main() -> int:
-    for fn in (
-            test_every_link_of_the_post_is_walked_not_the_first_four,
-            test_depth_limit_stops_the_walk_and_never_hides_the_tail,
-            test_a_ring_of_links_does_not_spin,
-            test_one_page_written_four_ways_is_read_once,
-            test_budgets_never_cut_in_silence,
-            test_the_walk_stays_out_of_social_networks_and_files,
-            test_shortener_is_followed_to_where_it_lands,
-            test_a_dead_direct_link_loses_to_a_live_showcase,
-            test_a_wall_is_not_a_dead_vacancy,
-            test_the_walk_digs_from_the_showcase_to_the_employer,
-            test_markup_garbage_never_kills_a_live_vacancy,
-            test_a_showcase_redirector_is_followed_to_the_end,
-            test_an_spa_shell_is_named_not_guessed,
-            test_a_link_back_to_the_showcase_is_not_a_contact,
-            test_the_hiring_mailbox_beats_the_page_and_the_front_desk_does_not,
-            test_a_card_shouts_when_the_walk_found_the_vacancy_dead,
-        test_a_stranger_mailbox_on_a_banner_is_not_the_employer_contact,
-        test_the_deadline_stops_the_walk_and_says_so,
-            test_the_legal_footer_is_not_walked,
-            test_reveal_does_not_spend_the_limit_when_the_walk_found_a_contact,
-            test_the_best_route_is_one_you_can_actually_apply_from,
-            test_the_employer_slug_comes_from_the_right_part_of_the_ats_url,
-            test_opened_but_speechless_is_not_called_unreachable,
-            test_a_dry_run_shows_the_bill_and_never_opens_the_browser,
-            test_check_links_asks_the_final_address_of_a_showcase_redirect,
-            test_an_inconclusive_walk_never_overwrites_a_known_verdict,
-            test_crawl_facts_survive_the_next_cheap_command,
-            test_all_post_links_become_routes_not_the_first_four,
-            test_a_double_escaped_link_is_unpacked_before_the_walk,
-            test_post_links_reach_the_walk_with_shorteners_kept,
-    ):
+    # Тесты собираются АВТОМАТИЧЕСКИ — все `test_*` этого модуля, в порядке
+    # определения. Ручной список означал, что забытое имя = тест, который не
+    # запускается и потому «зелёный» всегда: 09.08.2026 так молча не работали
+    # сразу две новые проверки, и обе ловили настоящие дефекты.
+    import inspect as _inspect
+    import sys as _sys
+    mod = _sys.modules[__name__]
+    tests = [f for _, f in _inspect.getmembers(mod, _inspect.isfunction)
+             if f.__name__.startswith("test_") and f.__module__ == __name__
+             and not any(pr.default is pr.empty
+                         for pr in _inspect.signature(f).parameters.values())]
+    tests.sort(key=lambda f: f.__code__.co_firstlineno)
+    for fn in tests:
         fn()
     if FAILS:
         print(f"ПРОВАЛЕНО {len(FAILS)}:")
