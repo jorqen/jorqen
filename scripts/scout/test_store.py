@@ -1740,6 +1740,64 @@ def test_reveal_records_a_debt_when_the_limit_runs_out():
         FAILS.append(f"долг записан не на ту вакансию: {debts[0]}")
 
 
+def test_a_general_mailbox_is_never_the_hiring_channel():
+    """`info@` каналом найма не становится — нужна почта ДЛЯ ОТКЛИКОВ.
+
+    🔴 Прямое уточнение владельца 09.08.2026: «почта должна быть специальная,
+    для откликов (карьерная)». Резюме в общую приёмную уходит в никуда, и
+    записать её каналом значит соврать в карточке.
+
+    Но и молчать нельзя: находка остаётся в выдаче со словами «только общая
+    приёмная — для отклика не годится», чтобы было видно, что сайт проверен и
+    карьерной почты на нём нет. Живой счёт: у Remoby (remoby.com) весь контакт
+    — `info@remoby.com` в подвале главной; вакансия на 404 646 ₽ так и осталась
+    без канала для отклика, и это честный ответ, а не пропуск.
+    """
+    from .channel import best
+
+    only_general = {"url": "https://remoby.com/", "status": "ok", "ats": None,
+                    "mails": [], "any_mails": ["info@remoby.com"],
+                    "has_jobs": False, "contact_page": True, "why": "…"}
+    if best([only_general]):
+        FAILS.append("общая приёмная стала каналом найма")
+
+    # А карьерная почта на том же месте каналом быть обязана.
+    career = dict(only_general, mails=["hr@remoby.com"])
+    if not best([career]):
+        FAILS.append("карьерная почта перестала считаться каналом")
+
+    # И при выборе из двух побеждает та, где есть куда откликаться.
+    picked = best([only_general, {"url": "https://remoby.com/careers",
+                                  "status": "ok", "ats": None, "mails": [],
+                                  "any_mails": [], "has_jobs": True, "why": "…"}])
+    if not picked or "careers" not in picked["url"]:
+        FAILS.append(f"вместо страницы вакансий выбрана общая приёмная: {picked}")
+
+
+def test_the_company_domain_is_guessed_from_its_name_but_only_from_one_word():
+    """Домен компании угадывается по имени — и только когда имя одно слово.
+
+    🔴 Живой счёт 09.08.2026: у вакансии Remoby в базе стоял домен `max.ru` —
+    витрина, где висел пост, — и `channel` отвечал «агрегатор, канал искать не
+    здесь». Домена компании не было ни в одной записи, весь её контакт
+    (`info@remoby.com`) я достал вручную, проверив четыре зоны.
+
+    Обратная сторона важнее: склейка из нескольких слов даёт ЧУЖОЙ сайт.
+    `ppsolutions.com` для «P&P Solutions» — совсем не обязательно та же
+    компания, а канал найма чужой компании ничем не лучше чужой почты с
+    баннера. Поэтому гадаем только по одному латинскому слову.
+    """
+    from .channel import domains_from_name
+
+    got = domains_from_name("Remoby")
+    if "remoby.com" not in got or "remoby.ru" not in got:
+        FAILS.append(f"домен по имени компании не собрался: {got}")
+    for name in ("Лаборатория Касперского", "P&P Solutions", "Acme Corp", "", "X"):
+        if domains_from_name(name):
+            FAILS.append(f"домен выдуман по имени, которое этого не позволяет: "
+                         f"{name!r} → {domains_from_name(name)}")
+
+
 def test_a_debt_is_closed_by_walking_the_twin_not_by_spending_the_limit():
     """Долг закрывается ОБХОДОМ дубля, а не тратой лимита.
 

@@ -62,6 +62,15 @@ _MAIL_RE = re.compile(
     r"\b((?:hr|job|jobs|career|careers|join|work|vacancy|vacancies|recruit|"
     r"recruiting|people|talent)[a-z0-9._%+-]*@[a-z0-9.-]+\.[a-z]{2,})", re.I)
 
+# Общая приёмная компании: писать туда хуже, чем в отдел найма, но лучше, чем
+# никуда. 🔴 Слова владельца: «если не можешь найти конкретную ссылку — можно
+# просто отправить резюме им на почту». Живой счёт 09.08.2026: у Remoby весь
+# контакт — `info@remoby.com` в подвале главной, почты найма нет вовсе, и зонд
+# отвечал «канала нет» при полностью доступном канале.
+_ANY_MAIL_RE = re.compile(
+    r"\b((?:info|hello|contact|contacts|office|mail|welcome|ask|team)"
+    r"[a-z0-9._%+-]*@[a-z0-9.-]+\.[a-z]{2,})", re.I)
+
 # Признаки того, что на странице есть вакансии, а не просто «мы нанимаем».
 _HAS_JOBS = re.compile(
     r"ваканси|vacanc|открытые позиции|open positions|apply now|откликнуться|"
@@ -75,6 +84,16 @@ _HAS_JOBS = re.compile(
 # «p&p solutions — агрегатор, а не работодатель» — уверенный неверный вердикт
 # на самом ценном пути (поиск канала ближе к работодателю).
 _DOMAIN_RE = re.compile(r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$")
+
+
+def _org_of(host: str) -> str:
+    """Две последние метки домена: careers.remoby.com → remoby.com.
+
+    Нужна, чтобы общая почта засчитывалась только СВОЯ. `info@` с чужого
+    домена — это тот же случай, что чужая почта найма с баннера рейтинга.
+    """
+    parts = [p for p in (host or "").lower().removeprefix("www.").split(".") if p]
+    return ".".join(parts[-2:]) if len(parts) >= 2 else (host or "")
 
 
 def domain_of(url: str | None) -> str:
@@ -214,20 +233,27 @@ def probe(url: str, *, timeout: int = 12) -> dict | None:
                 "why": "сервер отдал каркас без текста — добери `--render`"}
     ats = next((name for name, rx in _ATS_MARKERS if rx.search(html)), None)
     mails = list(dict.fromkeys(m.lower() for m in _MAIL_RE.findall(html)))
+    # Общая приёмная — запасной канал, а не основной: годится, только когда
+    # ни ATS, ни почты найма, ни списка вакансий на сайте нет вовсе.
+    any_mails = [m for m in dict.fromkeys(x.lower() for x in _ANY_MAIL_RE.findall(html))
+                 if _org_of(m.split("@")[-1]) == _org_of(urllib.parse.urlsplit(url).hostname or "")]
     has_jobs = bool(_HAS_JOBS.search(html))
     path = urllib.parse.urlsplit(url).path.rstrip("/") or "/"
-    if path in _CONTACT_PAGES and not mails:
+    if path in _CONTACT_PAGES and not mails and not any_mails:
         # На главной слова «вакансии» есть у половины сайтов — это ещё не канал.
-        # Засчитываем её, только если нашлась настоящая почта найма.
+        # Засчитываем её, только если нашлась почта: найма или хотя бы общая.
         return None
-    if not (ats or mails or has_jobs):
+    if not (ats or mails or any_mails or has_jobs):
         return None                      # живая, но не про найм — не кандидат
     return {"url": final or url, "status": "ok", "ats": ats, "mails": mails[:4],
+            "any_mails": any_mails[:2],
             "has_jobs": has_jobs, "contact_page": path in _CONTACT_PAGES,
             "why": ", ".join(x for x in (
                 f"ATS: {ats}" if ats else "",
                 "есть признаки вакансий" if has_jobs else "",
-                f"почты: {', '.join(mails[:2])}" if mails else "") if x)}
+                f"почты: {', '.join(mails[:2])}" if mails else "",
+                f"только общая приёмная ({', '.join(any_mails[:2])}) — для "
+                f"отклика не годится" if any_mails and not mails else "") if x)}
 
 
 # Каркас SPA: сервер отдал 200, но текста нет — судить по нему нельзя.
@@ -244,10 +270,62 @@ def looks_like_shell(html: str) -> bool:
     return len(" ".join(text.split())) < 400 and bool(_SPA_SHELL.search(html or ""))
 
 
+_NAME_ZONES = (".com", ".ru", ".io", ".tech", ".app", ".dev")
+
+
+def domains_from_name(company: str) -> list[str]:
+    """Домены-кандидаты из ИМЕНИ компании: Remoby → remoby.com, remoby.ru, …
+
+    🔴 Заведено по живому счёту 09.08.2026. У вакансии Remoby с hirehi в базе
+    стоял домен `max.ru` — витрина, на которой пост и висел, — и `channel`
+    честно отвечал «агрегатор, канал искать не здесь». Домена компании не было
+    ни в одной записи, и весь её контакт (`info@remoby.com`) достался вручную:
+    я просто проверил четыре зоны. Ровно это и делает функция.
+
+    Только латиница и только ОДНО слово. «Лаборатория Касперского» так не
+    угадывается, и выдумывать домен по ней нельзя. Склейка из нескольких слов
+    тоже запрещена: `ppsolutions.com` для «P&P Solutions» — это уже чужой сайт
+    с вероятностью больше половины, а канал найма чужой компании ничем не лучше
+    чужой почты с баннера.
+    """
+    if len(str(company or "").split()) != 1:
+        return []
+    name = re.sub(r"[^a-z0-9-]+", "", (company or "").strip().lower())
+    if not (3 <= len(name) <= 24) or not re.fullmatch(r"[a-z][a-z0-9-]*", name):
+        return []
+    return [name + z for z in _NAME_ZONES]
+
+
+def domain_exists(dom: str) -> bool:
+    """Существует ли домен. Только DNS — ни одного HTTP-запроса.
+
+    Проверять существование зондом содержимого нельзя: `remoby.com` отдаёт
+    страницу лишь браузеру, и stdlib-зонд отвечает «страницы нет» на живом
+    сайте компании (09.08.2026). Здесь нужен ровно факт «домен есть» — что на
+    нём лежит, дальше выясняют полноценные зонды и рендер.
+    """
+    import socket  # noqa: PLC0415 — нужен только здесь
+
+    try:
+        socket.getaddrinfo(dom, None)
+        return True
+    except OSError:
+        return False
+
+
 def find(company: str, *, domain: str = "", limit: int = 4,
          timeout: int = 12, render: bool = False) -> dict:
     """Кандидаты в канал найма для компании. Сеть — да, модель — нет."""
     dom = domain_of(domain) or domain_of(company)
+    if dom and not is_employer_domain(dom):
+        # Домен из базы оказался витриной — это не повод сдаться: у самой
+        # компании домен может просто нигде не встретиться. Пробуем угадать
+        # его по имени, и уже если не вышло — честно говорим про витрину.
+        guessed = next((d for d in domains_from_name(company) if domain_exists(d)), "")
+        if guessed:
+            dom = guessed
+    if not dom:
+        dom = next((d for d in domains_from_name(company) if domain_exists(d)), "")
     result = {"company": company, "domain": dom, "hits": [], "checked": 0,
               "note": ""}
     if not dom:
@@ -310,7 +388,11 @@ def find(company: str, *, domain: str = "", limit: int = 4,
                 f"https://career.{dom}/"]
         before = len(result["hits"])
         for hit in probe_rendered_many(urls):
-            if hit:
+            # Дедуп по КОНЕЧНОМУ адресу — тот же, что у stdlib-ветки выше:
+            # `/careers` и `/vacancies` часто редиректят в корень, и без него
+            # одна страница печаталась дважды, выглядя двумя подтверждениями.
+            if hit and (hit.get("url") or "").rstrip("/") not in seen_final:
+                seen_final.add((hit.get("url") or "").rstrip("/"))
                 result["hits"].append(hit)
                 result["checked"] += 1
                 if len(result["hits"]) - before >= 2:
@@ -344,12 +426,19 @@ def _rendered_hit(html: str, final: str, url: str, state: str) -> dict | None:
         return None
     ats = next((name for name, rx in _ATS_MARKERS if rx.search(html)), None)
     mails = list(dict.fromkeys(m.lower() for m in _MAIL_RE.findall(html)))
-    if not (ats or mails or _HAS_JOBS.search(html)):
+    any_mails = [m for m in dict.fromkeys(x.lower() for x in _ANY_MAIL_RE.findall(html))
+                 if _org_of(m.split("@")[-1]) == _org_of(urllib.parse.urlsplit(final or url).hostname or "")]
+    if not (ats or mails or any_mails or _HAS_JOBS.search(html)):
         return None
     return {"url": final or url, "status": "ok", "ats": ats, "mails": mails[:4],
+            "any_mails": any_mails[:2],
             "has_jobs": bool(_HAS_JOBS.search(html)),
             "why": "подтверждено рендером (SPA)"
-                   + (f", ATS: {ats}" if ats else "")}
+                   + (f", ATS: {ats}" if ats else "")
+                   + (f", почты: {', '.join(mails[:2])}" if mails else "")
+                   + (f", только общая приёмная ({', '.join(any_mails[:2])}) — "
+                      f"для отклика не годится"
+                      if any_mails and not mails else "")}
 
 
 def probe_rendered(url: str, *, wait: float = 3.0) -> dict | None:
@@ -390,7 +479,16 @@ def best(hits: list[dict]) -> dict | None:
     for h in hits:
         if h.get("has_jobs"):
             return h
-    return hits[0] if hits else None
+    for h in hits:
+        if h.get("mails"):
+            return h
+    # 🔴 Находка, где нашлась ТОЛЬКО общая приёмная (`info@`, `contact@`),
+    # каналом не становится: «почта должна быть специальная, для откликов» —
+    # прямое уточнение владельца 09.08.2026. Резюме в общую приёмную уходит в
+    # никуда, и записать её каналом значит соврать в карточке. В выдаче она
+    # остаётся справкой: видно, что у компании есть адрес, но не для найма.
+    return next((h for h in hits if not h.get("any_mails")
+                 or h.get("mails") or h.get("ats") or h.get("has_jobs")), None)
 
 
 def companies_without_channel(db: str, *, days: int, top: int) -> list[str]:
