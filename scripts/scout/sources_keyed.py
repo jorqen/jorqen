@@ -501,6 +501,13 @@ def _adzuna_rows(rows: list, country: str, ctx: Ctx, out: list, seen: set,
             title=title,
             company=(j.get("company") or {}).get("display_name"),
             salary_from=lo, salary_to=hi, currency=cur if (lo or hi) else None,
+            # 🔴 Вилка Adzuna ГОДОВАЯ — так устроен её API (`salary_min` /
+            # `salary_max` annualised). Это факт спецификации, а не догадка по
+            # величине числа. Без периода «336 000–403 200 PLN» стояло в
+            # шорт-листе рядом с «от 240 000 RUB/мес» и читалось как месячная
+            # вилка: 322 записи в базе на 09.08.2026. В этом проекте период
+            # важнее числа — ради того он и заведён.
+            salary_period="year" if (lo or hi) else None,
             location=(j.get("location") or {}).get("display_name"),
             published_at=j.get("created"),
             tags=[x for x in (j.get("contract_time"), j.get("contract_type"),

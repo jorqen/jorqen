@@ -2658,7 +2658,11 @@ def test_adzuna_never_turns_its_own_guess_into_a_salary():
     real, guess = jobs[0], jobs[1]
     eq((real.salary_from, real.salary_to, real.currency), (90000, 110000, "GBP"),
        "объявленная вилка перенесена, валюта выведена из страны запроса")
-    eq(real.salary_period, None, "периода Adzuna не называет — суффикса нет")
+    # 🔴 У Adzuna вилка ГОДОВАЯ — так устроен её API, это не догадка. Без
+    # периода 336 000 PLN печатались рядом с «от 240 000 RUB/мес» и читались
+    # как месячные: 322 записи в базе на 09.08.2026 сравнивались с рублёвыми
+    # месячными вилками напрямую. Период здесь важнее числа.
+    eq(real.salary_period, "year", "годовая вилка Adzuna осталась без периода")
     eq(real.external_id, "gb-5183947221", "id уникален только внутри страны")
     eq((guess.salary_from, guess.salary_to), (None, None),
        "ПРЕДСКАЗАННАЯ вилка в поля денег не попадает")
