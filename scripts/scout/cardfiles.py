@@ -283,6 +283,27 @@ def write(db: str, urls: list[str], *, date: str, root: str = ".jobs",
                 # у которых требования разбирались прекрасно.
                 out.append((path, f"НЕ записана: {why_empty}"))
                 continue
+            # 🔴 `--force` НЕ имеет права затирать написанные фит и письмо.
+            # Их нет ни в базе, ни в git (`.jobs/` в .gitignore) — восстановить
+            # нечем. 09.08.2026 я применил `--force` к списку, куда попали
+            # готовые карточки, и шестнадцать фитов с письмами исчезли
+            # безвозвратно. Для готовой карточки правильный режим — `--refresh`,
+            # и код теперь переключается на него САМ, а не полагается на мою
+            # внимательность.
+            if exists and force:
+                try:
+                    with open(path, encoding="utf-8") as f:
+                        current = f.read()
+                except OSError:
+                    current = ""
+                if _MODEL_PART in current and "— пишет модель" not in current:
+                    merged = refresh_text(current, text)
+                    if merged is not None:
+                        with open(path, "w", encoding="utf-8") as f:
+                            f.write(merged if merged.endswith("\n") else merged + "\n")
+                        out.append((path, "факты обновлены; фит и письмо НЕ затёрты "
+                                          "(в карточке была работа модели)"))
+                        continue
             if exists and refresh and not force:
                 with open(path, encoding="utf-8") as f:
                     merged = refresh_text(f.read(), text)
