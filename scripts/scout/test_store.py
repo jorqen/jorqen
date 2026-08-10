@@ -111,6 +111,43 @@ def test_search_negotiations():
         eq(got[0]["status"], "rejection", "search_negotiations: статус на месте")
 
 
+def test_two_openings_with_the_same_name_keep_both_statuses():
+    """У одного работодателя бывают две вакансии с одинаковым названием.
+
+    Ключ отклика — (название, компания), и такие две склеивались в одну строку:
+    отказ по первой молча заменялся приглашением по второй. Отвечает по этой
+    таблице `status --query` на вопрос «сюда уже отказали?» — то есть неправдой.
+
+    Расходимся только по ДОКАЗАННОМУ различию (обе стороны назвали адрес, и
+    адреса разные): склейка hh с почтой по одной вакансии держится ровно на
+    общем ключе, и ломать её ради этого нельзя. Почта адрес почти никогда
+    не называет — 3 строки из 106 на 10.08.2026.
+    """
+    import os
+    import tempfile
+    from . import store
+    with tempfile.TemporaryDirectory() as tmp, \
+            store.connect(os.path.join(tmp, "t.db")) as conn:
+        store.upsert_negotiation(conn, title="Go Developer", company="Ozon",
+                                 status="rejection", source="hh",
+                                 url="https://hh.ru/vacancy/111")
+        store.upsert_negotiation(conn, title="Go Developer", company="Ozon",
+                                 status="invitation", source="hh",
+                                 url="https://hh.ru/vacancy/222")
+        got = {r["status"] for r in store.search_negotiations(conn, "Ozon")}
+        eq(got, {"rejection", "invitation"},
+           "отклик по второй вакансии затёр отклик по первой")
+
+        # Обратная сторона: hh и почта по ОДНОЙ вакансии — по-прежнему одна строка.
+        store.upsert_negotiation(conn, title="Backend Java", company="Sber",
+                                 status="applied", source="hh",
+                                 url="https://hh.ru/vacancy/900")
+        store.upsert_negotiation(conn, title="Backend Java", company="Sber",
+                                 status="rejection", source="mail")
+        eq(len(store.search_negotiations(conn, "Sber")), 1,
+           "склейка hh с почтой по одной вакансии сломана")
+
+
 def test_country_matcher_word_boundaries():
     """«Russian speaker» — это язык, а не локация; «Prussia» — не Россия."""
     from .atsapi import BoardJob, country_matcher, job_matches_country

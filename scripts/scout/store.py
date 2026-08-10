@@ -548,9 +548,25 @@ def search(conn, needle: str, limit: int = 50) -> list[dict]:
 def save_detail(conn, source: str, external_id: str, url: str, status: str,
                 payload: dict | None = None, error: str | None = None,
                 page_state: str | None = None) -> None:
+    """Итог захода на страницу вакансии. Пустая выжимка НЕ затирает добытую.
+
+    `INSERT OR REPLACE` здесь терял знание: `enrich --refresh` перекачивает уже
+    обогащённое, и страница, которая сегодня отдаёт 404 или стену, стирала
+    вчерашнюю полную выжимку. Дальше `have_details` не пускала вакансию
+    в закачку две недели — писать карточку по ней было уже нечем. В базе на
+    10.08.2026 таких строк без payload 477 при 869 с payload.
+
+    Разделение то же, что в `save_research`: `status`, `error`, `url` и
+    `fetched_at` описывают ПОСЛЕДНЮЮ попытку и обновляются всегда, а `payload`
+    и `page_state` — это знание, и пустотой оно не перезаписывается.
+    """
     conn.execute(
-        "INSERT OR REPLACE INTO detail (source, external_id, url, fetched_at, status, "
-        "error, payload, page_state) VALUES (?,?,?,?,?,?,?,?)",
+        "INSERT INTO detail (source, external_id, url, fetched_at, status, "
+        "error, payload, page_state) VALUES (?,?,?,?,?,?,?,?) "
+        "ON CONFLICT(source, external_id) DO UPDATE SET "
+        "url=excluded.url, fetched_at=excluded.fetched_at, status=excluded.status, "
+        "error=excluded.error, payload=COALESCE(excluded.payload, detail.payload), "
+        "page_state=COALESCE(excluded.page_state, detail.page_state)",
         (source, str(external_id), url, now(), status, error,
          json.dumps(payload, ensure_ascii=False, default=str) if payload else None,
          page_state),
@@ -720,8 +736,22 @@ def upsert_negotiation(conn, *, title: str, company: str | None, status: str,
         tk = f"{tk}#{_neg_key(key_extra)}"
     ts = now()
     row = conn.execute(
-        "SELECT status, event_at, note FROM negotiation "
+        "SELECT status, event_at, note, url FROM negotiation "
         "WHERE title_key=? AND company_key=?", (tk, ck)).fetchone()
+    # Ключ (название, компания) склеивает hh с почтой по одной вакансии — ради
+    # этого он и такой. Но у одного работодателя бывают ДВЕ вакансии с
+    # одинаковым названием, и тогда тот же ключ склеивает разные отклики: отказ
+    # по одной молча заменялся приглашением по другой, а `status --query`
+    # отвечает по этой таблице на вопрос «сюда уже отказали?».
+    #
+    # Расходимся только по ДОКАЗАННОМУ различию — когда обе стороны назвали
+    # адрес и адреса разные. Почта адрес почти никогда не называет (3 строки
+    # из 106 на 10.08.2026), поэтому склейка hh+почта продолжает работать.
+    if row is not None and url and row["url"] and row["url"] != url:
+        tk = f"{tk}#{_neg_key(url)}"
+        row = conn.execute(
+            "SELECT status, event_at, note, url FROM negotiation "
+            "WHERE title_key=? AND company_key=?", (tk, ck)).fetchone()
     if row is None:
         conn.execute(
             "INSERT INTO negotiation (title_key, company_key, title, company, status, "
