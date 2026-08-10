@@ -87,6 +87,56 @@ def platform_for_url(url: str) -> str | None:
     return None
 
 
+# Составные общественные суффиксы: под ними живут РАЗНЫЕ владельцы, и брать
+# такой «апекс» доменом кук значит предъявить чужому сайту куки соседа.
+_PUBLIC_SLD = frozenset({"co", "com", "org", "net", "ac", "gov", "edu"})
+
+
+def cookie_domains_for_url(url: str) -> tuple[str, ...]:
+    """Домены, по которым для этого адреса имеет смысл искать куки.
+
+    Хост И его родители до апекса: `cf_clearance` Cloudflare ставится на апекс
+    (`.jooble.org`), а ходим мы на поддомен (`ru.jooble.org`) — фильтр кук
+    сверяет домен точным совпадением или суффиксом, и апексная кука к
+    поддоменному запросу не подходила. Дальше апекса не поднимаемся:
+    `co.uk` и `com.br` — это не владелец, а общественный суффикс.
+    """
+    host = (url.split("//", 1)[-1].split("/", 1)[0] or "").lower()
+    host = host.split(":", 1)[0].removeprefix("www.").strip(".")
+    if not host or host.replace(".", "").isdigit():
+        return (host,) if host else ()
+    parts = host.split(".")
+    out = []
+    for i in range(len(parts) - 1):
+        tail = parts[i:]
+        if len(tail) == 2 and tail[0] in _PUBLIC_SLD and len(tail[1]) <= 3:
+            break
+        out.append(".".join(tail))
+    return tuple(out) or (host,)
+
+
+def cookie_header_for_url(url: str, *, cookies_from: str | None = None) -> str | None:
+    """Заголовок `Cookie` для АДРЕСА, а не для имени площадки.
+
+    Раньше вызывающий передавал хост прямо в `cookie_header`, который ждёт имя
+    площадки из реестра. Для `ru.jooble.org` это значило: реестр её не знает,
+    `.auth/<площадка>.json` не читается никогда, а доменом кук становится сам
+    поддомен — то есть пропуск хозяина выбрасывался ровно на тех адресах, ради
+    которых он и предъявляется.
+    """
+    platform = platform_for_url(url)
+    if platform:
+        return cookie_header(platform, cookies_from=cookies_from)
+    domains = cookie_domains_for_url(url)
+    if not domains:
+        return None
+    try:
+        from . import cookiesrc  # noqa: PLC0415 — ленивый импорт, тут цикл
+        return cookiesrc.resolve(cookies_from, domains, use_cache=True).cookie_header()
+    except Exception:  # noqa: BLE001 — нет кук не повод ронять запрос
+        return None
+
+
 def login_state(platform: str, html: str) -> tuple[str, str]:
     """(состояние, пояснение) по вёрстке страницы: `logged_in` / `anonymous` /
     `unknown`.

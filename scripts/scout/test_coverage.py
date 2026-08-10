@@ -1785,18 +1785,18 @@ def test_a_wall_is_retried_with_the_owners_pass_before_being_called_a_wall():
         # Без пропуска — стена; с пропуском — настоящая страница.
         return Resp(good_body if req.headers.get("Cookie") else wall_body)
 
-    old_open, old_cookie = net.urllib.request.urlopen, None
+    old_open = net.urllib.request.urlopen
     from . import auth
-    old_cookie = auth.cookie_header
+    old_cookie = auth.cookie_header_for_url
     net.urllib.request.urlopen = fake_open
-    auth.cookie_header = lambda *a, **k: "cf_clearance=abc; other=1"
+    auth.cookie_header_for_url = lambda *a, **k: "cf_clearance=abc; other=1"
     try:
         text, _final = net.fetch("https://wall.example/job/1", retries=0)
     except Exception as e:  # noqa: BLE001
         text = f"ИСКЛЮЧЕНИЕ {type(e).__name__}"
     finally:
         net.urllib.request.urlopen = old_open
-        auth.cookie_header = old_cookie
+        auth.cookie_header_for_url = old_cookie
 
     if "Требования" not in text:
         FAILS.append(f"пропуск хозяина не предъявлен, стена принята за приговор: {text[:80]}")
@@ -1806,7 +1806,7 @@ def test_a_wall_is_retried_with_the_owners_pass_before_being_called_a_wall():
     # Обратная сторона: пропуска нет — второй пробы не делаем и честно говорим «стена».
     calls.clear()
     net.urllib.request.urlopen = fake_open
-    auth.cookie_header = lambda *a, **k: ""
+    auth.cookie_header_for_url = lambda *a, **k: ""
     try:
         net.fetch("https://wall.example/job/2", retries=0)
         FAILS.append("без пропуска стена не объявлена")
@@ -1816,7 +1816,34 @@ def test_a_wall_is_retried_with_the_owners_pass_before_being_called_a_wall():
         FAILS.append(f"вместо BlockedError получено {type(e).__name__}")
     finally:
         net.urllib.request.urlopen = old_open
-        auth.cookie_header = old_cookie
+        auth.cookie_header_for_url = old_cookie
+
+
+def test_owner_pass_is_looked_up_by_address_not_by_hostname():
+    """Пропуск ищется по АДРЕСУ, иначе он теряется ровно там, где нужен.
+
+    Повтор со стены передавал ХОСТ в `auth.cookie_header`, который ждёт имя
+    площадки из реестра. Последствий два, и оба молчаливые: у `spb.hh.ru`
+    реестр не находил площадку, то есть `.auth/hh.json` от `auth login` не
+    читался никогда; а доменом кук становился сам поддомен, тогда как
+    `cf_clearance` Cloudflare ставится на АПЕКС — и пропуск отбрасывался
+    фильтром до отправки. Именно этот случай записан в field-notes про jooble:
+    60 страниц «Just a moment» при живой пройденной проверке в браузере.
+    """
+    from .auth import cookie_domains_for_url, platform_for_url
+
+    eq(platform_for_url("https://spb.hh.ru/vacancy/1"), "hh",
+       "гео-поддомен площадки не опознан — вход человека не будет предъявлен")
+    for url, want in (
+        ("https://ru.jooble.org/jobs", ("ru.jooble.org", "jooble.org")),
+        ("https://career.habr.com/x", ("career.habr.com", "habr.com")),
+        ("https://jooble.org/x", ("jooble.org",)),
+    ):
+        eq(cookie_domains_for_url(url), want, f"домены кук для {url}")
+    # Выше апекса не поднимаемся: под общественным суффиксом сидят чужие сайты,
+    # и отдать им куки соседа нельзя.
+    ok("co.uk" not in cookie_domains_for_url("https://shop.example.co.uk/x"),
+       "общественный суффикс принят за апекс — это выдача чужих кук")
 
 
 def test_the_letter_draft_picks_the_rare_match_not_the_common_one():

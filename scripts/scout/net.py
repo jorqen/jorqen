@@ -332,11 +332,11 @@ def _retry_with_owner_cookies(url, headers, body, method, timeout, ctx,
     if had_cookies:
         return None                       # куки уже передали, второй раз незачем
     try:
-        host = urllib.parse.urlsplit(url).hostname or ""
-        if not host:
-            return None
         from . import auth  # noqa: PLC0415 — цикл: auth знает про сеть
-        jar = auth.cookie_header(host.removeprefix("www."))
+        # По АДРЕСУ, а не по хосту: `cookie_header` ждёт имя площадки из реестра,
+        # и хост в этой роли отменял и `.auth/<площадка>.json`, и апексную
+        # `cf_clearance` — то есть весь смысл повтора.
+        jar = auth.cookie_header_for_url(url)
     except Exception:  # noqa: BLE001 — базы кук нет, браузер закрыт, нет прав
         return None
     if not jar:
