@@ -288,16 +288,48 @@ def error_state(exc: BaseException) -> tuple[str, str]:
     return PAGE_LAYOUT, f"{type(exc).__name__}: {exc}"
 
 
+# Потолок на тело ответа — и до, и ПОСЛЕ распаковки. Ядро ходит на 28 чужих
+# площадок, и потолка не было ни там, ни там: 64 КБ gzip разворачивались в
+# 64 МБ строки за 0.03 с (раздутие ×1028), а `parallel` держит восемь таких
+# потоков разом. Ни одна живая страница вакансии и близко не подходит к этому
+# размеру — самый крупный настоящий ответ в замерах был 1,4 МБ.
+MAX_BODY = 32 * 1024 * 1024
+
+
+class TooLargeError(FetchError):
+    """Ответ больше потолка. Отдельный класс, чтобы не путать с обрывом связи."""
+
+
+def _inflate(obj, data: bytes, url: str) -> bytes:
+    """Распаковка порциями с потолком: целиком её звать нельзя.
+
+    `gzip.decompress` разворачивает всё в память ДО того, как размер можно
+    проверить, — то есть проверять после неё уже поздно.
+    """
+    out = bytearray()
+    for chunk_start in range(0, len(data), 65536):
+        out += obj.decompress(data[chunk_start:chunk_start + 65536], MAX_BODY - len(out) + 1)
+        if len(out) > MAX_BODY:
+            raise TooLargeError(url, f"распакованное тело больше {MAX_BODY // 1024 // 1024} МБ")
+    out += obj.flush()
+    if len(out) > MAX_BODY:
+        raise TooLargeError(url, f"распакованное тело больше {MAX_BODY // 1024 // 1024} МБ")
+    return bytes(out)
+
+
 def _decode(resp) -> bytes:
-    data = resp.read()
+    url = getattr(resp, "url", "") or ""
+    data = resp.read(MAX_BODY + 1)
+    if len(data) > MAX_BODY:
+        raise TooLargeError(url, f"тело ответа больше {MAX_BODY // 1024 // 1024} МБ")
     enc = (resp.headers.get("Content-Encoding") or "").lower()
     if "gzip" in enc:
-        return gzip.decompress(data)
+        return _inflate(zlib.decompressobj(16 + zlib.MAX_WBITS), data, url)
     if "deflate" in enc:
         try:
-            return zlib.decompress(data)
+            return _inflate(zlib.decompressobj(), data, url)
         except zlib.error:
-            return zlib.decompress(data, -zlib.MAX_WBITS)
+            return _inflate(zlib.decompressobj(-zlib.MAX_WBITS), data, url)
     return data
 
 

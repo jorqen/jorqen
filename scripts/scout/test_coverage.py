@@ -1846,6 +1846,61 @@ def test_owner_pass_is_looked_up_by_address_not_by_hostname():
        "общественный суффикс принят за апекс — это выдача чужих кук")
 
 
+def test_the_letter_is_written_in_the_language_of_the_vacancy():
+    """Письмо пишется на языке ВАКАНСИИ, а не на языке владельца.
+
+    🔴 Замечание владельца 09.08.2026: у вакансий adzuna (Польша, Германия,
+    Британия) письма были русскими. Расхождение нашлось на 64 карточках волны из
+    154, и все в одну сторону: вакансия английская, письмо русское. Английское
+    письмо в польскую компанию нормально, русское почти всегда мимо — его просто
+    не прочтут.
+
+    Резюме двуязычное, поэтому переводить ничего не нужно: берётся другая
+    сторона тех же фактов. Третьего языка нет намеренно — сочинять польский или
+    немецкий не из чего, а выдуманный перевод хуже честного английского.
+    """
+    from . import letter
+
+    resume = {"experience": {"items": [
+        {"company": {"en": "ATOM", "ru": "АТОМ"}, "highlights": [
+            {"ru": "Реализовал высоконагруженный сервис на Go: 70K+ запросов в "
+                   "секунду при p99 ниже 50 мс.",
+             "en": "Built a high-load Go service handling 70K+ requests per "
+                   "second at p99 below 50 ms."}]},
+        {"company": "Exnode", "highlights": [
+            {"ru": "Разобрал критический инцидент с конвертацией валют и откатил "
+                   "затронутые транзакции.",
+             "en": "Investigated a critical currency-conversion incident and "
+                   "rolled back the affected transactions."}]},
+    ]}}
+
+    eng = letter.draft(title="Senior Go Engineer",
+                       reqs=["5+ years of Go", "high-load distributed systems"],
+                       resume=resume, url="https://adzuna.pl/x")
+    if "Hello!" not in eng or "Matvey" not in eng:
+        FAILS.append(f"письмо по английской вакансии осталось русским:\n{eng[:120]}")
+    if "Здравствуйте" in eng or "Вакансия:" in eng:
+        FAILS.append("в английском письме русские служебные фразы")
+    if "АТОМ" in eng:
+        FAILS.append("в английском письме кириллическое название компании")
+    if "70K+ requests" not in eng:
+        FAILS.append("английская сторона фактов резюме не использована")
+
+    rus = letter.draft(title="Golang-разработчик",
+                       reqs=["Go от 3 лет", "высоконагруженные системы"],
+                       resume=resume, url="https://hh.ru/vacancy/1")
+    if "Здравствуйте" not in rus or "Матвей" not in rus:
+        FAILS.append(f"письмо по русской вакансии стало английским:\n{rus[:120]}")
+    if "70K+ запросов" not in rus:
+        FAILS.append("русская сторона фактов резюме не использована")
+
+    # Язык определяется по доле кириллицы, а не по домену: у польской вакансии
+    # текст английский, и это единственный надёжный признак.
+    eq(letter.language("Senior Go Engineer, Warszawa"), "en", "латиница → en")
+    eq(letter.language("Go-разработчик, Москва"), "ru", "кириллица → ru")
+    eq(letter.language(""), "en", "пустой текст → en по умолчанию")
+
+
 def test_the_letter_draft_picks_the_rare_match_not_the_common_one():
     """Черновик письма собирает АЛГОРИТМ, и выбирает он по редкости совпадения.
 

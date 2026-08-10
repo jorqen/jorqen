@@ -89,6 +89,25 @@ def _terms(text: str) -> set[str]:
             if any(_word(w, low) for w in words)}
 
 
+def language(text: str) -> str:
+    """Язык вакансии: "ru" или "en". Считается по доле кириллицы.
+
+    🔴 Письмо пишется на языке ВАКАНСИИ, а не на языке владельца. Замечание
+    владельца 09.08.2026: у вакансий adzuna (Польша, Германия, Британия) письма
+    были русскими — 64 карточки волны. Английское письмо в польскую компанию
+    нормально, русское — почти всегда мимо: его просто не прочтут.
+
+    Третьего варианта нет намеренно. Резюме двуязычное (en/ru), и сочинять
+    польский или немецкий не из чего: английский в IT понимают везде, а
+    выдуманный перевод хуже честного английского.
+    """
+    letters = [c for c in (text or "") if c.isalpha()]
+    if not letters:
+        return "en"
+    cyr = sum(1 for c in letters if "а" <= c.lower() <= "я" or c in "ёЁ")
+    return "ru" if cyr / len(letters) > 0.3 else "en"
+
+
 def _sentences(text: str) -> list[str]:
     """Эпизод режем на предложения: в письмо идёт факт, а не абзац резюме."""
     parts = re.split(r"(?<=[.!?])\s+", (text or "").strip())
@@ -136,7 +155,7 @@ def _shorten(sentence: str, limit: int = 32) -> str:
     return head.rstrip(" ,;:") + "."
 
 
-def highlights(resume: dict) -> list[dict]:
+def highlights(resume: dict, lang: str = "ru") -> list[dict]:
     """Эпизоды из резюме: [{текст, компания, понятия}]. Русская сторона.
 
     Берём `highlights` каждого места работы — они уже написаны как факты с
@@ -155,10 +174,14 @@ def highlights(resume: dict) -> list[dict]:
         # двуязычное, и часть полей переведена, а часть нет.
         raw = job.get("company") or job.get("organization") or ""
         if isinstance(raw, dict):
-            raw = raw.get("ru") or raw.get("en") or ""
+            # Сторона по языку письма: в английском письме «At ATOM», а не
+            # «At АТОМ» — кириллица в английском тексте читается как опечатка.
+            raw = raw.get(lang) or raw.get("en") or raw.get("ru") or ""
         company = str(raw).strip()
         for h in (job.get("highlights") or []):
-            text = h.get("ru") if isinstance(h, dict) else h
+            # Сторона резюме по языку письма: факты те же, язык разный.
+            text = (h.get(lang) or h.get("ru") or h.get("en")) \
+                if isinstance(h, dict) else h
             text = str(text or "").strip()
             if len(text) < 40:
                 continue
@@ -238,44 +261,60 @@ def pick(reqs: list[str], pool: list[dict], *, want: int = 3,
     return out
 
 
-def _lead(reqs: list[str], chosen: list[dict]) -> str:
+def _lead(reqs: list[str], chosen: list[dict], lang: str = "ru") -> str:
     """Первая фраза: чем именно вакансия совпала. Без «меня зовут» и «о себе»."""
     need = set()
     for r in reqs:
         need |= _terms(r)
     top = (chosen[0]["terms"] & need) if chosen else set()
     labels = {
-        "payments": "Платежи и транзакционная корректность",
-        "highload": "Высоконагруженные сервисы",
-        "observability": "Наблюдаемость и разбор проблем в проде",
-        "distributed": "Распределённые системы и гарантии доставки",
-        "microservices": "Микросервисы и границы между ними",
-        "kafka": "Очереди и событийная обработка",
-        "kubernetes": "Сервисы в Kubernetes",
-        "security": "Защищённые каналы и работа с сертификатами",
-        "go": "Бэкенд на Go",
-    }
+        "ru": {
+            "payments": "Платежи и транзакционная корректность",
+            "highload": "Высоконагруженные сервисы",
+            "observability": "Наблюдаемость и разбор проблем в проде",
+            "distributed": "Распределённые системы и гарантии доставки",
+            "microservices": "Микросервисы и границы между ними",
+            "kafka": "Очереди и событийная обработка",
+            "kubernetes": "Сервисы в Kubernetes",
+            "security": "Защищённые каналы и работа с сертификатами",
+            "go": "Бэкенд на Go",
+        },
+        "en": {
+            "payments": "Payments and transactional correctness",
+            "highload": "High-load services",
+            "observability": "Observability and production debugging",
+            "distributed": "Distributed systems and delivery guarantees",
+            "microservices": "Microservices and the boundaries between them",
+            "kafka": "Queues and event-driven processing",
+            "kubernetes": "Services on Kubernetes",
+            "security": "Secure channels and certificate handling",
+            "go": "Backend in Go",
+        },
+    }[lang]
+    tail = {"ru": ": то, чем я занимаюсь сейчас, поэтому начну с этого.",
+            "en": " is what I work on daily, so let me start there."}[lang]
     for key in ("payments", "highload", "distributed", "observability",
                 "microservices", "kafka", "security", "kubernetes", "go"):
         if key in top:
-            return f"{labels[key]} — то, чем я занимаюсь сейчас, поэтому начну с этого."
-    return "Начну с того, что ближе всего к вашей задаче."
+            return f"{labels[key]}{tail}"
+    return {"ru": "Начну с того, что ближе всего к вашей задаче.",
+            "en": "Let me start with what is closest to your problem."}[lang]
 
 
 def draft(*, title: str, reqs: list[str], resume: dict, url: str = "") -> str:
-    """Черновик письма. Пусто — если сопоставлять не с чем.
+    """Черновик письма НА ЯЗЫКЕ ВАКАНСИИ. Пусто — если сопоставлять не с чем.
 
     Возвращается ГОТОВЫЙ текст, а не заготовка с пропусками: заготовка с
     дырами — это тот же шаблон, только заполнять его пришлось бы модели.
     """
-    pool = highlights(resume)
+    lang = language(" ".join([title or ""] + list(reqs or [])))
+    pool = highlights(resume, lang)
     chosen = pick(reqs, pool, seed=url)
     if not chosen:
         return ""
     # 🔴 Слишком короткое письмо канон не пропускает (минимум 60 слов): у
     # вакансии с двумя требованиями подбор давал один эпизод и письмо на 39
-    # слов. Добираем следующим по весу, а не «любым»: порядок в `pick` уже
-    # отсортирован по близости к требованиям.
+    # слов. Добираем следующим по весу, порядок в `pick` уже отсортирован.
     if sum(len(h["text"].split()) for h in chosen) < 70:
         for extra in pick(reqs, pool, want=len(chosen) + 3, seed=url,
                           min_share=0.0):
@@ -283,45 +322,54 @@ def draft(*, title: str, reqs: list[str], resume: dict, url: str = "") -> str:
                 chosen.append(extra)
             if sum(len(h["text"].split()) for h in chosen) >= 70:
                 break
-    # Эмодзи и служебные значки из заголовка вакансии в письме недопустимы:
-    # канон запрещает их прямо, а площадки ставят («😎 Golang-разработчик»).
+
     role = re.sub(r"[^\w\s()/+.,-]", "", (title or "")).strip().rstrip(".")
-    # Короткое тире из названия вакансии тоже убираем: `lint-letter`
-    # считает маркером генератора любое тире, а название площадка пишет
-    # как хочет («Senior Backend Developer – Go»).
     role = re.sub(r"\s*[–—-]\s*", " ", role)
     role = re.sub(r"\s{2,}", " ", role).strip()
-    lines = [f"Здравствуйте! Откликаюсь на позицию {role}.", ""]
-    lines += [_lead(reqs, chosen), ""]
+
+    words = {
+        "ru": {"hello": f"Здравствуйте! Откликаюсь на позицию {role}.",
+               "at": "В {company}: ", "vac": "Вакансия", "cv": "резюме",
+               "sign": "Матвей"},
+        "en": {"hello": f"Hello! I'm applying for the {role} position.",
+               "at": "At {company}: ", "vac": "Vacancy", "cv": "CV",
+               "sign": "Matvey"},
+    }[lang]
+
+    lines = [words["hello"], ""]
+    lines += [_lead(reqs, chosen, lang), ""]
     for h in chosen:
         # Из эпизода берём первое предложение: оно несёт факт, остальное —
         # уточнения, которые в письме превращаются в воду.
-        body = _sentences(h["text"])
-        text = _plain(_shorten(body[0] if body else h["text"]))
-        where = f"В {h['company']}: " if h["company"] else ""
-        lines += [f"{where}{text}", ""]
+        got = _sentences(h["text"])
+        text_line = _plain(_shorten(got[0] if got else h["text"]))
+        where = words["at"].format(company=h["company"]) if h["company"] else ""
+        lines += [f"{where}{text_line}", ""]
     if url:
-        lines.append(f"Вакансия: {url} · резюме: https://jorqen.link")
+        lines.append(f"{words['vac']}: {url} · {words['cv']}: https://jorqen.link")
     else:
-        lines.append("Резюме: https://jorqen.link")
-    lines += ["", "Матвей"]
+        lines.append(f"{words['cv'].capitalize()}: https://jorqen.link")
+    lines += ["", words["sign"]]
     text = "\n".join(lines)
-    # 🔴 Проверяем ГОТОВОЕ письмо, а не исходные эпизоды: в письмо идёт по
-    # одному предложению из каждого, и счёт по эпизодам расходится с тем, что
-    # увидит `lint-letter`. Он же и был источником замечаний «39 слов» и
-    # «предложение на 53 слова» после первой сборки (09.08.2026).
-    body = [ln for ln in text.splitlines()
-            if ln and not ln.startswith(("Здравствуйте", "Вакансия:", "Резюме:", "Матвей"))]
-    if sum(len(ln.split()) for ln in body) < 65:
+
+    # Проверяем ГОТОВОЕ письмо, а не исходные эпизоды: в письмо идёт по одному
+    # предложению из каждого, и счёт по эпизодам расходится с тем, что увидит
+    # `lint-letter`.
+    skip = (words["hello"][:12], words["vac"] + ":", words["cv"].capitalize() + ":",
+            words["sign"])
+    body_lines = [ln for ln in text.splitlines() if ln and not ln.startswith(skip)]
+    if sum(len(ln.split()) for ln in body_lines) < 65:
         extra = [h for h in pick(reqs, pool, want=len(chosen) + 3, seed=url,
                                  min_share=0.0) if h not in chosen]
         if extra:
             h = extra[0]
-            s = _plain(_shorten((_sentences(h["text"]) or [h["text"]])[0]))
-            where = f"В {h['company']}: " if h["company"] else ""
-            lines.insert(len(lines) - 3, f"{where}{s}")
+            got = _sentences(h["text"])
+            s2 = _plain(_shorten(got[0] if got else h["text"]))
+            where = words["at"].format(company=h["company"]) if h["company"] else ""
+            lines.insert(len(lines) - 3, f"{where}{s2}")
             lines.insert(len(lines) - 3, "")
             text = "\n".join(lines)
-    # Канон: длинного тире в письме не бывает. Ставим его нигде, но эпизоды
-    # приезжают из резюме, где оно встречается.
+
+    # Канон: длинного тире в письме не бывает. Эпизоды приезжают из резюме,
+    # где оно встречается.
     return text.replace(" — ", ": ").replace("—", "")
