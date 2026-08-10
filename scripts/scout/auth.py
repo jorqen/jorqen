@@ -380,7 +380,11 @@ def session_token(platform: str, *, cookies_from: str | None = None) -> tuple[st
             # `--cookies-from yandex` это вопрос про Яндекс, а не «найди хоть где».
             return token, why
     else:
-        token, why = None, unreadable
+        # `unreadable` пуст, когда источник просто не нашёлся, а не сломался.
+        # Пояснение при этом обязано быть всё равно: его печатает вызывающий,
+        # и None на его месте выглядит как «причина неизвестна».
+        token = None
+        why = unreadable or f"{name}: живой сессии нет ни в одном читаемом браузере"
         if cookies_from not in (None, "", "auto"):
             return token, why
 
@@ -1422,7 +1426,9 @@ def _check_bundled(names: list[str], cookies_from: str | None) -> list[str]:
             cfg = PLATFORMS[name]
             doms = tuple(cfg.get("domains") or (name,))
             if have(name):
-                storage: dict | str = state_path(name)
+                # Any: во второй ветке сюда кладётся storage_state Playwright,
+                # чей тип живёт в опциональной зависимости (инвариант 3).
+                storage: Any = state_path(name)
                 where = f".auth/{name}.json"
             else:
                 src = cookiesrc.resolve(cookies_from, doms, use_cache=True)

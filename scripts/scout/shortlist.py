@@ -300,8 +300,8 @@ def grade_of(title: str) -> str:
     words = set(re.findall(r"[a-zа-яё]+", (title or "").lower()))
     hit = sorted(words & GRADE_WORDS)
     # «senior» и «старший» — один грейд, названный на разных языках.
-    ru2en = {"старший": "senior", "ведущий": "lead", "главный": "principal",
-             "младший": "junior", "стажер": "intern", "стажёр": "intern"}
+    ru2en: dict[str, str] = {"старший": "senior", "ведущий": "lead", "главный": "principal",
+                             "младший": "junior", "стажер": "intern", "стажёр": "intern"}
     return ",".join(sorted({ru2en.get(w, w) for w in hit if w}))
 
 

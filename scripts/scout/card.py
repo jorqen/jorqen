@@ -160,7 +160,18 @@ def requirements(text: str, *, limit: int = 14) -> list[str]:
         stack = _stack_as_requirements(text)
         if stack:
             lines = stack
-    return lines[:limit]
+    # 🔴 Повторы. Текст вакансии часто приезжает дважды — в `requirements` и в
+    # `description` выжимки, — и таблица требований выходила вдвое длиннее, а
+    # счётчик «обязательных без совпадения» врал ровно во столько же раз
+    # (09.08.2026: «6» там, где на деле 3). Считаем по нормализованному виду:
+    # площадки различаются пробелами и точкой в конце.
+    seen, uniq = set(), []
+    for ln in lines:
+        key = re.sub(r"[\s.;:!]+", " ", ln).strip().lower()
+        if key and key not in seen:
+            seen.add(key)
+            uniq.append(ln)
+    return uniq[:limit]
 
 
 # Строки, которые требованием не бывают: приглашение откликнуться и хвост

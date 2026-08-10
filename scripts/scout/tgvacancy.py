@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .model import Vacancy
 from .sources import ATS_ROLE_RE, parse_salary, period_from_text
@@ -559,12 +559,11 @@ class ParseStats:
     messages: int = 0
     vacancies: int = 0
     rejected: int = 0
-    reasons: dict[str, int] = None          # причина → сколько
-    examples: list[str] = None              # что именно отсеяли, для проверки
-
-    def __post_init__(self):
-        self.reasons = self.reasons if self.reasons is not None else {}
-        self.examples = self.examples if self.examples is not None else []
+    # default_factory вместо `= None` плюс __post_init__: тот приём объявлял
+    # поля как dict/list, а класть в них умел None — на этом и споткнулась
+    # проверка типов. Своя копия у каждого экземпляра здесь и так нужна.
+    reasons: dict[str, int] = field(default_factory=dict)   # причина → сколько
+    examples: list[str] = field(default_factory=list)       # что отсеяли, для проверки
 
     def merge(self, other: "ParseStats") -> None:
         self.messages += other.messages

@@ -133,6 +133,11 @@ def run(db: str, *, limit: int = 200, apply: bool = False,
                                          else slug)
                 msgs = client.forward_messages(target, int(r["external_id"]), peer)
                 mid = getattr(msgs, "id", None) or getattr(msgs[0], "id", None)
+                if mid is None:
+                    # Пересылка прошла, а идентификатора нет — записать нечего,
+                    # и молчать нельзя: без записи следующий прогон перешлёт
+                    # тот же пост второй раз.
+                    raise RuntimeError("Telegram не вернул id пересланного сообщения")
                 with store.connect(db) as conn:
                     store.save_mirror(conn, r["source"], r["external_id"], chat, mid)
                 sent += 1
