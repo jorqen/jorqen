@@ -151,6 +151,44 @@ def card_is_empty(text: str) -> tuple[bool, str]:
                   "отдала одну ссылку; смотреть надо глазами")
 
 
+def duplicate_cards(root: str, date: str) -> list[list[str]]:
+    """Группы карточек, описывающих ОДНУ вакансию. Считает алгоритм, не глаз.
+
+    Подпись вакансии — заголовок плюс набор требований. Телеграм-каналы
+    перепечатывают один и тот же пост: «Golang-разработчик» с одинаковым стеком
+    приезжает из `runello_rus_goland`, `runello_rus_backend` и
+    `runello_rus_webdevelopment`, и дедуп базы их намеренно не склеивает
+    (инвариант: ошибаться в сторону РАЗДЕЛЕНИЯ, лучше показать дубль, чем
+    потерять вакансию).
+
+    Но человеку, который открывает волну, знать об этом надо: 46 карточек на
+    38 вакансий читаются как 46 разных предложений (09.08.2026). Поэтому
+    карточки не удаляем, а НАЗЫВАЕМ двойников.
+    """
+    base = os.path.join(root, date, "companies")
+    if not os.path.isdir(base):
+        return []
+    groups: dict[tuple, list[str]] = {}
+    for dirpath, _dirs, files in os.walk(base):
+        for name in sorted(files):
+            if not name.endswith(".md"):
+                continue
+            path = os.path.join(dirpath, name)
+            try:
+                with open(path, encoding="utf-8") as f:
+                    text = f.read()
+            except OSError:
+                continue
+            head = text.splitlines()[0].lstrip("# ").split(" — ")[0].strip().lower()
+            reqs = tuple(m.group(1).strip() for m in
+                         re.finditer(r"^\| (.{4,}?) *\| (?:🔴 обяз\.|плюсом|—) *\|",
+                                     text, re.M))
+            if not reqs:
+                continue          # без требований подпись не отличает вакансии
+            groups.setdefault((head, reqs), []).append(path)
+    return [sorted(v) for v in groups.values() if len(v) > 1]
+
+
 def card_with_url(root: str, date: str, url: str) -> str | None:
     """Уже написанная карточка ЭТОЙ вакансии — по ссылке внутри файла.
 
@@ -485,6 +523,23 @@ def cli_lint(args) -> int:
             print(f"    - {b}")
         if len(broken) > 8:
             print(f"    … и ещё {len(broken) - 8}")
+    # Двойники называем всегда, даже когда замечаний нет: 46 карточек на 38
+    # вакансий читаются как 46 разных предложений, и человек тратит время на
+    # уже прочитанное. Ошибкой это не считается — телеграм-каналы законно
+    # перепечатывают один пост, и удалять карточку нельзя (лучше дубль, чем
+    # потерянная вакансия).
+    date = os.path.basename(path.rstrip("/"))
+    twins = duplicate_cards(os.path.dirname(path.rstrip("/")) or ".", date)
+    if twins:
+        dup = sum(len(g) - 1 for g in twins)
+        print(f"ℹ️  один пост в нескольких каналах: {len(twins)} вакансий "
+              f"продублированы {dup} карточками — читать достаточно первую:")
+        for g in twins[:6]:
+            print(f"    · {os.path.basename(g[0])}")
+            for extra in g[1:]:
+                print(f"        то же: {os.path.basename(extra)}")
+        if len(twins) > 6:
+            print(f"    … и ещё {len(twins) - 6} групп")
     if not found:
         print(f"{path}: {total} карточек, замечаний нет")
         return 1 if broken else 0

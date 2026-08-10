@@ -1596,6 +1596,51 @@ def test_funnel_does_not_call_a_page_view_an_answer():
        "по этим процентам нельзя считать «конверсию поиска»")
 
 
+def test_one_post_in_three_channels_is_named_as_one_vacancy():
+    """Двойников называет АЛГОРИТМ. Удалять их при этом нельзя.
+
+    Телеграм-каналы перепечатывают один пост: «Golang-разработчик» с одним и тем
+    же стеком приезжает из трёх каналов Runello. Дедуп базы их намеренно не
+    склеивает — инвариант проекта требует ошибаться в сторону РАЗДЕЛЕНИЯ, лучше
+    показать дубль, чем потерять вакансию.
+
+    🔴 Но человеку, который открывает волну, знать надо: 46 карточек на 38
+    вакансий читаются как 46 разных предложений (09.08.2026), и он тратит время
+    на уже прочитанное. Поэтому карточки остаются, а двойники называются.
+    """
+    import os
+    import tempfile
+
+    from . import cardfiles
+
+    body = ("## Golang-разработчик — работодатель не раскрыт\n\n"
+            "- **Ссылка:** https://t.me/{chan}/{num}\n\n"
+            "### Требование → что у тебя\n"
+            "| требование | уровень | что у тебя | |\n"
+            "|---|---|---|---|\n"
+            "| Go | — | go | ✓ |\n"
+            "| PostgreSQL | — | postgresql | ✓ |\n")
+    other = body.replace("| PostgreSQL | — | postgresql | ✓ |", "| Kafka | — | kafka | ✓ |")
+
+    with tempfile.TemporaryDirectory() as d:
+        comp = os.path.join(d, "2026-08-08", "companies", "_hidden")
+        os.makedirs(comp)
+        for name, text in (("a.md", body.format(chan="ch1", num=1)),
+                           ("b.md", body.format(chan="ch2", num=2)),
+                           ("c.md", body.format(chan="ch3", num=3)),
+                           ("d.md", other.format(chan="ch4", num=4))):
+            with open(os.path.join(comp, name), "w", encoding="utf-8") as f:
+                f.write(text)
+        groups = cardfiles.duplicate_cards(d, "2026-08-08")
+
+    if len(groups) != 1:
+        FAILS.append(f"группа двойников найдена неверно: {groups}")
+    elif len(groups[0]) != 3:
+        FAILS.append(f"в группу попало не три копии одного поста: {groups[0]}")
+    elif any(p.endswith("d.md") for p in groups[0]):
+        FAILS.append("вакансия с ДРУГИМ стеком объявлена двойником")
+
+
 def test_an_spa_skeleton_is_rendered_without_waiting_for_a_flag():
     """Каркас SPA добирается браузером САМ — алгоритм уже понял, что это каркас.
 
