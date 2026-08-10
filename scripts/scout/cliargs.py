@@ -29,7 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
         cmd_doctor, cmd_dups, cmd_employer, cmd_funnel, cmd_tg_wave, cmd_enrich, cmd_habr_sync, cmd_hh_auth, cmd_hh_sync,
         cmd_mail_ingest, cmd_mail_read, cmd_mail_sync, cmd_mark, cmd_new,
         cmd_profile, cmd_raw, cmd_render, cmd_research, cmd_resolve, cmd_reveal,
-        cmd_lint_cards, cmd_lint_letter, cmd_pending_reveals, cmd_scan, cmd_shortlist, cmd_status, cmd_wavedoc, cmd_tg, cmd_tg_auth, cmd_tg_dm,
+        cmd_lint_cards, cmd_lint_letter, cmd_pending_reveals, cmd_wall_pass, cmd_scan, cmd_shortlist, cmd_status, cmd_wavedoc, cmd_tg, cmd_tg_auth, cmd_tg_dm,
         cmd_tg_fetch, cmd_tg_mirror, cmd_tg_reparse, cmd_tg_rollback, cmd_wave,
     )
 
@@ -557,6 +557,18 @@ def build_parser() -> argparse.ArgumentParser:
                          "с кодом 200: без этого флага такие вакансии остаются "
                          "«не определить» при живой странице")
     cl.set_defaults(func=cmd_check_links)
+
+    wp = sub.add_parser("wall-pass", parents=[common],
+                        help="пройти антибот-проверку площадки ОДИН раз "
+                             "(окно на профиле scout) — дальше прогоны сами")
+    wp.add_argument("urls", nargs="+", metavar="url",
+                    help="любая страница площадки, за которой стоит проверка")
+    wp.add_argument("--browser", default=None,
+                    help="chrome | yandex | chromium; по умолчанию тот, чьи куки "
+                         "у площадки уже есть")
+    wp.add_argument("--patience", type=float, default=300.0,
+                    help="сколько секунд ждать, пока человек пройдёт проверку")
+    wp.set_defaults(func=cmd_wall_pass)
 
     # ── tg-auth / tg-fetch: Telegram-архив без MCP ───────────────────────────
     ta = sub.add_parser("tg-auth", help="сессия Telegram (Telethon; вход делает "

@@ -131,11 +131,32 @@ def fetch_through(url: str, *, browser: str | None = None, wait: float = 3.0,
         # запасной путь, а не падение: раньше здесь был KeyError 'chromium'.
         from .render import render_page  # noqa: PLC0415
         try:
-            html, final = render_page(url, wait=wait)
+            # 🔴 `cookies_from="auto"` обязателен. Без него встроенный шелл идёт
+            # АНОНИМОМ там, где владелец — залогиненный человек, прошедший
+            # проверку Cloudflare руками: его `cf_clearance` просто не
+            # подставлялась. Живой счёт 10.08.2026: 60 страниц jooble подряд
+            # отвечали «Just a moment» при живой пройденной проверке.
+            #
+            # Проверку мы по-прежнему не решаем и не обходим — пользуемся тем,
+            # что человек уже прошёл, как это делает вторая вкладка его браузера.
+            html, final = render_page(url, wait=wait, cookies_from="auto")
         except Exception as e:  # noqa: BLE001 — стена или недоступность
             return "", url, "human" if "антибот" in str(e).lower() else "error"
         return html, final, challenge_state(html)
     with real_context(name, offscreen=True, domains=domains) as ctx:
+        # 🔴 Досыпаем куки, которых в профиле нет. Профиль засевается ОДИН раз,
+        # при создании, — и площадка, куда владелец зашёл позже, остаётся для
+        # нас анонимной навсегда. Живой счёт 10.08.2026: у jooble в его браузере
+        # лежит `cf_clearance` (проверку Cloudflare он прошёл руками), а мы
+        # ходили без неё и получали «Just a moment» на всех 60 страницах.
+        #
+        # Это не обход антибота: проверку по-прежнему проходит человек, мы лишь
+        # пользуемся её результатом — ровно как вторая вкладка его браузера.
+        from .render import top_up_cookies  # noqa: PLC0415
+        added = top_up_cookies(ctx, domains)
+        if added:
+            print(f"  досыпано {added} кук из живого браузера (в профиле их не было)",
+                  file=sys.stderr)
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         page.goto(url, wait_until="domcontentloaded", timeout=60000)
         state = wait_out(page, patience=patience)
@@ -175,6 +196,14 @@ def fetch_many_through(urls: list[str], *, browser: str | None = None,
                               domains=domains, ask_human=False) for u in urls]
     out: list[tuple[str, str, str]] = []
     with real_context(name, offscreen=True, domains=domains) as ctx:
+        # Та же досыпка, что и в одиночном заходе: без неё пачка страниц
+        # площадки, куда владелец залогинился после засева профиля, целиком
+        # упирается в стену при живой пройденной проверке.
+        from .render import top_up_cookies  # noqa: PLC0415
+        added = top_up_cookies(ctx, domains)
+        if added:
+            print(f"  досыпано {added} кук из живого браузера (в профиле их не было)",
+                  file=sys.stderr)
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         for url in urls:
             try:

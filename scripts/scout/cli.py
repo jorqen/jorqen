@@ -1726,6 +1726,39 @@ def cmd_tg_fetch(args) -> int:
 # render: SPA через браузер
 # ──────────────────────────────────────────────────────────────────────────────
 
+def cmd_wall_pass(args) -> int:
+    """Пройти антибот-проверку площадки ОДИН раз — дальше прогоны идут сами.
+
+    🔴 Проверку проходит человек, и иначе быть не может: `cf_clearance` Cloudflare
+    привязана к отпечатку браузера и к профилю. Проверено 10.08.2026 на jooble:
+    кука из живого браузера владельца, досыпанная в профиль scout, не работает ни
+    в Chrome, ни даже в Яндекс.Браузере с тем же бинарём — площадка её не
+    признаёт. Значит перенести чужую пройденную проверку нельзя, а можно пройти
+    свою: окно открывается на ПОСТОЯННОМ профиле scout, кука оседает там, и
+    следующие прогоны идут без окна.
+
+    Мы в этом окне ничего не нажимаем и не вводим — только показываем его.
+    """
+    from . import cookiesrc
+    from .wall import open_for_human
+
+    ok = bad = 0
+    for url in args.urls:
+        domains = cookiesrc.domains_for_url(url)
+        state = open_for_human(url, args.browser, domains=domains,
+                               patience=args.patience)
+        if state == "clear":
+            ok += 1
+            print(f"✓ {url}\n  проверка пройдена, кука осела в профиле scout — "
+                  f"дальше эта площадка читается без окна")
+        else:
+            bad += 1
+            print(f"✗ {url}\n  проверка не пройдена (состояние: {state})",
+                  file=sys.stderr)
+    print(f"\nитог: пройдено {ok}, осталось {bad}")
+    return 1 if bad else 0
+
+
 def cmd_render(args) -> int:
     from . import cookiesrc
     from .detail import html_to_text
