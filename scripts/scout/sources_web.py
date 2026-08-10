@@ -1565,6 +1565,11 @@ _HN_RANGE = re.compile(
 _HN_SINGLE = re.compile(r"([$€£])\s?(\d[\d.,]*)\s*([kK])\b")
 
 
+def _hn_bare(num: str) -> bool:
+    """Голое число без разрядов: только его и имеет смысл домножать на «k»."""
+    return not any(c in num for c in ".,")
+
+
 def _hn_amount(num: str, k: str | None) -> int | None:
     try:
         val = float(num.replace(",", "").replace(" ", "").rstrip("."))
@@ -1583,8 +1588,13 @@ def _hn_salary(text: str) -> tuple[int | None, int | None, str | None]:
     """
     m = _HN_RANGE.search(text or "")
     if m:
-        lo = _hn_amount(m.group(2), m.group(3))
-        hi = _hn_amount(m.group(4), m.group(5) or m.group(3))
+        # Множитель переносится в ОБЕ стороны: «$100-140k» — самая частая форма
+        # записи вилки на HN, и без переноса влево она отдавалась как «100–140
+        # 000». Проверка `hi >= lo` такую вилку пропускала: 140 000 ≥ 100.
+        # Нижняя граница с расставленными разрядами («$100,000-140k») уже
+        # полная — её умножать нельзя.
+        lo = _hn_amount(m.group(2), m.group(3) or (m.group(5) if _hn_bare(m.group(2)) else None))
+        hi = _hn_amount(m.group(4), m.group(5) or (m.group(3) if _hn_bare(m.group(4)) else None))
         if lo and hi and hi >= lo:
             return lo, hi, _HN_SIGN.get(m.group(1))
     m = _HN_SINGLE.search(text or "")

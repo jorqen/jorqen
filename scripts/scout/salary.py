@@ -64,7 +64,10 @@ _ZERO_WIDTH = re.compile(r"[​-‍⁠﻿]")
 
 # Число вместе с разделителями разрядов: пробелами (в том числе неразрывными),
 # точками, запятыми и апострофом («CHF 120'000»).
-_NUM = r"\d[\d\s   .,'’]*"
+# Разделитель разрядов стоит МЕЖДУ цифрами и всегда один. Пока класс допускал
+# любую их смесь, «график 5/2, 250-350 тыс руб» склеивалось в число 2 250 000:
+# запятая с пробелом — это пунктуация, а не разряды.
+_NUM = r"\d+(?:[\s   .,'’]\d+)*"
 
 # Коды валют словом. Регистр не важен: площадки пишут и «EUR», и «eur».
 _CUR_CODES = (
@@ -291,9 +294,16 @@ _B_SUFFIX = re.compile(r"(?<![\w])(\d+(?:[.,]\d+)?)\s*(?:млрд\.?|милли�
 # «M» только заглавной — ровно как в _M_SUFFIX: со строчной «m» под re.I в вилку
 # полезли бы метры и минуты.
 _MULT_WORD = r"[KkКк]|тыс\.?|млн\.?|миллион\w*|mln|(?-i:M)|млрд\.?|миллиард\w*|bln"
+# Нижняя граница бывает записана с разрядами («от 500 000 до 1 млн»). Ветка
+# с разрядами стоит ПЕРВОЙ нарочно: без неё шаблон откусывал от «500 000» хвост
+# «000», умножал его на множитель верхней границы и отдавал вилку «5 000 –
+# 1 000 000». Занижение в сто раз, молча, на самой обычной форме записи.
+_RANGE_LO = r"(\d{1,3}(?:\s\d{3})+|\d+(?:[.,]\d+)?)"
 _RANGE_MULT = re.compile(
-    rf"(?<![\w.,])(\d+(?:[.,]\d+)?)\s*([—–\-−]|\bдо\b|\bto\b)\s*"
+    rf"(?<![\w.,]){_RANGE_LO}\s*([—–\-−]|\bдо\b|\bto\b)\s*"
     rf"({_CUR_ANY})?\s*(\d+(?:[.,]\d+)?)\s*({_MULT_WORD})(?![\w])", re.I)
+# Разряды внутри числа: по ним видно, что граница уже полная.
+_GROUPED_NUM = re.compile(r"\d\s\d")
 
 
 def _mult_factor(word: str) -> int:
@@ -325,7 +335,12 @@ def expand_k(text: str | None) -> str | None:
 
     def pair(m: re.Match) -> str:
         factor = _mult_factor(m.group(5))
-        lo = int(round(float(m.group(1).replace(",", ".")) * factor))
+        lo_text = m.group(1)
+        # Множитель относится к ОБЕИМ границам только пока нижняя записана голым
+        # числом («от 250 до 350 тыс»). Если разряды у неё уже расставлены
+        # («от 500 000 до 1 млн»), она полная, и умножать её нельзя.
+        lo = (_num(lo_text) or 0 if _GROUPED_NUM.search(lo_text)
+              else int(round(float(lo_text.replace(",", ".")) * factor)))
         hi = int(round(float(m.group(4).replace(",", ".")) * factor))
         return f"{lo} {m.group(2)} {m.group(3) or ''}{hi}"
 
@@ -345,9 +360,13 @@ _SEP = r"(?:[—–‒―\-−]|\.\.\.?|\bдо\b|\bto\b)"
 _GAP = rf"(?:[\s~≈≥>+.]|{_CUR_ANY}){{0,4}}"
 # «от 3 до 5 лет опыта» — не вилка. Требование опыта стоит в тех же строках, что
 # и деньги, и до 05.08.2026 разбиралось в зарплату «от 3 до 5».
-_NOT_MONEY_AFTER = r"(?!\s*(?:лет|года|years?|yrs?)\b)"
+_DURATION_AFTER = re.compile(r"\s*(?:лет|года|years?|yrs?)\b", re.I)
+_NOT_MONEY_AFTER = rf"(?!{_DURATION_AFTER.pattern})"
 _RANGE_RE = re.compile(rf"({_NUM}){_GAP}{_SEP}{_GAP}({_NUM}){_NOT_MONEY_AFTER}", re.I)
-_FROM_RE = re.compile(rf"\b(?:от|from|starting\s+from)\b{_GAP}({_NUM})", re.I)
+# Тот же запрет нужен и односторонней форме: «Опыт от 3 лет, зарплата 300 000 ₽»
+# разбиралось в «от 3 ₽». Валюта в строке снимает порог _JUNK_BELOW, и тройка
+# проходила как деньги — вакансия вставала в отчёте худшим предложением выдачи.
+_FROM_RE = re.compile(rf"\b(?:от|from|starting\s+from)\b{_GAP}({_NUM}){_NOT_MONEY_AFTER}", re.I)
 _TO_RE = re.compile(rf"(?:\bдо\b|\bup\s+to\b){_GAP}({_NUM})", re.I)
 
 # gross/net словами всех площадок сразу. «до налогов», «гросс», «brutto» и
@@ -356,7 +375,10 @@ _TO_RE = re.compile(rf"(?:\bдо\b|\bup\s+to\b){_GAP}({_NUM})", re.I)
 # неразличимо. Разница между ними — 13 %, и она решает, стоит ли откликаться.
 _GROSS_RE = re.compile(r"\bgross\b|\bbrutto\b|гросс|брутто|до вычет\w*|до налог\w*|"
                        r"before\s+tax\w*", re.I)
-_NET_RE = re.compile(r"\bnet\b|\bnetto\b|нетто|на руки|после вычет\w*|после налог\w*|"
+# Точка перед «net» отсекает .NET: точка даёт границу слова, и стек «.NET 8»
+# помечал вилку как «на руки» — 12 вакансий из 42 с .NET в заголовке. Разница
+# между базами 13 %, то есть выдуманная скидка ровно там, где её не было.
+_NET_RE = re.compile(r"(?<![.\w])net\b|\bnetto\b|нетто|на руки|после вычет\w*|после налог\w*|"
                      r"after\s+tax\w*|чистыми", re.I)
 
 _NO_SALARY_RE = re.compile(r"з/п не указана|не указан|зарплата не указана", re.I)
@@ -577,6 +599,11 @@ def _first_number(t: str, cur: str | None) -> re.Match | None:
     """
     for m in _NUM_ONLY_RE.finditer(t):
         head = t[:m.start()]
+        # Срок опыта в деньги не годится ни здесь: «Опыт от 3 лет, зарплата
+        # 300 000 ₽» отдавалось как «от 3 ₽» — вилка в сто тысяч раз меньше
+        # настоящей, и вакансия вставала последней строкой отчёта.
+        if _DURATION_AFTER.match(t, m.end()):
+            continue
         if not head or not head[-1].isalnum():
             return m
         if cur and any(x.end() == m.start() for x in _CUR_MARK_RE.finditer(t)):
@@ -629,6 +656,7 @@ _PERIOD_TEXT = (
 )
 
 _NUM_RE = re.compile(_NUM)
+_CUR_NEAR_RE = re.compile(_CUR_ANY, re.I)
 
 
 def _period_scope(t: str) -> str:
@@ -639,12 +667,28 @@ def _period_scope(t: str) -> str:
     Для основной вилки верен только тот период, что стоит ДО следующей суммы:
     всё, что после неё, относится уже к другому предложению. Так «16000-20000 PLN
     gross; B2B: 116-142 PLN/hour» перестало быть почасовым.
+
+    Обрывает область ТОЛЬКО следующая сумма, а не любое число. График «5/2»,
+    «опыт 5+ лет» и «40 часов в неделю» стоят в тех же строках, что и деньги,
+    и обрывали её впустую: период терялся у 419 вакансий с вилкой из 3627, а
+    `payband` выбрасывает такие из медианы целиком.
     """
     rng = _RANGE_RE.search(t)
     if not rng:
         return t
-    nxt = _NUM_RE.search(t, rng.end())
-    return t[:nxt.start()] if nxt else t
+    for nxt in _NUM_RE.finditer(t, rng.end()):
+        if _is_money(t, nxt):
+            return t[:nxt.start()]
+    return t
+
+
+def _is_money(t: str, m: re.Match) -> bool:
+    """Похоже ли число на вторую сумму: крупное или со знаком валюты рядом."""
+    value = _num(m.group(0))
+    if value is not None and value >= _JUNK_BELOW:
+        return True
+    around = t[max(0, m.start() - 4):m.start()] + t[m.end():m.end() + 5]
+    return bool(_CUR_NEAR_RE.search(around))
 
 
 def _period_of(t: str) -> str | None:
