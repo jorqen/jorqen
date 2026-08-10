@@ -141,6 +141,7 @@ done
 |---|---|
 | Как работает команда scout, что значат статусы покрытия | `scripts/scout/README.md` |
 | Что обходится на самом деле | реестр в `scripts/scout/sources*.py` — это правда |
+| Какой реестр за что отвечает и как добавить площадку | `scripts/scout/PLATFORMS.md` (указатель, данных не дублирует) |
 | Чего ждать от площадки, что подключено, что требует захода человека | `.claude/skills/jobs/references/sources-setup.md` |
 | Приёмы, ловушки, где площадка врёт — то, что не выводится из кода | `.claude/skills/jobs/references/field-notes.md` |
 | Какие внешние API/проекты уже проверены и отвергнуты | `.claude/skills/jobs/references/oss-references.md` |
