@@ -317,6 +317,45 @@ def set_cache(cache) -> None:
     _CACHE = cache
 
 
+def _retry_with_owner_cookies(url, headers, body, method, timeout, ctx,
+                              had_cookies) -> tuple[str, str] | None:
+    """Повтор запроса с куками ХОЗЯИНА. None — не помогло или их нет.
+
+    Смысл ровно один: стена уже выдала человеку пропуск (`cf_clearance` живёт в
+    его браузере), и предъявить этот пропуск — не обход проверки, а обычная
+    работа от его имени. Капча при этом не решается и не автоматизируется: нет
+    пропуска — стена так и называется.
+
+    Куки читаются с диска, поэтому повтор стоит одного обращения к базе кук и
+    только в тот момент, когда обычный путь уже упёрся.
+    """
+    if had_cookies:
+        return None                       # куки уже передали, второй раз незачем
+    try:
+        host = urllib.parse.urlsplit(url).hostname or ""
+        if not host:
+            return None
+        from . import auth  # noqa: PLC0415 — цикл: auth знает про сеть
+        jar = auth.cookie_header(host.removeprefix("www."))
+    except Exception:  # noqa: BLE001 — базы кук нет, браузер закрыт, нет прав
+        return None
+    if not jar:
+        return None
+    h = dict(headers or {})
+    h["Cookie"] = jar
+    req = urllib.request.Request(url, data=body, headers=h, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            raw = _decode(resp)
+            charset = resp.headers.get_content_charset() or "utf-8"
+            text = raw.decode(charset, errors="replace")
+            if wall_marker(text, resp.status):
+                return None               # пропуск не подошёл — это честная стена
+            return text, resp.geturl()
+    except Exception:  # noqa: BLE001 — не помогло: вызывающий объявит стену
+        return None
+
+
 def fetch(
     url: str,
     *,
@@ -371,7 +410,24 @@ def fetch(
                 text = raw.decode(charset, errors="replace")
                 marker = wall_marker(text, resp.status)
                 if marker:
-                    # Повторять бесполезно: стена не рассосётся от второго запроса.
+                    # 🔴 Прежде чем объявить стену, предъявляем ТО, ЧТО ХОЗЯИН
+                    # УЖЕ ПРОШЁЛ. Требование владельца 09.08.2026: «мы по факту
+                    # не бот, я человек, который ищет вакансии; скрипт должен
+                    # работать ровно так же, как я, и от моего имени». В его
+                    # браузере лежит `cf_clearance` — результат пройденной им
+                    # проверки, и предъявить его законно: это не обход стены,
+                    # а предъявление выданного стеной пропуска.
+                    #
+                    # Капчу мы по-прежнему не решаем и не автоматизируем: если
+                    # пропуска нет или он не подошёл, стена так и называется.
+                    second = _retry_with_owner_cookies(url, h, body, method,
+                                                       timeout, ctx, cookies)
+                    if second is not None:
+                        text, final = second
+                        if cache is not None:
+                            cache.put(url, text, final)
+                        return text, final
+                    # Повторять тем же способом бесполезно: стена не рассосётся.
                     raise BlockedError(resp.geturl(), f"антибот-проверка ({marker})",
                                        resp.status)
                 if cache is not None:
@@ -400,6 +456,16 @@ def fetch(
                 pass
             marker = wall_marker(err_body, e.code)
             if marker:
+                # Стена бывает и кодом ответа (403 Cloudflare), а не только
+                # текстом страницы. Пропуск хозяина предъявляем и здесь — иначе
+                # лестница чинила бы ровно половину случаев.
+                second = _retry_with_owner_cookies(url, h, body, method,
+                                                   timeout, ctx, cookies)
+                if second is not None:
+                    text, final = second
+                    if cache is not None:
+                        cache.put(url, text, final)
+                    return text, final
                 raise BlockedError(url, f"антибот-проверка ({marker})", e.code) from e
             last = FetchError(url, f"HTTP {e.code}", e.code)
             # 4xx кроме 429 повторять бессмысленно — ответ не изменится.

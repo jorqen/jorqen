@@ -1596,6 +1596,91 @@ def test_funnel_does_not_call_a_page_view_an_answer():
        "по этим процентам нельзя считать «конверсию поиска»")
 
 
+def test_a_wall_is_retried_with_the_owners_pass_before_being_called_a_wall():
+    """Упёрлись в стену — предъявляем пропуск ХОЗЯИНА, и только потом сдаёмся.
+
+    🔴 Слова владельца 09.08.2026: «мы по факту не бот, я человек, который ищет
+    вакансии; скрипт должен работать ровно так же, как я, от моего имени». В его
+    браузере лежит `cf_clearance` — пропуск, ВЫДАННЫЙ ему самой стеной. Предъявить
+    его — не обход проверки, а обычная работа от его имени.
+
+    Живой счёт: страница careerjet, которая раньше отвечала «Требуется
+    подтверждение», с пропуском отдаётся целиком. Раньше такие вакансии уходили
+    в «живость не определить» и оставались без карточки.
+
+    Капчу это не решает и решать не должно: если пропуска нет или он не подошёл,
+    стена так и называется — второй пробы не будет.
+    """
+    from . import net
+
+    calls: list[dict] = []
+
+    class Resp:
+        def __init__(self, body, status=200):
+            self._body, self.status, self.code = body.encode(), status, status
+            self.headers = _H()
+
+        def read(self):
+            return self._body
+
+        def geturl(self):
+            return "https://wall.example/job/1"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    class _H:
+        def get_content_charset(self):
+            return "utf-8"
+
+        def get(self, *_a, **_k):
+            return None
+
+    wall_body = "<html>Attention Required! Cloudflare captcha</html>"
+    good_body = "<html>Требования и обязанности: Go, PostgreSQL</html>"
+
+    def fake_open(req, timeout=None, context=None):
+        calls.append({"cookie": req.headers.get("Cookie")})
+        # Без пропуска — стена; с пропуском — настоящая страница.
+        return Resp(good_body if req.headers.get("Cookie") else wall_body)
+
+    old_open, old_cookie = net.urllib.request.urlopen, None
+    from . import auth
+    old_cookie = auth.cookie_header
+    net.urllib.request.urlopen = fake_open
+    auth.cookie_header = lambda *a, **k: "cf_clearance=abc; other=1"
+    try:
+        text, _final = net.fetch("https://wall.example/job/1", retries=0)
+    except Exception as e:  # noqa: BLE001
+        text = f"ИСКЛЮЧЕНИЕ {type(e).__name__}"
+    finally:
+        net.urllib.request.urlopen = old_open
+        auth.cookie_header = old_cookie
+
+    if "Требования" not in text:
+        FAILS.append(f"пропуск хозяина не предъявлен, стена принята за приговор: {text[:80]}")
+    if len(calls) != 2 or calls[0]["cookie"] is not None:
+        FAILS.append(f"первый запрос обязан идти БЕЗ кук, второй с ними: {calls}")
+
+    # Обратная сторона: пропуска нет — второй пробы не делаем и честно говорим «стена».
+    calls.clear()
+    net.urllib.request.urlopen = fake_open
+    auth.cookie_header = lambda *a, **k: ""
+    try:
+        net.fetch("https://wall.example/job/2", retries=0)
+        FAILS.append("без пропуска стена не объявлена")
+    except net.BlockedError:
+        pass
+    except Exception as e:  # noqa: BLE001
+        FAILS.append(f"вместо BlockedError получено {type(e).__name__}")
+    finally:
+        net.urllib.request.urlopen = old_open
+        auth.cookie_header = old_cookie
+
+
 def test_the_letter_draft_picks_the_rare_match_not_the_common_one():
     """Черновик письма собирает АЛГОРИТМ, и выбирает он по редкости совпадения.
 
