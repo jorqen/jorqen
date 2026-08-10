@@ -1854,9 +1854,12 @@ def test_the_letter_draft_picks_the_rare_match_not_the_common_one():
                         url="https://example.com/vacancy/1")
     if "70K+" not in text:
         FAILS.append(f"редкое совпадение (highload) не попало в письмо:\n{text}")
-    if "фреймворк интеграционного тестирования" in text:
-        FAILS.append("в письмо про высокие нагрузки попал эпизод про тесты — "
-                     "частое совпадение «go» перевесило редкое «highload»")
+    # Порядок важнее состава: добор до канонической длины может дотянуть и
+    # слабый эпизод, но ПЕРВЫМ обязан идти тот, что отвечает редкому совпадению.
+    body = [ln for ln in text.splitlines()
+            if ln.startswith("В ") and ": " in ln]
+    if body and "70K+" not in body[0]:
+        FAILS.append(f"первым в письме идёт не самый релевантный эпизод: {body[0][:70]}")
 
     # 🔴 «ci» не должен находиться внутри «ACID»: подстрочный поиск добавлял
     # вакансии несуществующее понятие CI/CD, и письмо собиралось из эпизодов
@@ -1870,9 +1873,27 @@ def test_the_letter_draft_picks_the_rare_match_not_the_common_one():
     if not text.rstrip().endswith("Матвей"):
         FAILS.append(f"письмо не заканчивается подписью:\n{text[-120:]}")
 
-    # Ничего не выдумывать: факта, которого нет в резюме, нет и в письме.
-    if "Kafka" in text or "Kubernetes" in text:
-        FAILS.append("в письме появился факт, которого нет в поданном резюме")
+    # 🔴 Ничего не выдумывать. Проверяем прямо: каждая содержательная строка
+    # письма должна быть куском поданного резюме. Косвенная проверка («в тексте
+    # нет слова Kafka») ломается от любой смены подбора и ничего не доказывает.
+    facts = " ".join(h["ru"] for job in resume["experience"]["items"]
+                     for h in job["highlights"])
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith(("Здравствуйте", "Вакансия:", "Резюме:", "Матвей")):
+            continue
+        if line.startswith("В ") and ": " in line:
+            line = line.split(": ", 1)[1]
+        # Первая фраза («… то, чем я занимаюсь сейчас») — связка, а не факт.
+        if "чем я занимаюсь" in line or "ближе всего" in line:
+            continue
+        # Канцелярит в письме заменяется на живой оборот («реализовал» →
+        # «сделал»), поэтому сверяем по нормализованному виду обеих сторон.
+        from . import letter as _lt
+        head = " ".join(_lt._plain(line).split()[:6]).rstrip(".,;:")
+        if head and head not in _lt._plain(facts):
+            FAILS.append(f"в письме факт, которого нет в резюме: «{head}…»")
+            break
 
 
 def test_a_session_we_never_rotate_is_refreshed_from_the_browser_by_itself():

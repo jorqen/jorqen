@@ -95,6 +95,47 @@ def _sentences(text: str) -> list[str]:
     return [p.strip() for p in parts if len(p.strip()) > 30]
 
 
+# Слова-метки, которые `lint-letter` считает канцеляритом. В резюме они
+# уместны, в письме — нет; заменяем на живой оборот, а не вырезаем фразу.
+_STAMPS = (
+    # Падеж сохраняем: слепая замена дала «Переписал главные PHP-сервис».
+    (r"\bключевой\b", "основной"), (r"\bключевого\b", "основного"),
+    (r"\bключевом\b", "основном"), (r"\bключевым\b", "основным"),
+    (r"\bключевые\b", "основные"), (r"\bключевых\b", "основных"),
+    (r"\bключевыми\b", "основными"), (r"\bключевая\b", "основная"),
+    (r"\bключевую\b", "основную"),
+    (r"\bосуществлял\b", "делал"), (r"\bосуществлять\b", "делать"),
+    (r"\bреализовал\b", "сделал"), (r"\bреализовать\b", "сделать"),
+    (r"\bпосредством\b", "через"),
+    (r"\bв рамках\b", "в"),
+)
+
+
+def _plain(text: str) -> str:
+    """Убрать из фразы канцелярит, оставив смысл."""
+    for pattern, repl in _STAMPS:
+        text = re.sub(pattern, repl, text, flags=re.I)
+    return text
+
+
+def _shorten(sentence: str, limit: int = 32) -> str:
+    """Длинное предложение резюме → короткое для письма.
+
+    Канон запрещает предложения-простыни, и `lint-letter` их ловит («53 слова с
+    тремя союзами»). В резюме такие уместны, в письме нет: режем по ближайшей
+    границе — двоеточию, точке с запятой или запятой перед союзом.
+    """
+    words = sentence.split()
+    if len(words) <= limit:
+        return sentence
+    head = " ".join(words[:limit])
+    for sep in (": ", "; ", ", и ", ", а ", ", "):
+        cut = head.rfind(sep)
+        if cut > len(head) // 2:
+            return head[:cut].rstrip(" ,;:") + "."
+    return head.rstrip(" ,;:") + "."
+
+
 def highlights(resume: dict) -> list[dict]:
     """Эпизоды из резюме: [{текст, компания, понятия}]. Русская сторона.
 
@@ -126,7 +167,7 @@ def highlights(resume: dict) -> list[dict]:
 
 
 def pick(reqs: list[str], pool: list[dict], *, want: int = 3,
-         seed: str = "") -> list[dict]:
+         seed: str = "", min_share: float = 0.4) -> list[dict]:
     """Эпизоды под требования вакансии: самые близкие, из РАЗНЫХ мест работы.
 
     Разные места обязательны. Три факта об одном проекте читаются как «умеет
@@ -181,7 +222,10 @@ def pick(reqs: list[str], pool: list[dict], *, want: int = 3,
     # нагрузки в письмо попадал эпизод про фреймворк тестирования — он совпал
     # одним лишь словом «Go» (09.08.2026).
     best = scored[0][0]
-    strong = [(s, i, h) for s, i, h in scored if s >= best * 0.4]
+    # `min_share=0` разрешает добор слабыми: это нужно, когда иначе письмо
+    # не наберёт канонический минимум в 60 слов. Куцее письмо хуже
+    # слабого абзаца — канон запрещает первое прямо.
+    strong = [(s, i, h) for s, i, h in scored if s >= best * min_share]
 
     out, used = [], set()
     for _score, _i, h in strong:
@@ -228,14 +272,32 @@ def draft(*, title: str, reqs: list[str], resume: dict, url: str = "") -> str:
     chosen = pick(reqs, pool, seed=url)
     if not chosen:
         return ""
-    role = (title or "").strip().rstrip(".")
+    # 🔴 Слишком короткое письмо канон не пропускает (минимум 60 слов): у
+    # вакансии с двумя требованиями подбор давал один эпизод и письмо на 39
+    # слов. Добираем следующим по весу, а не «любым»: порядок в `pick` уже
+    # отсортирован по близости к требованиям.
+    if sum(len(h["text"].split()) for h in chosen) < 70:
+        for extra in pick(reqs, pool, want=len(chosen) + 3, seed=url,
+                          min_share=0.0):
+            if extra not in chosen:
+                chosen.append(extra)
+            if sum(len(h["text"].split()) for h in chosen) >= 70:
+                break
+    # Эмодзи и служебные значки из заголовка вакансии в письме недопустимы:
+    # канон запрещает их прямо, а площадки ставят («😎 Golang-разработчик»).
+    role = re.sub(r"[^\w\s()/+.,-]", "", (title or "")).strip().rstrip(".")
+    # Короткое тире из названия вакансии тоже убираем: `lint-letter`
+    # считает маркером генератора любое тире, а название площадка пишет
+    # как хочет («Senior Backend Developer – Go»).
+    role = re.sub(r"\s*[–—-]\s*", " ", role)
+    role = re.sub(r"\s{2,}", " ", role).strip()
     lines = [f"Здравствуйте! Откликаюсь на позицию {role}.", ""]
     lines += [_lead(reqs, chosen), ""]
     for h in chosen:
         # Из эпизода берём первое предложение: оно несёт факт, остальное —
         # уточнения, которые в письме превращаются в воду.
         body = _sentences(h["text"])
-        text = body[0] if body else h["text"]
+        text = _plain(_shorten(body[0] if body else h["text"]))
         where = f"В {h['company']}: " if h["company"] else ""
         lines += [f"{where}{text}", ""]
     if url:
@@ -244,6 +306,22 @@ def draft(*, title: str, reqs: list[str], resume: dict, url: str = "") -> str:
         lines.append("Резюме: https://jorqen.link")
     lines += ["", "Матвей"]
     text = "\n".join(lines)
+    # 🔴 Проверяем ГОТОВОЕ письмо, а не исходные эпизоды: в письмо идёт по
+    # одному предложению из каждого, и счёт по эпизодам расходится с тем, что
+    # увидит `lint-letter`. Он же и был источником замечаний «39 слов» и
+    # «предложение на 53 слова» после первой сборки (09.08.2026).
+    body = [ln for ln in text.splitlines()
+            if ln and not ln.startswith(("Здравствуйте", "Вакансия:", "Резюме:", "Матвей"))]
+    if sum(len(ln.split()) for ln in body) < 65:
+        extra = [h for h in pick(reqs, pool, want=len(chosen) + 3, seed=url,
+                                 min_share=0.0) if h not in chosen]
+        if extra:
+            h = extra[0]
+            s = _plain(_shorten((_sentences(h["text"]) or [h["text"]])[0]))
+            where = f"В {h['company']}: " if h["company"] else ""
+            lines.insert(len(lines) - 3, f"{where}{s}")
+            lines.insert(len(lines) - 3, "")
+            text = "\n".join(lines)
     # Канон: длинного тире в письме не бывает. Ставим его нигде, но эпизоды
     # приезжают из резюме, где оно встречается.
     return text.replace(" — ", ": ").replace("—", "")
