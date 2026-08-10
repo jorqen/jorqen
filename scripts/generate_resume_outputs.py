@@ -516,7 +516,10 @@ def resume_date_upper_bound(value: str | None) -> date | None:
 
 
 def is_expected_education(item: dict[str, Any]) -> bool:
-    return resume_date_upper_bound(item["endDate"]) > date.today()
+    # Дата окончания может отсутствовать («по настоящее время»): сравнение с None
+    # уронило бы сборку сайта, поэтому отсутствие даты — это «не ожидается».
+    end = resume_date_upper_bound(item["endDate"])
+    return end is not None and end > date.today()
 
 
 def format_education_period(item: dict[str, Any], labels: dict[str, str], lang: str) -> str:
@@ -673,7 +676,9 @@ def section(source: dict[str, Any], key: str, lang: str) -> dict[str, Any]:
 def experience_items(source: dict[str, Any], lang: str) -> list[dict[str, Any]]:
     return sorted(
         section(source, "experience", lang)["items"],
-        key=lambda item: resume_date_upper_bound(item["startDate"]),
+        # `or date.min`: запись без даты начала иначе роняет сортировку сравнением
+        # с None. Без даты — в конец списка (сортировка обратная).
+        key=lambda item: resume_date_upper_bound(item["startDate"]) or date.min,
         reverse=True,
     )
 
@@ -1355,7 +1360,7 @@ def render_experience(section_data: dict[str, Any], labels_data: dict[str, str],
     articles = []
     for item in sorted(
         section_data["items"],
-        key=lambda value: resume_date_upper_bound(value["startDate"]),
+        key=lambda value: resume_date_upper_bound(value["startDate"]) or date.min,
         reverse=True,
     ):
         company_icon = (

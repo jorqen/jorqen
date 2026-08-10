@@ -524,7 +524,11 @@ def to_vacancy(msg: Message, chat: ChatRef) -> Vacancy | None:
     не читаются.
     """
     title = extract_title(msg.body)
-    if reject_reason(msg, title) is not None:
+    # `not title` названо явно, хотя reject_reason на пустое название и так
+    # отвечает причиной: без этого Vacancy.title (объявлен str) мог получить
+    # None. Счётчик причин это не трогает — он зовёт reject_reason сам (см.
+    # ниже по файлу), и «нет строки, похожей на название роли» там остаётся.
+    if not title or reject_reason(msg, title) is not None:
         return None
     body = msg.body or ""
     lo, hi, cur, gross, period = extract_salary(body, title)
