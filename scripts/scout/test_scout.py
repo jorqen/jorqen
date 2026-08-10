@@ -163,6 +163,45 @@ def test_boolean_data_attribute_is_not_an_address():
         FAILS.append("resolve: настоящий относительный адрес из data-атрибута потерян")
 
 
+def test_a_short_post_gives_its_stack_as_requirements():
+    """У поста в две строки требования — это его СТЕК, а не строка про бота.
+
+    🔴 Живой счёт 09.08.2026: 30 постов Runello попали в волну с пустой
+    таблицей требований, и единственным «пунктом» в ней оказывалось
+    «Откликнуться через Runello-бот ↓ #golang #go #remote» — то есть таблица
+    выглядела заполненной, не будучи ею. Настоящее содержание поста
+    («Стек: Go, REST API, gRPC, PostgreSQL…») в неё не попадало вовсе.
+
+    Требование владельца в тот же день: карточки должны получаться и по таким
+    постам, а не выбрасываться как пустые.
+    """
+    from .card import requirements
+
+    post = ("**Golang разработчик** **Стек:** Go, REST API, gRPC, PostgreSQL, "
+            "Redis, Docker, Git, CI/CD Разработка и поддержка backend-сервисов "
+            "на Go. Откликнуться через Runello-бот ↓ #golang #go #remote")
+    got = requirements(post)
+    if not got:
+        FAILS.append("из поста со стеком не вышло ни одного требования")
+    for tech in ("Go", "PostgreSQL", "Redis"):
+        if tech not in got:
+            FAILS.append(f"технология {tech} потеряна при разборе стека: {got}")
+    if any("Runello" in x or x.startswith("#") for x in got):
+        FAILS.append(f"служебная строка попала в требования: {got}")
+    # Хвост описания к перечислению прилипать не должен.
+    if any(len(x) > 40 for x in got):
+        FAILS.append(f"к стеку прилип текст описания: {got}")
+
+    # Обычная вакансия со списком требований разбирается как прежде — стек
+    # подменять настоящий список не должен.
+    normal = ("Требования:\n- Опыт коммерческой разработки на Go от 5 лет\n"
+              "- Знание PostgreSQL и Redis\n- Опыт работы с Kubernetes\n"
+              "Стек: Go, PostgreSQL, Redis")
+    got2 = requirements(normal)
+    if not any("от 5 лет" in x for x in got2):
+        FAILS.append(f"настоящий список требований подменён стеком: {got2}")
+
+
 def test_classify():
     eq(classify("https://job-boards.greenhouse.io/x/jobs/1")[0], "ats", "greenhouse → ats")
     eq(classify("https://jobs.lever.co/acme/1")[0], "ats", "lever → ats")
