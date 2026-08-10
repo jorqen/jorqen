@@ -1038,6 +1038,23 @@ def get_detail(url: str, *, use_render: bool = False,
     if use_render and d.source != "generic":
         d.notes.append("--render не применялся: данные этого источника приходят "
                        "из API/встроенного стейта, браузер их не меняет")
+    # 🔴 Каркас SPA добираем браузером САМИ, а не ждём флага от человека.
+    # Алгоритм уже понял, что перед ним каркас («generic-empty»), — значит он
+    # же должен сделать следующий шаг. Требование владельца 09.08.2026: «всё,
+    # что можно переложить на алгоритм, нужно переложить». Раньше выжимка
+    # оставалась пустой, карточка выходила без требований, и добирал её я
+    # руками, по одной.
+    #
+    # Рендер дорогой, поэтому ровно один раз и только там, где обычный путь уже
+    # дал заведомо негодный результат: цена ошибки тут — пустая карточка.
+    if not use_render and d.status == "generic-empty" and d.source == "generic":
+        try:
+            second = _dispatch(url, True, cookies_from=cookies_from, use_cache=False)
+        except Exception:  # noqa: BLE001 — нет браузера, стена: остаётся первый ответ
+            second = None
+        if second is not None and second.status != "generic-empty":
+            second.notes.append("каркас SPA добран браузером автоматически")
+            d = second
     if d.requirements is None and d.description:
         got = split_requirements(d.description)
         if got:

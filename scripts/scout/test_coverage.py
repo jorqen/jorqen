@@ -1596,6 +1596,59 @@ def test_funnel_does_not_call_a_page_view_an_answer():
        "по этим процентам нельзя считать «конверсию поиска»")
 
 
+def test_an_spa_skeleton_is_rendered_without_waiting_for_a_flag():
+    """Каркас SPA добирается браузером САМ — алгоритм уже понял, что это каркас.
+
+    🔴 «Всё, что можно переложить на алгоритм, нужно переложить» — владелец,
+    09.08.2026. Выжимка помечалась `generic-empty` («ПОХОЖЕ НА КАРКАС SPA»),
+    карточка выходила без единого требования, и добирал её рендером я, руками и
+    по одной. Раз признак объективен, следующий шаг делает код.
+
+    Живой счёт: europa.eu отдавала обычному запросу «Loading...», а браузеру —
+    полное описание вакансии. Рендер при этом дорогой, поэтому ровно один раз и
+    только там, где обычный путь уже дал заведомо негодный результат.
+    """
+    from . import detail
+
+    calls: list[bool] = []
+    empty = detail.Detail(url="https://spa.example/job/1", source="generic",
+                          status="generic-empty", description="Loading...")
+    full = detail.Detail(url="https://spa.example/job/1", source="generic",
+                         status="ok", description="Требования: Go, PostgreSQL, опыт от 3 лет")
+
+    def fake_dispatch(url, use_render, **kw):
+        calls.append(bool(use_render))
+        return full if use_render else empty
+
+    old = detail._dispatch
+    detail._dispatch = fake_dispatch
+    try:
+        got = detail.get_detail("https://spa.example/job/1")
+    finally:
+        detail._dispatch = old
+
+    if calls != [False, True]:
+        FAILS.append(f"каркас не добран браузером автоматически: {calls}")
+    if "Требования" not in (got.description or ""):
+        FAILS.append("после автодобора осталась пустая выжимка")
+
+    # Обратная сторона: нормальная выжимка второй раз браузер НЕ поднимает —
+    # рендер дорогой, и звать его на успешном разборе значит платить впустую.
+    calls.clear()
+
+    def always_full(url, use_render, **kw):
+        calls.append(bool(use_render))
+        return full
+
+    detail._dispatch = always_full
+    try:
+        detail.get_detail("https://spa.example/job/2")
+    finally:
+        detail._dispatch = old
+    if calls != [False]:
+        FAILS.append(f"браузер поднят там, где обычный разбор справился: {calls}")
+
+
 def test_a_wall_is_retried_with_the_owners_pass_before_being_called_a_wall():
     """Упёрлись в стену — предъявляем пропуск ХОЗЯИНА, и только потом сдаёмся.
 
