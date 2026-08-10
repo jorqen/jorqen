@@ -173,5 +173,16 @@ def cli(args) -> int:
     path = getattr(args, "file", None)
     if path and path != "-":
         with open(path, encoding="utf-8") as f:
-            return report(f.read(), where=path)
+            text = f.read()
+        # 🔴 Подсунули КАРТОЧКУ — проверяем письмо из неё, а не весь файл.
+        # Иначе линт ругается на шапку, таблицу требований и служебные разделы
+        # генератора: 45 «замечаний» на карточке, где письмо безупречно
+        # (10.08.2026). Разница между «файл с письмом» и «карточка с письмом»
+        # не должна быть тем, что человек обязан помнить.
+        if "### Отклик" in text or "### Письмо" in text:
+            from .cardfiles import letter_of  # noqa: PLC0415
+            letter = letter_of(text)
+            if letter:
+                return report(letter, where=f"{path} (письмо из карточки)")
+        return report(text, where=path)
     return report(sys.stdin.read(), where="stdin")
