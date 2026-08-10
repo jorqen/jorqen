@@ -53,6 +53,7 @@ import time
 import urllib.parse
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
+from typing import Any
 
 from . import store
 from .model import Vacancy
@@ -516,10 +517,12 @@ def _print_coverage(report, total, new, updated, elapsed, *, subset: bool = Fals
 
 def cmd_new(args) -> int:
     since = store.since_arg(args.since, db=args.db)
-    kw = dict(since=since if args.by == "published" else None,
-              first_seen_since=since if args.by == "seen" else None,
-              sources=args.sources.split(",") if args.sources else None,
-              exclude_decided=not args.include_decided)
+    # dict[str, Any] явно: значения разнотипны (str/list/bool/None), и без
+    # аннотации распаковка `**kw` не сходится ни с одной сигнатурой store.
+    kw: dict[str, Any] = dict(since=since if args.by == "published" else None,
+                              first_seen_since=since if args.by == "seen" else None,
+                              sources=args.sources.split(",") if args.sources else None,
+                              exclude_decided=not args.include_decided)
     with store.connect(args.db) as conn:
         # COUNT без limit — иначе «показано» неотличимо от «всего», и вызывающий
         # уверен, что видит всю дельту. Живьём: заголовок «200 вакансий» при 1505
@@ -1088,7 +1091,7 @@ def cmd_employer(args) -> int:
 def cmd_mark(args) -> int:
     # `skip` — короткая форма `skipped`: в базе одно каноническое значение,
     # иначе через месяц в decision живут оба и фильтры видят половину.
-    state = {"skip": "skipped"}.get(args.state, args.state)
+    state = "skipped" if args.state == "skip" else str(args.state)
     with store.connect(args.db) as conn:
         known = store.vacancy_exists(conn, args.source, args.id)
         store.decide(conn, args.source, args.id, state, args.note)
@@ -1921,6 +1924,13 @@ _STAGE_MARK = {"ok": "ok", "blocked": "АНТИБОТ", "error": "УПАЛ", "sk
                "no_login": "НУЖЕН ВХОД"}
 
 
+def _stage_mark(status: Any, default: str = "—") -> str:
+    """Метка этапа по его статусу. Статус приходит из JSON прогона и вполне может
+    быть None или отсутствовать — приводим к строке здесь, в одном месте, а не
+    подпираем каждый вызов по отдельности."""
+    return _STAGE_MARK.get(str(status or ""), default)
+
+
 def _count_in(text: str, pattern: str) -> int | str:
     """Число из вывода этапа для колонки «найдено». Не нашлось — «—», не ноль:
     ноль означал бы «этап отработал и ничего не нашёл»."""
@@ -2033,7 +2043,7 @@ def build_scan_report(stages: dict, *, generated_at: str, days: int,
         note = (r.get("error") or r.get("note") or "")[:70]
         if r.get("limit_hit"):
             note = f"ОБХОД ОБРЕЗАН ПОТОЛКОМ — {r['limit_hit']}; " + note
-        out.append(f"| площадка: {r['source']} | {_STAGE_MARK.get(r['status'], r['status'])} "
+        out.append(f"| площадка: {r['source']} | {_stage_mark(r['status'], r['status'])} "
                    f"| {r['found']} | {note[:140].replace('|', '/')} |")
     if collect.get("status") == "error":
         out.append(f"| collect (весь этап) | УПАЛ | — | {(collect.get('error') or '')[:70]} |")
@@ -2058,7 +2068,7 @@ def build_scan_report(stages: dict, *, generated_at: str, days: int,
             out.append(f"| {label} | НЕ ЗАПУСКАЛСЯ | — |  |")
             continue
         note = st.get("note") or st.get("error") or ""
-        out.append(f"| {label} | {_STAGE_MARK.get(st.get('status'), st.get('status'))} "
+        out.append(f"| {label} | {_stage_mark(st.get('status'), st.get('status'))} "
                    f"| {st.get(found_key, '—')} | {note[:70]} |")
     if collect.get("status") == "ok":
         out.append(f"\nПлощадки: найдено {collect.get('found', 0)}, "
@@ -2077,7 +2087,7 @@ def build_scan_report(stages: dict, *, generated_at: str, days: int,
         # счётчиками и путями, а полный текст берётся из файла по надобности.
         out.append(_tg_summary(tg["text"]))
     else:
-        out.append(f"Этап не дал текста: {_STAGE_MARK.get(tg.get('status'), '—')}"
+        out.append(f"Этап не дал текста: {_stage_mark(tg.get('status'))}"
                    + (f" — {tg.get('note') or tg.get('error')}" if (tg.get('note') or tg.get('error')) else ""))
 
     # ── Дельта площадок: СНАЧАЛА таблица всего, потом выжимки верхних ─────
@@ -2105,7 +2115,7 @@ def build_scan_report(stages: dict, *, generated_at: str, days: int,
         st = stages.get(key) or {}
         out.append(f"### {label}")
         out.append(st.get("text", "").rstrip()
-                   or f"({_STAGE_MARK.get(st.get('status'), 'НЕ ЗАПУСКАЛСЯ')}"
+                   or f"({_stage_mark(st.get('status'), 'НЕ ЗАПУСКАЛСЯ')}"
                       + (f": {st.get('note') or st.get('error')})" if (st.get('note') or st.get('error')) else ")"))
         out.append("")
 
@@ -2340,7 +2350,7 @@ def run_scan(args) -> dict:
     banner("итог")
     for key in ("collect", "telegram", "enrich", "hh", "habr_sync", "mail"):
         st = stages.get(key) or {}
-        print(f"  {key:<10} {_STAGE_MARK.get(st.get('status'), '—')}"
+        print(f"  {key:<10} {_stage_mark(st.get('status'))}"
               + (f"  {st.get('note') or st.get('error') or ''}"[:80]
                  if st.get("note") or st.get("error") else ""))
     print(f"\nОтчёт: {path}")

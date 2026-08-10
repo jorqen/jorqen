@@ -32,6 +32,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
+from typing import Any
 
 from . import cookieimport as ci
 from .auth import BROWSER_STATE, PLATFORMS
@@ -190,7 +191,9 @@ class CookieSource:
                 + ("\n  Либо залогинься на площадке в браузере сам "
                    "(scout auth login <площадка>) — скрипт пароль не вводит."))
 
-    def storage_for_playwright(self) -> dict:
+    def storage_for_playwright(self) -> Any:
+        # Any, а не dict: форма — это `storage_state` Playwright, а его тип живёт
+        # в опциональной зависимости и в ядро не импортируется (инвариант 3).
         return {"cookies": ci.strip_meta(self.cookies),
                 "origins": self.state.get("origins", [])}
 

@@ -196,7 +196,7 @@ def _detail_hh(url: str) -> Detail:
         apply_note=apply_note or "отклик через форму hh — отправляет пользователь",
         description=html_to_text(vv.get("description")),
         extra={"key_skills": skills,
-               "experience": _HH_EXPERIENCE.get(vv.get("workExperience"),
+               "experience": _HH_EXPERIENCE.get(str(vv.get("workExperience") or ""),
                                                 vv.get("workExperience")),
                "employment": vv.get("employmentForm"),
                "compensation_mode": comp.get("mode"),
@@ -262,10 +262,10 @@ def _detail_habr(url: str) -> Detail:
     vac = vac or {}
     ld = ld or {}
     sal = vac.get("salary") or {}
-    locations = [x.get("title") for x in (vac.get("locations") or []) if x.get("title")]
+    locations = [title for x in (vac.get("locations") or []) if (title := x.get("title"))]
     if not locations:
-        locations = [p.get("address") for p in (ld.get("jobLocation") or [])
-                     if isinstance(p, dict) and p.get("address")]
+        locations = [addr for p in (ld.get("jobLocation") or [])
+                     if isinstance(p, dict) and (addr := p.get("address"))]
     apply_url, apply_note = _apply_from_html(text, final)
     d = Detail(
         source="habr", url=final,
@@ -1191,8 +1191,8 @@ def format_detail(d: Detail, *, req_lines: int = 0, desc_lines: int = 0) -> str:
         out.append(f"Отклик: {d.apply_url}" + (f"  [{d.apply_note}]" if d.apply_note else ""))
     elif d.apply_note:
         out.append(f"Отклик: {d.apply_note}")
-    if d.extra.get("key_skills") or d.extra.get("skills"):
-        skills = d.extra.get("key_skills") or d.extra.get("skills")
+    skills = d.extra.get("key_skills") or d.extra.get("skills")
+    if skills:
         out.append("Скиллы: " + ", ".join(skills[:15]))
     if d.questions:
         out.append("\n## Вопросы формы отклика")

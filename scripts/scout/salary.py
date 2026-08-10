@@ -490,7 +490,7 @@ def _analyze(text: str | None) -> tuple[int | None, int | None, str | None,
         return None, None, None, None, None, None
     t = _ZERO_WIDTH.sub("", H.unescape(str(text)))
     t, ref = _cut_reference(t)
-    t = expand_k(t.replace(" ", " ").replace(" ", " ").replace(" ", " ")).strip()
+    t = (expand_k(t.replace(" ", " ").replace(" ", " ").replace(" ", " ")) or "").strip()
     notes = []
     if ref:
         notes.append(f"справочная вилка, а не предложение работодателя: «{ref}»")

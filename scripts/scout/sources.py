@@ -556,8 +556,8 @@ def _hh_api_rows(rows: list, q: str, out: list[Vacancy], seen: set[str],
             employer_url=emp.get("alternate_url"),
             tags=[t for t in ((v.get("professional_roles") or []))
                   if isinstance(t, str)]
-                 or [r.get("name") for r in (v.get("professional_roles") or [])
-                     if isinstance(r, dict) and r.get("name")],
+                 or [name for r in (v.get("professional_roles") or [])
+                     if isinstance(r, dict) and (name := r.get("name"))],
             description=" ".join(x for x in (
                 (v.get("snippet") or {}).get("requirement"),
                 (v.get("snippet") or {}).get("responsibility")) if x) or None,

@@ -29,6 +29,7 @@ import json
 import re
 import sys
 import urllib.parse
+from typing import Any
 
 from . import store
 from .sources import ATS_ROLE_RE, role_text
@@ -301,7 +302,7 @@ def grade_of(title: str) -> str:
     # «senior» и «старший» — один грейд, названный на разных языках.
     ru2en = {"старший": "senior", "ведущий": "lead", "главный": "principal",
              "младший": "junior", "стажер": "intern", "стажёр": "intern"}
-    return ",".join(sorted({ru2en.get(w, w) for w in hit}))
+    return ",".join(sorted({ru2en.get(w, w) for w in hit if w}))
 
 
 def _key(row: dict) -> str:
@@ -827,9 +828,11 @@ def build(db: str, *, since: str | None, by: str = "seen",
     Хэмминга между описаниями, при котором записи считаются одной вакансией.
     Отрицательное значение выключает слой целиком.
     """
-    kw = dict(since=since if by == "published" else None,
-              first_seen_since=since if by == "seen" else None,
-              sources=sources, exclude_decided=True)
+    # dict[str, Any] явно — см. тот же приём в cli.cmd_new: значения разнотипны,
+    # и без аннотации `**kw` не сходится с сигнатурами store.
+    kw: dict[str, Any] = dict(since=since if by == "published" else None,
+                              first_seen_since=since if by == "seen" else None,
+                              sources=sources, exclude_decided=True)
     with store.connect(db) as conn:
         total = store.count(conn, **kw)
         rows = store.query(conn, limit=0, **kw)
@@ -937,7 +940,7 @@ def _money(g: dict) -> str:
     if not lo and not hi:
         return "—"
     cur = g.get("currency") or ""
-    per = {"hour": "/час", "month": "/мес", "year": "/год"}.get(g.get("salary_period"), "")
+    per = {"hour": "/час", "month": "/мес", "year": "/год"}.get(g.get("salary_period") or "", "")
     if lo and hi:
         return f"{lo}–{hi} {cur}{per}".strip()
     return f"от {lo or hi} {cur}{per}".strip()

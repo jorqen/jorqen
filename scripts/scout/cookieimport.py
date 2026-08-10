@@ -35,6 +35,8 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+from collections.abc import Mapping
+from typing import Any
 from urllib.parse import urlsplit
 
 from .auth import AUTH_DIR, BROWSER_STATE
@@ -297,7 +299,8 @@ def merge_cookies(base: list[dict], incoming: list[dict]) -> list[dict]:
     return list(merged.values())
 
 
-def filter_state(state: dict, domains: tuple[str, ...] = ALLOWED_DOMAINS) -> dict:
+def filter_state(state: Mapping[str, Any],
+                 domains: tuple[str, ...] = ALLOWED_DOMAINS) -> dict:
     """Оставляет в storage_state только домены площадок — и в куках, и в origins.
 
     Нужен везде, где состояние приходит из живого браузерного контекста

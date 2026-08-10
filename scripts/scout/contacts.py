@@ -75,9 +75,10 @@ def _texts(row: dict, payload: dict | None, raw: dict | None) -> list[tuple[str,
     contact = (raw or {}).get("contact")
     if contact:
         out.append((str(contact), "реестр площадки (contact)"))
+    fields = raw or {}
     for key in ("email", "phone", "recruiter", "author"):
-        if (raw or {}).get(key):
-            out.append((str(raw[key]), f"поле {key} площадки"))
+        if fields.get(key):
+            out.append((str(fields[key]), f"поле {key} площадки"))
     for key, where in (("apply_note", "поле «как откликаться»"),
                        ("requirements", "требования"),
                        ("description", "описание вакансии")):

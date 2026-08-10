@@ -37,6 +37,8 @@ import os
 import sys
 import time
 from datetime import datetime, timezone
+from collections.abc import Mapping
+from typing import Any
 
 AUTH_DIR = os.environ.get("SCOUT_AUTH_DIR") or os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".auth"
@@ -1237,7 +1239,8 @@ def _login_bundled(platform: str, cfg: dict, *, wait: int = 0) -> int:
     return 0
 
 
-def save_filtered(state: dict, path: str, domains: tuple[str, ...] = ()) -> None:
+def save_filtered(state: Mapping[str, Any], path: str,
+                  domains: tuple[str, ...] = ()) -> None:
     """Сохраняет storage_state, оставив ТОЛЬКО домены площадок.
 
     Живой браузерный контекст накапливает всё подряд: после `auth login hh`
@@ -1446,7 +1449,8 @@ def _check_bundled(names: list[str], cookies_from: str | None) -> list[str]:
     return dead
 
 
-def _header_from_state(state: dict, domains: list[str] | tuple[str, ...]) -> str | None:
+def _header_from_state(state: Mapping[str, Any],
+                       domains: list[str] | tuple[str, ...]) -> str | None:
     pairs, seen = [], set()
     now = datetime.now(timezone.utc).timestamp()
     for c in state.get("cookies", []):

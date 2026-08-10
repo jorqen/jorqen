@@ -28,6 +28,11 @@ import sys
 import time
 from dataclasses import dataclass, field
 from datetime import timezone
+# Any для клиента Telethon намеренно: `telethon.sync` подменяет методы так, что они
+# исполняются синхронно, а типы в поставке описывают асинхронные — проверяющий видит
+# CoroutineType там, где в рантайме уже готовый объект. Типизировать эту подмену
+# нечем, поэтому граница объявлена нетипизированной явно, а не замолчана построчно.
+from typing import Any
 
 from .auth import AUTH_DIR
 
@@ -97,7 +102,7 @@ def read_env(path: str = ENV_PATH) -> dict[str, str] | None:
     return out
 
 
-def _require_telethon():
+def _require_telethon() -> Any:
     try:
         from telethon.sync import TelegramClient  # noqa: PLC0415
     except ImportError:
@@ -106,7 +111,7 @@ def _require_telethon():
     return TelegramClient
 
 
-def _client(env: dict[str, str]):
+def _client(env: dict[str, str]) -> Any:
     TelegramClient = _require_telethon()
     try:
         api_id = int(env["TG_API_ID"])

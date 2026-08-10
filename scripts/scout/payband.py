@@ -179,7 +179,8 @@ def midpoint(row: dict) -> int | None:
     lo, hi = row.get("salary_from"), row.get("salary_to")
     if lo and hi:
         return (int(lo) + int(hi)) // 2
-    return int(lo or hi) if (lo or hi) else None
+    one = lo or hi
+    return int(one) if one else None
 
 
 def _pct(values: list[int], q: float) -> int:

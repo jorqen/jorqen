@@ -335,9 +335,9 @@ def fetch(
     # Кэшируем только чистые GET без тела: POST — это действие, у него нет
     # свойства «тот же запрос даст тот же ответ», и подменять его сохранённым
     # ответом значит соврать про результат действия.
-    cacheable = _CACHE is not None and method == "GET" and data is None
-    if cacheable:
-        hit = _CACHE.get(url)
+    cache = _CACHE if (method == "GET" and data is None) else None
+    if cache is not None:
+        hit = cache.get(url)
         if hit is not None:
             # Ответ пришёл из кэша — значит к площадке мы НЕ ходили, и пауза
             # перед следующей страницей не нужна: она защищает частоту
@@ -374,11 +374,11 @@ def fetch(
                     # Повторять бесполезно: стена не рассосётся от второго запроса.
                     raise BlockedError(resp.geturl(), f"антибот-проверка ({marker})",
                                        resp.status)
-                if cacheable:
+                if cache is not None:
                     # В кэш идёт только успешный ответ. Класть туда стену или
                     # ошибку значит закрепить поломку на сутки: следующий прогон
                     # получил бы её из кэша, не сходив на площадку.
-                    _CACHE.put(url, text, resp.geturl())
+                    cache.put(url, text, resp.geturl())
                 return text, resp.geturl()
         except BlockedError:
             raise

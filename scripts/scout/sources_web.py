@@ -797,7 +797,8 @@ def _src_rabota_html(ctx: Ctx) -> list[Vacancy]:
                 base = j.get("baseSalary") or {}
                 est = j.get("estimatedSalary") or {}
                 money = base if (base.get("minValue") or base.get("maxValue")) else est
-                val = money.get("value") if isinstance(money.get("value"), dict) else {}
+                raw_val = money.get("value")
+                val = raw_val if isinstance(raw_val, dict) else {}
                 lo = money.get("minValue") or val.get("minValue")
                 hi = money.get("maxValue") or val.get("maxValue")
                 # maxValue = 0 — «вилка сверху не указана», а не «ноль рублей».
@@ -911,8 +912,8 @@ def src_getmatch(ctx: Ctx) -> list[Vacancy]:
         seen.add(oid)
         tally.parsed += 1
         company = (o.get("company") or {})
-        skills = [s.get("name") for s in (o.get("skills_objects") or [])
-                  if isinstance(s, dict) and s.get("name")]
+        skills = [name for s in (o.get("skills_objects") or [])
+                  if isinstance(s, dict) and (name := s.get("name"))]
         formats = [str((li or {}).get("format") or "") for li in (o.get("location_items") or [])]
         labels = [str((li or {}).get("label") or "") for li in (o.get("location_items") or [])]
         taxes = o.get("salary_taxes")
@@ -1173,7 +1174,7 @@ def src_eures(ctx: Ctx) -> list[Vacancy]:
     if todo:
         pacer = HostPacer(EURES_DETAIL_PAUSE)
 
-        def fetch_one(v=None):
+        def fetch_one(v: Vacancy):
             pacer.wait(EURES_API)
             _eures_enrich(v)
             return True
@@ -1243,7 +1244,8 @@ def _eures_enrich(v: Vacancy) -> None:
     for loc in locs if isinstance(locs, list) else []:
         if not isinstance(loc, dict):
             continue
-        addr = loc.get("address") if isinstance(loc.get("address"), dict) else loc
+        raw_addr = loc.get("address")
+        addr = raw_addr if isinstance(raw_addr, dict) else loc
         for key in ("cityName", "city", "countryCode", "country", "regionName"):
             val = addr.get(key)
             if isinstance(val, str) and val and val not in names:
