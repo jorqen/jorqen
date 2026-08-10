@@ -83,6 +83,11 @@ RESPONSIVE_IMAGE_FORMATS = ("avif", "webp")
 RESPONSIVE_SOURCE_EXTENSIONS = (".jpg", ".jpeg", ".png")
 HERO_PRELOAD_WIDTH = RESPONSIVE_IMAGE_WIDTHS[1]
 HERO_PRELOAD_FORMAT = RESPONSIVE_IMAGE_FORMATS[0]
+# Ключи в localStorage. Каждый читают несколько разных мест (встроенный в <head>
+# скрипт, app.js, корневой резолвер языка), поэтому они живут здесь, а не своей
+# копией в каждом: разъехавшийся ключ молча теряет выбор посетителя.
+THEME_STORAGE_KEY = "jorqen.theme"
+LANGUAGE_STORAGE_KEY = "jorqen.language"
 THEMED_MEDIA_FILES = {
     "briefcase.svg",
     "contact.svg",
@@ -202,7 +207,27 @@ def site_runtime_config() -> dict[str, Any]:
             },
             "themedFiles": sorted(THEMED_MEDIA_FILES),
         },
+        "themeStorageKey": THEME_STORAGE_KEY,
+        "languageStorageKey": LANGUAGE_STORAGE_KEY,
     }
+
+
+def theme_preload_script() -> str:
+    """Ставит data-theme до первой отрисовки — иначе тёмная страница мигает светлым.
+
+    Тот же выбор, что и в app.js: сохранённая тема, иначе системная. Хранилище
+    бывает запрещено настройками браузера, и тогда падать нельзя — тема просто
+    останется системной.
+    """
+    key = json.dumps(THEME_STORAGE_KEY)
+    return (
+        "(function(){try{"
+        f"var s=localStorage.getItem({key});"
+        'var t=(s==="light"||s==="dark")?s:'
+        '(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");'
+        'document.documentElement.setAttribute("data-theme",t);'
+        "}catch(e){}})();"
+    )
 
 
 def analytics_runtime_config() -> dict[str, str]:
@@ -1307,11 +1332,13 @@ def render_language_switch(source: dict[str, Any], lang: str) -> str:
     links = []
     for item_lang in source["languages"]:
         active = ' class="active"' if item_lang == lang else ""
-        pressed = "true" if item_lang == lang else "false"
+        # Это ссылка, а не кнопка: aria-pressed на <a> недопустим, текущую
+        # страницу в наборе ссылок помечают через aria-current.
+        current = ' aria-current="true"' if item_lang == lang else ""
         path = relative_public_path(page_path(source, item_lang))
         links.append(
             f'<a href="{html_attr(path)}" data-lang-switch="{html_attr(item_lang)}" '
-            f'data-lang-switch-url="{html_attr(path)}" aria-pressed="{pressed}"{active}>'
+            f'data-lang-switch-url="{html_attr(path)}"{current}{active}>'
             f"{html_text(item_lang.upper())}</a>"
         )
     return "\n          ".join(links)
@@ -1554,6 +1581,7 @@ def generate_root_resolver_html(source: dict[str, Any]) -> str:
         title=title,
         pages_json=safe_html(script_json(json.dumps(page_paths, ensure_ascii=False, sort_keys=True))),
         default_lang_json=safe_html(script_json(json.dumps(default_lang))),
+        language_storage_key_json=safe_html(script_json(json.dumps(LANGUAGE_STORAGE_KEY))),
         default_path=page_paths[default_lang],
         language_links=language_links,
     )
@@ -1612,8 +1640,11 @@ def generate_site_html(source: dict[str, Any], lang: str) -> str:
         ),
         yandex_metrika_id=YANDEX_METRIKA_ID,
         yandex_metrika_origin=YANDEX_METRIKA_ORIGIN,
+        theme_preload_script=safe_html(theme_preload_script()),
         lang_switcher_label=localized_tree(site_ui["langSwitcherLabel"], lang, source["languages"]),
         language_switch=safe_html(render_language_switch(source, lang)),
+        nav_label=localized_tree(site_ui["navLabel"], lang, source["languages"]),
+        skip_to_content=localized_tree(site_ui["skipToContent"], lang, source["languages"]),
         nav_resume=localized_tree(site_ui["navResume"], lang, source["languages"]),
         experience_title=data["experience"]["title"],
         education_title=data["education"]["title"],
@@ -1641,7 +1672,6 @@ def generate_site_html(source: dict[str, Any], lang: str) -> str:
                 style=hero_style or None,
             )
         ),
-        hero_photo_caption=profile["photo"]["caption"],
         facts=safe_html(render_facts(profile["facts"])),
         download_panel_icon=safe_html(render_panel_icon("download.svg")),
         resume_downloads_title=localized_tree(site_ui["resumeDownloads"]["title"], lang, source["languages"]),

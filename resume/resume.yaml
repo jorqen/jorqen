@@ -85,6 +85,12 @@ siteUi:
   langSwitcherLabel:
     en: "Language switcher"
     ru: "Переключение языка"
+  navLabel:
+    en: "Section navigation"
+    ru: "Навигация по разделам"
+  skipToContent:
+    en: "Skip to content"
+    ru: "Перейти к содержимому"
   theme:
     toDark:
       en: "Dark theme"

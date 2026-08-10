@@ -109,6 +109,8 @@ definitions:
     required:
       - "navResume"
       - "langSwitcherLabel"
+      - "navLabel"
+      - "skipToContent"
       - "theme"
       - "resumeDownloads"
       - "footer"
@@ -117,6 +119,10 @@ definitions:
       navResume:
         "$ref": "#/definitions/localizedStringMap"
       langSwitcherLabel:
+        "$ref": "#/definitions/localizedStringMap"
+      navLabel:
+        "$ref": "#/definitions/localizedStringMap"
+      skipToContent:
         "$ref": "#/definitions/localizedStringMap"
       theme:
         type: "object"

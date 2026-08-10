@@ -1,5 +1,3 @@
-const LANGUAGE_STORAGE_KEY = "jorqen.language";
-const THEME_STORAGE_KEY = "jorqen.theme";
 const SUPPORTED_THEMES = ["light", "dark"];
 const APP_SCRIPT_URL = detectAppScriptUrl();
 const SITE_BASE_PATH = detectSiteBasePath(APP_SCRIPT_URL);
@@ -8,6 +6,31 @@ const MEDIA_ROOT = `${ASSET_ROOT}/media`;
 
 let SITE_URL = normalizeSiteUrl(window.location.origin);
 let THEMED_MEDIA_FILES = new Set();
+// Приходят из данных страницы. Те же ключи читают встроенный в <head> скрипт
+// (тема) и корневой резолвер языка, поэтому единственный экземпляр каждого —
+// константа в генераторе. Копий здесь быть не должно.
+let THEME_STORAGE_KEY = "";
+let LANGUAGE_STORAGE_KEY = "";
+
+// Хранилище бывает запрещено настройками браузера, и обращение к нему бросает.
+// Раньше это роняло init() и подменяло резюме сообщением об ошибке.
+function readStored(key) {
+  try {
+    return key ? window.localStorage.getItem(key) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStored(key, value) {
+  try {
+    if (key) {
+      window.localStorage.setItem(key, value);
+    }
+  } catch {
+    // Тема не запомнится — это не повод ломать страницу.
+  }
+}
 
 function detectAppScriptUrl() {
   if (!(document.currentScript instanceof HTMLScriptElement)) {
@@ -38,6 +61,8 @@ function configureMedia(source) {
 
 function configureSite(source) {
   SITE_URL = normalizeSiteUrl(source.site.url);
+  THEME_STORAGE_KEY = source.site.themeStorageKey;
+  LANGUAGE_STORAGE_KEY = source.site.languageStorageKey;
   configureMedia(source);
 
   if (window.JorqenAnalytics?.configure) {
@@ -82,16 +107,18 @@ function syncStaticThemeIcons(theme) {
 }
 
 function detectTheme() {
-  const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
-  if (SUPPORTED_THEMES.includes(storedTheme)) {
-    return storedTheme;
+  // Выбор уже сделан встроенным в <head> скриптом — там же, где он должен был
+  // случиться, до первой отрисовки. Здесь его только читаем.
+  const applied = document.documentElement.getAttribute("data-theme");
+  if (SUPPORTED_THEMES.includes(applied)) {
+    return applied;
   }
 
   return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
 function hasStoredTheme() {
-  return SUPPORTED_THEMES.includes(window.localStorage.getItem(THEME_STORAGE_KEY));
+  return SUPPORTED_THEMES.includes(readStored(THEME_STORAGE_KEY));
 }
 
 function setTheme(theme, persist = false) {
@@ -101,7 +128,7 @@ function setTheme(theme, persist = false) {
   document.documentElement.setAttribute("data-theme", theme);
 
   if (persist) {
-    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    writeStored(THEME_STORAGE_KEY, theme);
   }
 }
 
@@ -167,14 +194,19 @@ function setupLanguagePreference(source) {
     const lang = link.getAttribute("data-lang-switch");
     const isActive = lang === currentLang;
     link.classList.toggle("active", isActive);
-    link.setAttribute("aria-pressed", String(isActive));
+    // Это ссылка, а не кнопка: текущий язык помечается aria-current.
+    if (isActive) {
+      link.setAttribute("aria-current", "true");
+    } else {
+      link.removeAttribute("aria-current");
+    }
 
     link.addEventListener("click", (event) => {
       if (!source.languages.includes(lang)) {
         return;
       }
 
-      window.localStorage.setItem(LANGUAGE_STORAGE_KEY, lang);
+      writeStored(LANGUAGE_STORAGE_KEY, lang);
 
       if (!(link instanceof HTMLAnchorElement)) {
         return;

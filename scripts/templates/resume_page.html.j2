@@ -34,6 +34,9 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="../assets/styles.css" />
+    <!-- Тема ставится ДО первой отрисовки. app.js отложен, и без этого
+         кусочка тёмная страница успевала мигнуть светлым фоном. -->
+    <script>{{ theme_preload_script }}</script>
     <script type="application/ld+json">{{ json_ld_json }}</script>
     <script type="application/json" id="resume-data">{{ embedded_resume_data_json }}</script>
     <script defer src="../assets/analytics.js"></script>
@@ -41,12 +44,13 @@
   </head>
   <body>
     <noscript><div><img src="{{ yandex_metrika_origin }}/watch/{{ yandex_metrika_id }}" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
+    <a class="skip-link" href="#top">{{ skip_to_content }}</a>
     <header class="site-header container">
       <div class="lang-switch" role="group" aria-label="{{ lang_switcher_label }}" id="lang-switch">
           {{ language_switch }}
       </div>
 
-      <nav class="site-nav" aria-label="Main navigation">
+      <nav class="site-nav" aria-label="{{ nav_label }}">
         <a id="nav-resume" href="#resume">{{ nav_resume }}</a>
         <a id="nav-experience" href="#experience">{{ experience_title }}</a>
         <a id="nav-education" href="#education">{{ education_title }}</a>
@@ -77,10 +81,9 @@
           </div>
 
           <aside class="hero-visual">
-            <figure class="hero-photo-card">
+            <div class="hero-photo-card">
 {{ hero_photo }}
-              <figcaption id="hero-photo-caption">{{ hero_photo_caption }}</figcaption>
-            </figure>
+            </div>
           </aside>
         </div>
         <div id="hero-facts" class="facts-grid hero-facts">
