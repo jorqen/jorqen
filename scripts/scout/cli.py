@@ -1389,10 +1389,12 @@ def cmd_check_links(args) -> int:
     Ashby ротирует UUID вакансии при переопубликации: ссылка вчерашнего скана может
     быть мёртвой при живой вакансии. Для мёртвой ссылки печатаются живые вакансии
     той же доски с похожим названием — обычно среди них и есть переехавшая."""
-    from .atsapi import board, parse_job_url
+    from .atsapi import Board, board, parse_job_url
 
     parsed: list[tuple[str, tuple | None]] = [(u, parse_job_url(u)) for u in args.urls]
-    boards: dict[tuple[str, str], object] = {}
+    # Board | Exception, а не object: под `object` проверяющий не видел ни `.jobs`,
+    # ни `.total`, ни `.note` — то есть вся эта ветка не проверялась вовсе.
+    boards: dict[tuple[str, str], Board | Exception] = {}
     for _, p in parsed:
         if p and (p[0], p[1]) not in boards:
             try:
@@ -1510,7 +1512,10 @@ def cmd_check_links(args) -> int:
                         # не находила ничего и давала «записи нет» на живых.
                         elif j.get("content") or j.get("posted_at"):
                             body = j.get("content")
-                            head = (body.get("title") if isinstance(body, dict)
+                            # `or ""` обязателен: у careered в content бывает dict
+                            # без title, и срез от None падал бы TypeError прямо
+                            # на печати «вакансия жива».
+                            head = ((body.get("title") or "") if isinstance(body, dict)
                                     else str(body or ""))[:50]
                             print(f"✓  ЖИВА  {url}\n   API careered отдал вакансию "
                                   f"«{head}» (mode={j.get('mode')}, "

@@ -53,7 +53,7 @@ def _gd_posted(age: str | None, now: datetime | None = None) -> tuple[str | None
     n, unit = int(m.group(1)), m.group(2).lower()
     delta = timedelta(hours=n) if unit in ("h", "ч") else timedelta(days=n)
     when = (now or datetime.now(timezone.utc)) - delta
-    return when.isoformat(timespec="seconds"), f"дата вычислена из метки «{age.strip()}»"
+    return when.isoformat(timespec="seconds"), f"дата вычислена из метки «{(age or '').strip()}»"
 
 
 def _glassdoor_cards(html: str) -> list[dict]:
@@ -203,7 +203,7 @@ def _src_glassdoor_api(ctx: Ctx) -> list[Vacancy]:
     if not isinstance(got, dict) or got.get("status") != 200:
         raise FetchError(url, f"GraphQL ответил {(got or {}).get('status')}")
     data = json.loads(got.get("text") or "[]")
-    block = (data[0] if isinstance(data, list) and data else data) or {}
+    block = (data[0] if data else {}) if isinstance(data, list) else (data or {})
     listings = (((block.get("data") or {}).get("jobListings") or {})
                 .get("jobListings"))
     if listings is None:
@@ -269,7 +269,7 @@ def _glassdoor_page_url(url: str, page: int) -> str:
     return f"{base}_IP{page}.htm{tail}" if base else url
 
 
-def _real_browser() -> str:
+def _real_browser() -> str | None:
     """Настоящий браузер для Glassdoor. Встроенный шелл сюда не годится.
 
     Это не предпочтение, а устройство площадки: у неё управляемая проверка
@@ -391,7 +391,8 @@ def _src_glassdoor_html(ctx: Ctx) -> list[Vacancy]:
         org = j.get("hiringOrganization") or {}
         addr = ((j.get("jobLocation") or {}).get("address") or {})
         base = j.get("baseSalary") or {}
-        val = base.get("value") if isinstance(base.get("value"), dict) else {}
+        raw_val = base.get("value")
+        val = raw_val if isinstance(raw_val, dict) else {}
         v = Vacancy(
             source="glassdoor",
             external_id=str(j.get("identifier", {}).get("value")

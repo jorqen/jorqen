@@ -325,10 +325,11 @@ def run(db: str, *, days: int, date: str, top: int = 10, apply: bool = False,
         print("\n--via bot, но TG_BOT_TOKEN/TG_BOT_CHAT не заданы.\n\n" + NO_CHANNEL,
               file=sys.stderr)
         return 2
-    use_bot = creds is not None if via == "auto" else via == "bot"
-    if not use_bot and not _target(env):
-        print("\n" + NO_CHANNEL, file=sys.stderr)
-        return 2
+    # Признак «шлём ботом» — сами учётные данные, а не отдельный флаг рядом с ними:
+    # два значения, обязанные совпадать, рано или поздно разъезжаются. Проверка
+    # канала для отправки от аккаунта живёт в своей ветке ниже — там, где он нужен.
+    bot = creds if via in ("auto", "bot") else None
+    use_bot = bot is not None
 
     # Защита от повтора стоит ДО выбора транспорта: «один пост на волну» —
     # свойство волны, а не способа отправки. Иначе перезапуск рутины с другим
@@ -340,8 +341,8 @@ def run(db: str, *, days: int, date: str, top: int = 10, apply: bool = False,
               f"`--force`, если надо повторить.", file=sys.stderr)
         return 0
 
-    if use_bot:
-        token, chat = creds
+    if bot is not None:
+        token, chat = bot
         try:
             msg_id = send_bot(token, chat, path, text)
         except RuntimeError as e:
@@ -349,6 +350,9 @@ def run(db: str, *, days: int, date: str, top: int = 10, apply: bool = False,
             return 2
     else:
         chat = _target(env)
+        if chat is None:
+            print("\n" + NO_CHANNEL, file=sys.stderr)
+            return 2
         from .tgclient import _connect  # noqa: PLC0415
         client = _connect(env)
         try:

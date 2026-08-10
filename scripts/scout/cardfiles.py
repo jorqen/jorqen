@@ -338,8 +338,8 @@ def check_card(text: str) -> list[str]:
     return bad
 
 
-def lint(path: str) -> list[tuple[str, list[str]]]:
-    """[(файл, замечания)] по каталогу волны или одному файлу."""
+def lint(path: str) -> tuple[list[tuple[str, list[str]]], int]:
+    """([(файл, замечания)], сколько файлов проверено) по каталогу волны или файлу."""
     files: list[str] = []
     if os.path.isfile(path):
         files = [path]
