@@ -163,6 +163,62 @@ def test_boolean_data_attribute_is_not_an_address():
         FAILS.append("resolve: настоящий относительный адрес из data-атрибута потерян")
 
 
+def test_linkedin_is_read_through_its_guest_endpoint():
+    """Описание LinkedIn берётся гостевой ручкой, а закрытый набор — оттуда же.
+
+    🔴 Обычная страница `/jobs/view/…` отдаётся только человеку: и stdlib, и
+    браузер упираются в антибот-проверку, и 14 вакансий волны 08.08.2026
+    остались без единой строки текста — карточки по ним выходили пустыми.
+    Гостевая ручка, которой LinkedIn сам кормит встраиваемые карточки, отвечает
+    200 без входа (замер 09.08.2026: 3887 символов на вакансии Ennismore).
+
+    Второй смысл ручки: там же написано «No longer accepting applications» —
+    живость приезжает тем же запросом, а не отдельной проверкой.
+    """
+    from . import detail as D
+    from .net import PAGE_GONE
+
+    asked: list[str] = []
+
+    def fake_fetch(url, **kw):
+        asked.append(url)
+        return ("<h1>Go Developer</h1><p>Ennismore</p>"
+                "<div>We are looking for a Go engineer. Requirements: Go, Kubernetes, "
+                "PostgreSQL and a solid understanding of distributed systems.</div>"
+                "<span>No longer accepting applications</span>"), url
+
+    old = D.fetch
+    D.fetch = fake_fetch
+    try:
+        d = D._detail_linkedin(
+            "https://pt.linkedin.com/jobs/view/go-developer-at-ennismore-4451034363",
+            "4451034363")
+    finally:
+        D.fetch = old
+
+    if not asked or "jobs-guest/jobs/api/jobPosting/4451034363" not in asked[0]:
+        FAILS.append(f"LinkedIn читали не гостевой ручкой: {asked}")
+    if not (d.description or "") or "Go engineer" not in d.description:
+        FAILS.append(f"описание LinkedIn не разобралось: {(d.description or '')[:60]!r}")
+    eq(d.extra.get("page_state"), PAGE_GONE,
+       "«no longer accepting applications» не прочитано как снятая вакансия")
+
+    # Живая вакансия снятой не объявляется.
+    def alive_fetch(url, **kw):
+        return ("<div>We are hiring a Go engineer for our platform team. "
+                "Requirements: Go, Kubernetes, PostgreSQL, distributed systems, "
+                "observability and strong engineering fundamentals. You will own "
+                "services end to end.</div>"), url
+
+    D.fetch = alive_fetch
+    try:
+        d2 = D._detail_linkedin("https://uk.linkedin.com/jobs/view/x-1", "1")
+    finally:
+        D.fetch = old
+    if d2.extra.get("page_state"):
+        FAILS.append("живая вакансия LinkedIn помечена снятой")
+
+
 def test_a_short_post_gives_its_stack_as_requirements():
     """У поста в две строки требования — это его СТЕК, а не строка про бота.
 

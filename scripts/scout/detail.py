@@ -1074,6 +1074,53 @@ def _flag_untrusted(d: Detail) -> None:
         f"Цитаты покажет `scout card {d.url}`")
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# LinkedIn — гостевая ручка вакансии
+# ──────────────────────────────────────────────────────────────────────────────
+
+_LINKEDIN_JOB_ID = re.compile(r"/jobs/view/(?:[^/?#]*-)?(\d{6,})", re.I)
+_LINKEDIN_GUEST = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{}"
+
+# Площадка сама говорит, что набор закрыт. Ровно эта строка и делает ручку
+# ценной вдвойне: она отвечает и «что за вакансия», и «жива ли она».
+_LINKEDIN_CLOSED = re.compile(r"no longer accepting applications|"
+                              r"больше не принимает заявки", re.I)
+
+
+def _detail_linkedin(url: str, jid: str) -> Detail:
+    """Описание вакансии LinkedIn БЕЗ входа и без капчи.
+
+    🔴 Обычная страница `/jobs/view/…` отдаётся только человеку: stdlib и даже
+    браузер упираются в антибот-проверку, и 14 вакансий волны 08.08.2026
+    остались без единой строки текста. Гостевая ручка, которой пользуется сам
+    LinkedIn для встраиваемых карточек, отвечает 200 и отдаёт полное описание
+    (замер 09.08.2026: 3887 символов текста на вакансии Ennismore).
+
+    Дополнительная выгода: там же написано «No longer accepting applications» —
+    то есть живость берётся тем же запросом, а не отдельной проверкой.
+    """
+    text, final = fetch(_LINKEDIN_GUEST.format(jid), timeout=20)
+    body = html_to_text(text)
+    if len(body) < 120:
+        raise _page_error(final, text, anchor="jobs-guest/jobPosting")
+    closed = bool(_LINKEDIN_CLOSED.search(text))
+    apply_url, apply_note = _apply_from_html(text, url, follow_hops=False)
+    d = Detail(
+        source="linkedin",
+        url=url,
+        title=None,
+        description=body,
+        apply_url=apply_url,
+        apply_note=apply_note,
+        notes=(["площадка пишет «no longer accepting applications» — набор закрыт"]
+               if closed else []),
+    )
+    # Признак снятой вакансии — там же, где его ждут остальные разборщики.
+    if closed:
+        d.extra["page_state"] = PAGE_GONE
+    return d
+
+
 def _dispatch(url: str, use_render: bool, *, cookies_from: str | None = None,
               use_cache: bool = False) -> Detail:
     gkw = {"cookies_from": cookies_from, "use_cache": use_cache}
@@ -1097,6 +1144,10 @@ def _dispatch(url: str, use_render: bool, *, cookies_from: str | None = None,
         # Страницы без id в хвосте (поиск /vacancies/go,backend) остаются generic.
         if jid:
             return _detail_hirehi(url, jid)
+    if host == "linkedin.com" or host.endswith(".linkedin.com"):
+        m = _LINKEDIN_JOB_ID.search(url)
+        if m:
+            return _detail_linkedin(url, m.group(1))
     if host == "careered.io":
         return _detail_careered(url, cookies_from=cookies_from, use_cache=use_cache)
     if host == "getmatch.ru" and "/vacancies/" in url:
