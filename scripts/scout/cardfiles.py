@@ -30,6 +30,8 @@ from .wavedoc import slug
 # печатается), но карточка с ними ГОТОВОЙ не является.
 _HOLES = (
     "<!-- ЗАПОЛНЯЕТ МОДЕЛЬ",
+    # Черновик фита собран, а решение не принято: карточка не готова.
+    "**Вывод: <решает модель>**",
     "<заполни",
     "TODO",
     "…дописать",
@@ -105,6 +107,17 @@ def _dead_links(text: str) -> list[str]:
 # базы, всё ниже — суждение и письмо. Граница нужна `--refresh`: пересобрать
 # факты, не тронув написанное.
 _MODEL_PART = "### Фит"
+
+# Признаки того, что модель к карточке ещё НЕ прикасалась. Заглушка «пишет
+# модель» — старый вид; черновик фита с незаполненным выводом — новый: алгоритм
+# собрал сводку по фактам, но решение «писать или пропустить» никто не принял.
+# Такую карточку перезаписывать можно и нужно, а вот работу модели — нельзя,
+# её нет ни в базе, ни в git.
+_UNTOUCHED = ("— пишет модель", "**Вывод: <решает модель>**")
+
+
+def _is_untouched_skeleton(text: str) -> bool:
+    return any(mark in text for mark in _UNTOUCHED)
 
 
 def refresh_text(old: str, fresh: str) -> str | None:
@@ -296,7 +309,7 @@ def write(db: str, urls: list[str], *, date: str, root: str = ".jobs",
                         current = f.read()
                 except OSError:
                     current = ""
-                if _MODEL_PART in current and "— пишет модель" not in current:
+                if _MODEL_PART in current and not _is_untouched_skeleton(current):
                     merged = refresh_text(current, text)
                     if merged is not None:
                         with open(path, "w", encoding="utf-8") as f:
