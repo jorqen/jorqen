@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-import gzip
 import html
 import json
 import random
@@ -379,8 +378,7 @@ def _retry_with_owner_cookies(url, headers, body, method, timeout, ctx,
     try:
         with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
             raw = _decode(resp)
-            charset = resp.headers.get_content_charset() or "utf-8"
-            text = raw.decode(charset, errors="replace")
+            text = raw.decode(_charset_of(resp, raw), errors="replace")
             if wall_marker(text, resp.status):
                 return None               # пропуск не подошёл — это честная стена
             return text, resp.geturl()
