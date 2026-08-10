@@ -783,7 +783,7 @@ def _readability_text(html: str) -> str | None:
     решает сам — решение принимает _pick_generic_text.
     """
     try:
-        from readability import Document  # noqa: PLC0415
+        from readability import Document  # noqa: PLC0415  # pyright: ignore[reportMissingImports] — зависимость опциональна, импорт под try/except
     except ImportError:
         return None
     try:

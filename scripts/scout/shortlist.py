@@ -297,7 +297,9 @@ def grade_of(title: str) -> str:
     не смягчается никакими порогами похожести."""
     from .model import GRADE_WORDS  # noqa: PLC0415 — один список на проект
 
-    words = set(re.findall(r"[a-zа-яё]+", (title or "").lower()))
+    # Явный set[str]: re.findall типизирован как list[Any], и без аннотации
+    # весь дальнейший разбор грейда становится нетипизированным.
+    words: set[str] = set(re.findall(r"[a-zа-яё]+", (title or "").lower()))
     hit = sorted(words & GRADE_WORDS)
     # «senior» и «старший» — один грейд, названный на разных языках.
     ru2en: dict[str, str] = {"старший": "senior", "ведущий": "lead", "главный": "principal",

@@ -20,7 +20,7 @@ from typing import Any
 from urllib.parse import quote, urljoin, urlsplit
 
 try:
-    from babel.dates import format_date
+    from babel.dates import format_date  # pyright: ignore[reportMissingImports] — зависимость опциональна, импорт под try/except
 except ImportError as exc:  # pragma: no cover - handled at runtime for local setup clarity.
     raise SystemExit(
         "Missing date formatting dependency. Install Babel or run through scripts/build_resume_formats.sh."
@@ -49,19 +49,19 @@ except ImportError as exc:  # pragma: no cover - handled at runtime for local se
     ) from exc
 
 try:
-    from docx import Document
-    from docx.enum.style import WD_STYLE_TYPE
-    from docx.enum.text import WD_LINE_SPACING
-    from docx.oxml import OxmlElement
-    from docx.oxml.ns import qn
-    from docx.shared import Inches, Mm, Pt, RGBColor
+    from docx import Document  # pyright: ignore[reportMissingImports] — зависимость опциональна, импорт под try/except
+    from docx.enum.style import WD_STYLE_TYPE  # pyright: ignore[reportMissingImports] — зависимость опциональна, импорт под try/except
+    from docx.enum.text import WD_LINE_SPACING  # pyright: ignore[reportMissingImports] — зависимость опциональна, импорт под try/except
+    from docx.oxml import OxmlElement  # pyright: ignore[reportMissingImports] — зависимость опциональна, импорт под try/except
+    from docx.oxml.ns import qn  # pyright: ignore[reportMissingImports] — зависимость опциональна, импорт под try/except
+    from docx.shared import Inches, Mm, Pt, RGBColor  # pyright: ignore[reportMissingImports] — зависимость опциональна, импорт под try/except
 except ImportError as exc:  # pragma: no cover - handled at runtime for local setup clarity.
     raise SystemExit(
         "Missing DOCX dependencies. Install python-docx or run through scripts/build_resume_formats.sh."
     ) from exc
 
 try:
-    from weasyprint import HTML
+    from weasyprint import HTML  # pyright: ignore[reportMissingImports] — зависимость опциональна, импорт под try/except
 except ImportError as exc:  # pragma: no cover - handled at runtime for local setup clarity.
     raise SystemExit(
         "Missing PDF dependencies. Install WeasyPrint or run through scripts/build_resume_formats.sh."

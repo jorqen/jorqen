@@ -2219,7 +2219,7 @@ def test_generic_text_cuts_boilerplate():
     на живой странице Greenhouse наш разбор давал 13 847 символов против 7 369
     у readability. Пропускается, если пакета нет: путь опциональный."""
     try:
-        import readability  # noqa: F401
+        import readability  # noqa: F401  # pyright: ignore[reportMissingImports] — зависимость опциональна, импорт под try/except
     except ImportError:
         return
     from .detail import _pick_generic_text
