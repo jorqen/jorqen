@@ -8,12 +8,13 @@
   --line-strong: #c9d6ea;
   --text-main: #0f1f36;
   --text-muted: #526581;
-  --text-soft: #6d7f99;
+  /* На светлом фоне это самый бледный текст: им набраны сводка в шапке,
+     описания сильных сторон и подписи. #6d7f99 давал 3.7:1 на --bg-subtle —
+     ниже порога WCAG AA (4.5). Тон и насыщенность те же, светлота ниже. */
+  --text-soft: #5c6c84;
   --accent: #1d5fd1;
   --accent-strong: #1649a3;
   --accent-soft: #e8f0ff;
-  --success: #0b8c4a;
-  --warning: #d44b3a;
   --shadow: 0 10px 26px rgba(19, 43, 77, 0.08);
   --radius-xl: 12px;
   --radius-lg: 10px;
@@ -35,8 +36,6 @@ html[data-theme="dark"] {
   --accent: #73a4ff;
   --accent-strong: #8cb7ff;
   --accent-soft: rgba(115, 164, 255, 0.12);
-  --success: #5cd28f;
-  --warning: #ff886f;
   --shadow: 0 14px 32px rgba(0, 0, 0, 0.28);
 }
 
@@ -51,7 +50,7 @@ html {
 
 body {
   margin: 0;
-  min-height: 100vh;
+  min-height: 100dvh;
   font-family: "Manrope", "Segoe UI", sans-serif;
   color: var(--text-main);
   background: linear-gradient(180deg, #f8fbff 0%, var(--bg-subtle) 46%, var(--bg) 100%);
@@ -89,6 +88,48 @@ html[data-theme="dark"] body {
 .container {
   width: min(1160px, 92vw);
   margin: 0 auto;
+}
+
+/* Клавиатурный фокус. Своих стилей не было совсем: на «таблетках» без рамки и
+   на тёмном фоне системное кольцо теряется, и по странице нельзя ходить с
+   клавиатуры вслепую. outline сам повторяет border-radius элемента. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.site-nav a:focus-visible,
+.company-link:focus-visible,
+.action-link:focus-visible {
+  color: var(--accent-strong);
+}
+
+.action-link:focus-visible,
+.resume-button:focus-visible {
+  border-color: var(--line-strong);
+}
+
+/* Первая остановка Tab: перепрыгнуть шапку и уйти сразу к содержимому. */
+.skip-link {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 20;
+  transform: translateY(-150%);
+  margin: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--accent-strong);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
 }
 
 .site-header {
@@ -275,10 +316,6 @@ main {
   background: var(--surface);
   filter: var(--photo-filter, brightness(0.94) contrast(1.03) saturate(0.92));
   transition: transform 220ms ease, box-shadow 220ms ease, filter 220ms ease;
-}
-
-.hero-photo-card figcaption {
-  display: none;
 }
 
 .hero-photo-card picture {
