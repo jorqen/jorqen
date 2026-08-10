@@ -1213,6 +1213,30 @@ def test_hidden_employer_never_merges_strangers():
         ok(a != b, f"заглушка «{hidden}» всё ещё склеивает разных работодателей")
 
 
+def test_placeholder_company_asked_the_same_way_everywhere():
+    """«Это заглушка?» — один вопрос и один ответ на весь проект.
+
+    Раньше он был записан четырьмя разными способами, и два из них врали.
+    `crawl` сравнивал СТРОКУ с множеством (`company == PLACEHOLDER_COMPANY`) —
+    ложь всегда: раскрытый обходом работодатель не записывался ровно для тех
+    851 вакансии за заглушкой агрегатора, ради которых раскрытие и заведено.
+    `wavedoc` сверял имя целиком и не видел заглушку внутри длинного названия,
+    а `card` наоборот — не видел «N/A», от которого после нормализации не
+    остаётся ни одного слова длиннее буквы.
+    """
+    from .model import PLACEHOLDER_COMPANY as _SET, is_placeholder_company
+    from .wavedoc import slug
+
+    ok(not isinstance("nda", type(_SET)), "заглушки — множество, строка ему не равна")
+    for hidden in ("NDA", "N/A", "n\\a", "N.A.", "Jobgether", "JobGether Inc",
+                   "Не указана", "Confidential", "Stealth Startup"):
+        ok(is_placeholder_company(hidden), f"«{hidden}» не опознана как заглушка")
+        eq(slug(hidden), "_hidden", f"карточка «{hidden}» уехала в каталог с именем")
+    for real in ("Ozon", "Acme Corp", "Canonical", "Datadog"):
+        ok(not is_placeholder_company(real), f"«{real}» принят за заглушку")
+        ok(slug(real) != "_hidden", f"настоящая компания «{real}» уехала в _hidden")
+
+
 def test_aggregator_token_is_not_an_employer():
     """У доски-агрегатора `company` — имя ДОСКИ. «jobgether|full software stack» —
     это 43 разных объявления разных компаний, а не одна вакансия."""

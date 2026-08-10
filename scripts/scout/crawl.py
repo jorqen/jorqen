@@ -974,7 +974,7 @@ def walk(conn, url: str, *, depth: int = MAX_DEPTH, max_pages: int = MAX_PAGES,
     """
     import json  # noqa: PLC0415
     from . import store  # noqa: PLC0415 — ленивый: crawl зовут и без базы
-    from .model import PLACEHOLDER_COMPANY  # noqa: PLC0415
+    from .model import is_placeholder_company  # noqa: PLC0415
 
     row = conn.execute(
         "SELECT source, external_id, employer_url, company, raw FROM vacancy "
@@ -1009,7 +1009,7 @@ def walk(conn, url: str, *, depth: int = MAX_DEPTH, max_pages: int = MAX_PAGES,
     # Имя работодателя едет вместе с обходом: по нему `employer_guess` отличает
     # свой домен от случайного попутчика (витрина, поисковик, статья на vc.ru).
     known_company = (row["company"] or "").strip()
-    res.company = "" if known_company == PLACEHOLDER_COMPANY else known_company
+    res.company = "" if is_placeholder_company(known_company) else known_company
     found = routes(res)
     if not save:
         return res, found
@@ -1022,7 +1022,7 @@ def walk(conn, url: str, *, depth: int = MAX_DEPTH, max_pages: int = MAX_PAGES,
     # него класть нельзя.
     guess = employer_guess(res)
     company = (row["company"] or "").strip()
-    hidden = not company or company == PLACEHOLDER_COMPANY
+    hidden = not company or is_placeholder_company(company)
     # Живость и контакт уезжают в кэш ресёрча: это самые дорогие проверки
     # волны, и повторять их в следующей незачем (таблица ради этого и заведена).
     #

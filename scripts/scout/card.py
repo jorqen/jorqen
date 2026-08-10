@@ -27,8 +27,8 @@ import sys
 
 from . import applyopt, payband, store, untrusted
 from . import contacts
-from .model import PLACEHOLDER_COMPANY, salary_str
-from .shortlist import (_has, company_aliases, norm, own_text_payload,
+from .model import is_placeholder_company, salary_str
+from .shortlist import (_has, company_aliases, own_text_payload,
                         required_years, rtw_flags)
 
 RESUME_PATH = os.path.join(
@@ -633,7 +633,7 @@ def flags(row: dict, payload: dict | None, years: int | None,
     text = " ".join(str((payload or {}).get(k) or "")
                     for k in ("description", "requirements", "apply_note"))
 
-    if not company or set(norm(company).split()) & PLACEHOLDER_COMPANY:
+    if not company or is_placeholder_company(company):
         out.append("🔴 работодатель НЕ РАСКРЫТ — до письма надо выяснить, кто это; "
                    "под заглушкой у одного агрегатора прячутся десятки компаний")
     if _PAY_TO_APPLY.search(text):

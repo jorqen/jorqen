@@ -49,9 +49,9 @@ def slug(name: str | None) -> str:
     `slug` его не знал, «N/A» давала каталог `companies/n-a/` — то есть
     «компанию» с именем N/A, куда попадали бы разные наниматели (09.08.2026).
     """
-    from .model import PLACEHOLDER_COMPANY  # noqa: PLC0415 — общий список заглушек
+    from .model import is_placeholder_company  # noqa: PLC0415 — общая проверка
 
-    if (name or "").strip().lower() in {p.lower() for p in PLACEHOLDER_COMPANY}:
+    if is_placeholder_company(name):
         return "_hidden"
     s = _LEGAL.sub("", (name or "").strip().lower())
     out = []
