@@ -40,11 +40,37 @@ _HOLES = (
 _NEEDED = ("## Отклик",)
 
 
-def card_path(root: str, date: str, company: str | None, title: str) -> str:
-    """Путь карточки. Пустая компания → `_hidden/`, а не каталог с пустым именем."""
+def card_path(root: str, date: str, company: str | None, title: str,
+              url: str | None = None) -> str:
+    """Путь карточки. Пустая компания → `_hidden/`, а не каталог с пустым именем.
+
+    🔴 `url` — различитель на случай КОЛЛИЗИИ. У безымянных вакансий (работодатель
+    скрыт, заголовок общий) путь совпадает целиком: двенадцать разных постов
+    давали один `_hidden/2026-08-08-golang-razrabotchik.md`, и одиннадцать из них
+    молча не записывались — «уже есть, не перезаписан» (09.08.2026). Терялись
+    именно те вакансии, у которых работодатель скрыт, то есть требующие большего
+    внимания, а не меньшего.
+
+    Различитель добавляется ТОЛЬКО когда файл занят чужой вакансией: у карточек,
+    чьё имя уникально, путь не меняется, и ссылки в готовых документах живы.
+    """
     company_slug = slug(company)
     role = slug(title)[:60] or "vakansiya"
-    return os.path.join(root, date, "companies", company_slug, f"{date}-{role}.md")
+    base = os.path.join(root, date, "companies", company_slug)
+    path = os.path.join(base, f"{date}-{role}.md")
+    if not url or not os.path.exists(path):
+        return path
+    try:
+        with open(path, encoding="utf-8") as f:
+            head = f.read(2000)
+    except OSError:
+        return path
+    if f"**Ссылка:** {url}" in head:
+        return path                       # тот же файл той же вакансии
+    # Занято другой вакансией — добавляем хвост из её адреса: он устойчив между
+    # прогонами, в отличие от порядкового номера.
+    tail = re.sub(r"\W+", "", (url or "").rsplit("/", 2)[-1])[-8:] or "x"
+    return os.path.join(base, f"{date}-{role}-{tail}.md")
 
 
 def _dead_links(text: str) -> list[str]:
@@ -97,6 +123,32 @@ def refresh_text(old: str, fresh: str) -> str | None:
     j = fresh.find(_MODEL_PART)
     head = fresh[:j] if j >= 0 else fresh.rstrip() + "\n\n"
     return head + old[i:]
+
+
+def card_is_empty(text: str) -> tuple[bool, str]:
+    """Есть ли в карточке хоть что-то, по чему можно судить о вакансии.
+
+    Признак ровно один и объективный: нет НИ требований, НИ описания. Всё
+    остальное (деньги, формат, маршруты) в карточке есть всегда — оно берётся
+    из записи, а не из текста вакансии, и пустой карточку не спасает.
+
+    🔴 Судит алгоритм, а не глаз. 09.08.2026 я отсеивал такие карточки руками
+    («все требования — про бота»), и вместе с полутора десятками настоящих
+    пустышек снёс полсотни годных: у постов Runello требования разбираются
+    отлично («Go, REST API, gRPC, PostgreSQL, Redis, Docker, Git»), просто их
+    единственная служебная строка попадала под мой фильтр.
+    """
+    body = re.search(r"### Требование → что у тебя\n(.*?)(?:\n### |\Z)", text, re.S)
+    table = (body.group(1) if body else "").strip()
+    has_reqs = bool(re.search(r"^\| (?!требование)\S", table, re.M))
+    if has_reqs:
+        return False, ""
+    # Требований нет — спасти карточку может только внятное описание в теле.
+    described = re.search(r"### (?:Описание|Текст вакансии)[^\n]*\n(.{200,})", text, re.S)
+    if described:
+        return False, ""
+    return True, ("текста вакансии нет — ни требований, ни описания. Площадка "
+                  "отдала одну ссылку; смотреть надо глазами")
 
 
 def card_with_url(root: str, date: str, url: str) -> str | None:
@@ -172,7 +224,7 @@ def write(db: str, urls: list[str], *, date: str, root: str = ".jobs",
             if row is None:
                 out.append((url, "нет в базе — ссылку возьми из `scout shortlist`"))
                 continue
-            path = card_path(root, date, row["company"], row["title"] or "")
+            path = card_path(root, date, row["company"], row["title"] or "", url)
             if refresh and not os.path.exists(path):
                 # Карточку могли переименовать руками — ищем по ссылке внутри.
                 path = card_with_url(root, date, url) or path
@@ -184,6 +236,15 @@ def write(db: str, urls: list[str], *, date: str, root: str = ".jobs",
                 continue
             text = card.build(conn, url, skills=skills, skills_note=skills_note,
                               walk=walk)
+            empty, why_empty = card_is_empty(text)
+            if empty and not exists:
+                # 🔴 Карточка без единого факта о вакансии бесполезна: судить по
+                # ней нечего, а в волне она выглядит разобранной. Решает это
+                # АЛГОРИТМ, а не глаз агента: 09.08.2026 я отсеивал такие руками
+                # ad-hoc-фильтром и снёс вместе с ними полсотни годных скелетов,
+                # у которых требования разбирались прекрасно.
+                out.append((path, f"НЕ записана: {why_empty}"))
+                continue
             if exists and refresh and not force:
                 with open(path, encoding="utf-8") as f:
                     merged = refresh_text(f.read(), text)
