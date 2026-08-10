@@ -176,7 +176,27 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str], str], ...] = (
 _TAGS = f"{chr(0xE0000)}-{chr(0xE007F)}"                  # скрытый ASCII
 _ZERO_WIDTH = "".join(map(chr, (0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF)))
 _BIDI = "".join(map(chr, range(0x202A, 0x202F))) + "".join(map(chr, range(0x2066, 0x206A)))
-_INVISIBLE = re.compile(f"[{_TAGS}]|[{_ZERO_WIDTH}]{{3,}}|[{_BIDI}]")
+# Невидимка ВНУТРИ слова — отдельный случай, и порог `{3,}` на неё не
+# распространяется. Одиночный U+200D между «/» и «мес» пишет бот getmatch, это
+# форматирование; тот же символ между двумя буквами одного слова форматированием
+# не бывает никогда — так разрывают слово, чтобы шаблон детекта его не узнал.
+_INVISIBLE = re.compile(
+    f"[{_TAGS}]|[{_ZERO_WIDTH}]{{3,}}|[{_BIDI}]|(?<=\\w)[{_ZERO_WIDTH}](?=\\w)")
+
+# Тот же набор, но для ВЫЧИСТКИ перед поиском директив.
+_STRIP_INVISIBLE = re.compile(f"[{_TAGS}{_ZERO_WIDTH}]")
+
+
+def _visible(text: str) -> str:
+    """Текст без невидимых символов — в таком виде его читает модель.
+
+    Шаблоны директив ищутся ИМЕННО здесь. Пока они шли по сырой строке, один
+    нулевой пробел внутри слова снимал детект целиком: «Ign‌ore previous
+    instructions» не находилось ничем, а порог `{3,}` у «invisible» на один
+    символ тоже не срабатывал. То есть единственный детектор инъекций в проекте
+    обходился символом, которого не видно ни глазами, ни в диффе.
+    """
+    return _STRIP_INVISIBLE.sub("", text)
 
 _QUOTE_PAD = 45      # сколько символов контекста слева и справа от находки
 _QUOTE_MAX = 170
@@ -208,9 +228,10 @@ def directives(text: str | None, *, limit: int = _LIMIT) -> list[Finding]:
         return []
     out: list[Finding] = []
     seen: set[tuple[str, str]] = set()
+    clean = _visible(text)
     for kind, pattern, why in _PATTERNS:
-        for m in pattern.finditer(text):
-            quote = _quote(text, m.start(), m.end())
+        for m in pattern.finditer(clean):
+            quote = _quote(clean, m.start(), m.end())
             key = (kind, quote.lower())
             if key in seen:
                 continue
@@ -260,7 +281,14 @@ _SERVICE_PREFIXES = (
     "certainly", "sure,", "of course", "as an ai",
 )
 
-_URL_RE = re.compile(r"(?:https?://|www\.)[^\s<>\"'»]+", re.I)
+# Схема необязательна. Пока её требовали, «Портфолио: evil-corp.io/apply»,
+# «bit.ly/3xKq9» и «t.me/not-jorqen» проходили гейт молча — а это единственная
+# автоматическая проверка перед письмом ОТ ИМЕНИ ВЛАДЕЛЬЦА, и уводит она ответ
+# работодателя мимо него. Голый домен требует пути: без него в текст письма
+# попадало бы каждое «и т.д.» и каждое имя файла.
+_URL_RE = re.compile(
+    r"(?:https?://|www\.)[^\s<>\"'»]+"
+    r"|(?<![\w@.])[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}/[^\s<>\"'»]*", re.I)
 _MAIL_RE = re.compile(r"(?:mailto:)?[\w.+-]+@[\w-]+(?:\.[\w-]+)+", re.I)
 _TRAILING = ".,;:!?)]}»\"'"
 
