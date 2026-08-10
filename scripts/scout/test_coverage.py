@@ -1596,6 +1596,56 @@ def test_funnel_does_not_call_a_page_view_an_answer():
        "по этим процентам нельзя считать «конверсию поиска»")
 
 
+def test_a_session_we_never_rotate_is_refreshed_from_the_browser_by_itself():
+    """Свежая кука забирается САМА — но только там, где мы токен не ротируем.
+
+    🔴 Живой счёт 09.08.2026: у wantapply токен «истёк 14:02» прямо посреди
+    волны, и часть вакансий пришла без прямых ссылок в ATS работодателя. При
+    этом владелец из аккаунта не выходил: сессия в его браузере была жива, а
+    прогон читал устаревший слепок. Его слова: «у меня даже не было выхода из
+    аккаунта, авторизация требуется слишком часто».
+
+    Обратная сторона обязательна. У hirehi забирать куку молча НЕЛЬЗЯ: там мы
+    дальше обмениваем refresh-токен, обмен ротирует единственный креденшл, и
+    живая вкладка владельца разлогинивается. Поэтому признак — не «есть кука»,
+    а «ротируем ли мы её»: `adopt_safe` в реестре площадок.
+    """
+    from . import auth, authrefresh
+
+    safe = [p for p, cfg in auth.PLATFORMS.items() if cfg.get("adopt_safe")]
+    if "wantapply" not in safe:
+        FAILS.append("wantapply не помечен как безопасный для авто-забора куки")
+    if "hirehi" in safe:
+        FAILS.append("hirehi помечен безопасным — его обмен ротирует токен "
+                     "и разлогинивает живую вкладку владельца")
+
+    # Забор идёт по ДАННЫМ реестра: где storage_state — одним путём, где
+    # кука-носитель — другим. Имя площадки в коде не упоминается.
+    called: list[tuple[str, str]] = []
+
+    def fake_state(platform, spec=None):
+        called.append(("state", platform)); return True, "storage_state забран"
+
+    def fake_cookie(platform, spec=None):
+        called.append(("cookie", platform)); return True, "кука забрана"
+
+    old_a, old_c = authrefresh.adopt_from_browser, authrefresh.adopt_session_cookie
+    authrefresh.adopt_from_browser = fake_state
+    authrefresh.adopt_session_cookie = fake_cookie
+    try:
+        rows = authrefresh.adopt_safe_sessions("auto")
+    finally:
+        authrefresh.adopt_from_browser = old_a
+        authrefresh.adopt_session_cookie = old_c
+
+    if not rows:
+        FAILS.append("авто-забор не тронул ни одной площадки")
+    if ("cookie", "wantapply") not in called:
+        FAILS.append(f"wantapply забирали не как куку-носитель: {called}")
+    if any(p == "hirehi" for _, p in called):
+        FAILS.append("hirehi попал в авто-забор")
+
+
 def test_doctor_diagnoses_without_touching_the_network():
     """`doctor` обязан быть дешёвым и не врать про отсутствие как про поломку.
 

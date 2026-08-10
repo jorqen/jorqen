@@ -14,10 +14,14 @@
   шапке `reveal.py`).
 
 * **wantapply** — в куке url-encoded JSON `{token, refreshToken, tokenExpires}`.
-  Продлевать нечего: сам wantapply.com стоит за управляемым Cloudflare, вход туда
-  проходит человек. Автоматизировать здесь можно ровно одно — сказать про истечение
-  ДО прогона, а не после, когда 401 на ручке контактов уже прочитан как «у вакансии
-  нет прямой ссылки». Срок виден офлайн, без единого запроса.
+  Обменять refresh сами мы не можем: сам wantapply.com за управляемым Cloudflare,
+  а контракт `POST api.wantapply.com/api/v1/auth/refresh` подбором не берётся —
+  ручка существует (401, а не 404), но access-токен в заголовке, refresh-токен в
+  заголовке и `{refreshToken}` в теле дают одинаковый 401 (проверено 09.08.2026).
+  Зато **токен мы и не ротируем — только читаем**, а в браузере владельца он
+  обновляется сам. Поэтому лечение другое: `adopt_safe` в реестре, и `wave` перед
+  сбором забирает свежую куку из повседневного браузера. Живая вкладка при этом
+  не страдает: ротации нет ни на одной стороне.
 
 * **careered** — сессия не в куках вовсе, а в localStorage. Разовый
   `auth login careered` снимает её слепком в `.auth/careered.json`, и слепок
@@ -461,6 +465,86 @@ def renew_shadowhint(*, browser: str | None = None) -> tuple[bool, str]:
 
 RENEWERS = {"hirehi": renew_hirehi, "careered": renew_careered,
             "shadowhint": renew_shadowhint}
+
+
+def adopt_session_cookie(platform: str, spec: str | None = None) -> tuple[bool, str]:
+    """Снять свежую куку-носитель сессии из повседневного браузера в `.auth/`.
+
+    Отличие от `adopt_from_browser` — только в носителе: там storage_state
+    целиком (hirehi), здесь одна кука с токеном (wantapply, shadowhint).
+    Ротации нет ни в одном случае: мы куку читаем, а не обмениваем.
+
+    Свежесть проверяется ДО записи. Перезаписать живой слепок протухшим значит
+    сломать то, что работало, — на этом уже обжигались при экспорте.
+    """
+    from . import cookiesrc  # noqa: PLC0415
+
+    cfg = auth.PLATFORMS.get(platform) or {}
+    pair = cfg.get("session_cookie")
+    if not pair:
+        return False, f"{platform}: куки-носителя сессии в реестре нет"
+    domain, name = pair
+    try:
+        src = cookiesrc.resolve(spec, (domain,), use_cache=False)
+    except Exception as e:  # noqa: BLE001
+        return False, f"куки {domain} прочитать не вышло: {type(e).__name__}: {e}"
+    state = src.storage_for_playwright()
+    got = [c for c in (state.get("cookies") or []) if c.get("name") == name]
+    if not got:
+        return False, (f"в браузере ({src.line()}) нет куки {name} на {domain} — "
+                       f"войди на площадку в своём браузере и повтори")
+    value = got[0].get("value") or ""
+    token, why = auth.token_from_cookie(platform, value)
+    if not token:
+        return False, f"кука есть, но токен из неё не читается: {why}"
+    if "истёк" in (why or ""):
+        # Протухшее в браузере не лечится записью в файл: пусть в `.auth/`
+        # доживает прежний слепок, а человек увидит честное «нужен вход».
+        return False, f"в браузере кука ПРОСРОЧЕНА ({why}) — нужен вход руками"
+    try:
+        auth.save_session_cookie(platform, domain, name, value)
+    except OSError as e:
+        return False, f"не смог записать {auth.state_path(platform)}: {e}"
+    return True, f"кука снята из браузера ({src.line()}): {why}"
+
+
+def adopt_safe_sessions(spec: str | None = None) -> list[tuple[str, bool, str]]:
+    """Забрать свежие куки у площадок, чьи токены мы НЕ ротируем. Без вопросов.
+
+    🔴 Почему это можно делать само, а `--from-browser` — нет. Забор куки опасен
+    ровно там, где мы потом обмениваем refresh-токен: обмен ротирует
+    единственный креденшл, и живая вкладка владельца разлогинивается (hirehi).
+    Где мы куку только ЧИТАЕМ, забирать её свежую копию безвредно — и полезно:
+    в браузере она обновляется сама, а слепок scout стареет.
+
+    Живой счёт 09.08.2026: у wantapply токен «истёк 14:02» прямо посреди волны,
+    и часть вакансий пришла без прямых ссылок в ATS. При этом владелец из
+    аккаунта не выходил — сессия в его браузере была жива, просто прогон читал
+    устаревшее. Свойство «ротируем ли мы токен» — данные площадки (`adopt_safe`
+    в реестре), поведение — этот общий механизм; добавить площадку значит
+    поставить флаг, а не написать ещё одну ветку.
+    """
+    out: list[tuple[str, bool, str]] = []
+    for platform, cfg in auth.PLATFORMS.items():
+        if not cfg.get("adopt_safe"):
+            continue
+        try:
+            # Носитель сессии у площадок разный, и это ЕДИНСТВЕННОЕ различие:
+            # у hirehi — storage_state целиком, у wantapply и shadowhint — одна
+            # кука с токеном. Ветка тут по данным реестра, а не по имени
+            # площадки: добавить следующую значит поставить флаг.
+            if cfg.get("state_cookie"):
+                ok, why = adopt_from_browser(platform, spec or "auto")
+            elif cfg.get("session_cookie"):
+                ok, why = adopt_session_cookie(platform, spec or "auto")
+            else:
+                ok, why = False, "в реестре не сказано, где лежит сессия"
+        except Exception as e:  # noqa: BLE001 — браузер закрыт: не повод рушить прогон
+            ok, why = False, f"{type(e).__name__}: {e}"
+        out.append((platform, ok, why))
+    if out:
+        forget()          # состояние изменилось — старые пробы соврали бы
+    return out
 
 
 # ──────────────────────────────────────────────────────────────────────────────
