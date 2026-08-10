@@ -504,22 +504,44 @@ def ask_from(base: int, *, markup: tuple[float, float] = MARKUP) -> dict:
     Ничего не округляем намеренно: «медиана 350 000 +15% = 402 500» читатель
     проверяет в уме за секунду, а округлённые 400 000 уже не сходятся с базой,
     и проверить их нельзя — придётся верить на слово.
+
+    Отсюда же `round`, а не `int`: (0.10+0.20)/2 в двоичной дроби даёт
+    0.15000000000000002, и обрезание вниз печатало 402 499 — цифру, которая в
+    уме как раз НЕ сходится. Расходилась 21 круглая база из 51 в диапазоне
+    100–600 тысяч.
     """
     lo, hi = markup
-    return {"base": base, "low": int(base * (1 + lo)), "high": int(base * (1 + hi)),
-            "mid": int(base * (1 + (lo + hi) / 2)), "markup": markup}
+    return {"base": base, "low": round(base * (1 + lo)), "high": round(base * (1 + hi)),
+            "mid": round(base * (1 + (lo + hi) / 2)), "markup": markup}
+
+
+# У levels.fyi свой бенчмарк есть не у каждого семейства ролей. Где его нет,
+# берём общий «software engineer»: выдавать бэкендовую медиану за ориентир для
+# QA, фронтенда или аналитика нельзя — цифра подаётся как «назвать рекрутёру»,
+# и несовпадение видно только строкой ниже. Семейство не опознано — остаётся
+# бэкенд: это профиль владельца, и для его собственных вакансий догадка верна.
+#
+# `manager` из FAMILY — это ПРОДАКТ и ПРОДЖЕКТ, а не инженерный менеджер, и
+# маршрут engineering-manager ему не подходит; такие роли уходят в общий срез.
+_LEVELS_ROLE = {"backend": "backend", "sre": "sre", "devops": "devops"}
+
+
+def levels_role(family: str | None) -> str:
+    """Роль для бенчмарка levels.fyi по семейству вакансии."""
+    return "backend" if family is None else _LEVELS_ROLE.get(family, "software-engineer")
 
 
 def estimate(conn, row: dict, *, markup: tuple[float, float] = MARKUP,
              min_peers: int = MIN_PEERS, window_days: int = WINDOW_DAYS,
              fetch: bool = False) -> dict:
     """Полный разбор «сколько просить» для вакансии без вилки."""
+    prof = profile(row)
     est = {
         "own": has_own_band(row),
-        "profile": profile(row),
+        "profile": prof,
         "sibling": sibling_band(conn, row),
         "peers": peers(conn, row, min_peers=min_peers, window_days=window_days),
-        "levels": levels(conn, fetch=fetch),
+        "levels": levels(conn, levels_role(prof["family"]), fetch=fetch),
         "refbook": refbook(conn, fetch=fetch),
         "markup": markup,
         "ask": None,

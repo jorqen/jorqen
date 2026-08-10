@@ -938,14 +938,18 @@ def _channels(conn) -> dict[str, str]:
 
 
 def _money(g: dict) -> str:
-    lo, hi = g.get("salary_from"), g.get("salary_to")
-    if not lo and not hi:
-        return "—"
-    cur = g.get("currency") or ""
-    per = {"hour": "/час", "month": "/мес", "year": "/год"}.get(g.get("salary_period") or "", "")
-    if lo and hi:
-        return f"{lo}–{hi} {cur}{per}".strip()
-    return f"от {lo or hi} {cur}{per}".strip()
+    """Вилка строкой. Форматирует канонический `model.salary_str`, а не своя копия.
+
+    Копия расходилась с ним дважды и молча: потолок без нижней границы печатала
+    как «от 300000» (238 таких вакансий в базе — у каждой потолок выдавался за
+    порог), а день и неделю теряла вовсе, потому что своя таблица периодов
+    отстала от `model.PERIOD_SUFFIX`.
+    """
+    from .model import salary_str  # noqa: PLC0415 — один формат денег на проект
+
+    out = salary_str(g.get("salary_from"), g.get("salary_to"), g.get("currency"),
+                     period=g.get("salary_period"))
+    return out or "—"
 
 
 def render(res: dict, *, fmt: str = "table") -> str:
