@@ -1,0 +1,18 @@
+.DS_Store
+.idea/
+.venv/
+.build/
+
+# Собранный сайт: генерируется из resume/resume.yaml и в git не хранится.
+index.html
+assets/media/generated/
+en/
+ru/
+
+# Личная накладка на резюме: телефон и прочее, что спрашивает форма отклика, но
+# чему нельзя лежать в публичном репозитории. Накладывается на resume.yaml в
+# load_data и проверяется той же схемой. Нет файла — сборка идёт без него.
+resume/resume.local.yaml
+
+__pycache__/
+*.pyc

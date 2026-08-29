@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">Matvey Sizov - Backend Developer / Software Engineer</title>
+  <desc id="desc">Minimal social preview card with centered identity and core backend stack.</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#061426"/>
+      <stop offset="55%" stop-color="#0B2A44"/>
+      <stop offset="100%" stop-color="#0D4B58"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="20%" r="70%">
+      <stop offset="0%" stop-color="#1DE4B6" stop-opacity="0.24"/>
+      <stop offset="100%" stop-color="#1DE4B6" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="iconBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0B8C4A"/>
+      <stop offset="100%" stop-color="#082A44"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+
+  <g transform="translate(540 78)">
+    <rect width="120" height="120" rx="28" fill="url(#iconBg)"/>
+    <path d="M28 85V34h14l18 25 18-25h14v51H78V56L60 81 42 56v29H28z" fill="#FFFFFF"/>
+  </g>
+
+  <text x="600" y="278" text-anchor="middle" fill="#F7FCFF" font-family="Manrope, Inter, Segoe UI, Arial, sans-serif" font-size="86" font-weight="800" letter-spacing="0.2">
+    Matvey Sizov
+  </text>
+
+  <text x="600" y="350" text-anchor="middle" fill="#CFE9F2" font-family="Manrope, Inter, Segoe UI, Arial, sans-serif" font-size="48" font-weight="650">
+    Backend Developer / Software Engineer
+  </text>
+
+  <text x="600" y="414" text-anchor="middle" fill="#D8F2FA" font-family="IBM Plex Mono, Menlo, Monaco, Consolas, monospace" font-size="30" font-weight="500">
+    Distributed Systems • Go • Java • Cloud Reliability
+  </text>
+
+  <text x="600" y="472" text-anchor="middle" fill="#B9DDE7" font-family="Manrope, Inter, Segoe UI, Arial, sans-serif" font-size="30" font-weight="500">
+    Backend engineer focused on resilient high-load systems
+  </text>
+</svg>

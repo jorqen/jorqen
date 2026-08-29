@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "//": "Оснастка агентов jorqen, в git. Личные переопределения — .claude/settings.local.json (не коммитится).",
+  "permissions": {
+    "//allow": "Автоодобрен только безопасный и обратимый обиход. Сборщик вакансий уехал в репозиторий kadr 29.08.2026 — его команды и запреты уехали вместе с ним, здесь их быть не должно.",
+    "allow": [
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git add:*)",
+      "Bash(git restore:*)",
+      "Bash(git branch:*)",
+      "Bash(git stash list:*)",
+      "Bash(scripts/build_resume_formats.sh:*)",
+      "Bash(.venv/bin/python -m scripts.run_tests:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)",
+      "Bash(grep:*)",
+      "Bash(rg:*)",
+      "Bash(find:*)",
+      "Bash(sort:*)",
+      "Bash(uniq:*)",
+      "Bash(du:*)",
+      "Bash(tree:*)"
+    ],
+    "//deny": "Пусто по существу: в репозитории-резюме нет ни платных вызовов, ни необратимых команд. Появится такая — правило сюда, а не в allow.",
+    "deny": [
+      "Read(./.venv/**)"
+    ]
+  },
+  "skillOverrides": {
+    "//": "Скиллы интерфейса вызывает человек сам (/better-interface и т.д.) — модели они в листинге не нужны. Плейбуки debug/research/self-review НЕ трогаем: их обязан вызывать агент.",
+    "better-accessibility": "user-invocable-only",
+    "better-colors": "user-invocable-only",
+    "better-interface": "user-invocable-only",
+    "better-layout": "user-invocable-only",
+    "better-typography": "user-invocable-only",
+    "better-ui": "user-invocable-only",
+    "better-writing": "user-invocable-only",
+    "interface-review": "user-invocable-only"
+  },
+  "extraKnownMarketplaces": {
+    "claude-plugins-official": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-plugins-official"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "frontend-design@claude-plugins-official": true
+  },
+  "//plugins": "frontend-design нужен только здесь — интерфейс сайта-резюме; в пользовательских настройках его быть не должно (правило: проектное живёт в проекте)."
+}

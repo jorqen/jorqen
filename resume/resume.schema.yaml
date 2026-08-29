@@ -1,0 +1,485 @@
+"$schema": "http://json-schema.org/draft-07/schema#"
+"$id": "resume.schema.yaml"
+title: "Jorqen Resume Source"
+description: "JSON Schema validation contract for resume/resume.yaml."
+type: "object"
+required:
+  - "schema"
+  - "defaultLanguage"
+  - "languages"
+  - "site"
+  - "person"
+  - "contacts"
+  - "resumeLabels"
+  - "siteUi"
+  - "experience"
+  - "education"
+  - "strengths"
+  - "skills"
+  - "preferences"
+additionalProperties: false
+properties:
+  schema:
+    const: "jorqen.resume.v1"
+  defaultLanguage:
+    const: "en"
+  languages:
+    type: "array"
+    minItems: 2
+    maxItems: 2
+    items:
+      - const: "en"
+      - const: "ru"
+    additionalItems: false
+  site:
+    "$ref": "#/definitions/site"
+  person:
+    "$ref": "#/definitions/person"
+  contacts:
+    type: "object"
+    required:
+      - "website"
+      - "email"
+      - "linkedin"
+      - "github"
+      - "telegram"
+    additionalProperties: false
+    properties:
+      website:
+        "$ref": "#/definitions/websiteContact"
+      email:
+        "$ref": "#/definitions/contact"
+      # Телефон необязателен НАМЕРЕННО. Форма отклика почти любого ATS его
+      # спрашивает, но репозиторий публичный, поэтому значение сюда не
+      # кладётся: его место — `resume/resume.local.yaml` вне git (см. докстринг
+      # `load_data`). Нет файла — нет телефона, сборка от этого не страдает.
+      phone:
+        "$ref": "#/definitions/contact"
+      linkedin:
+        "$ref": "#/definitions/contact"
+      github:
+        "$ref": "#/definitions/contact"
+      telegram:
+        "$ref": "#/definitions/contact"
+  resumeLabels:
+    type: "object"
+    required:
+      - "stack"
+      - "present"
+      - "expectedGraduation"
+    additionalProperties: false
+    properties:
+      stack:
+        "$ref": "#/definitions/localizedString"
+      present:
+        "$ref": "#/definitions/localizedString"
+      expectedGraduation:
+        "$ref": "#/definitions/localizedString"
+  siteUi:
+    "$ref": "#/definitions/siteUi"
+  experience:
+    "$ref": "#/definitions/experienceSection"
+  education:
+    "$ref": "#/definitions/educationSection"
+  strengths:
+    "$ref": "#/definitions/strengthsSection"
+  skills:
+    "$ref": "#/definitions/skillsSection"
+  preferences:
+    "$ref": "#/definitions/preferencesSection"
+definitions:
+  stringValue:
+    type: "string"
+    minLength: 1
+  pathTemplate:
+    type: "string"
+    minLength: 1
+    pattern: "^/"
+  localizedString:
+    oneOf:
+      - "$ref": "#/definitions/stringValue"
+      - "$ref": "#/definitions/localizedStringMap"
+  localizedStringMap:
+    type: "object"
+    required:
+      - "en"
+      - "ru"
+    additionalProperties: false
+    properties:
+      en:
+        "$ref": "#/definitions/stringValue"
+      ru:
+        "$ref": "#/definitions/stringValue"
+  siteUi:
+    type: "object"
+    required:
+      - "navResume"
+      - "langSwitcherLabel"
+      - "navLabel"
+      - "skipToContent"
+      - "theme"
+      - "resumeDownloads"
+      - "footer"
+    additionalProperties: false
+    properties:
+      navResume:
+        "$ref": "#/definitions/localizedStringMap"
+      langSwitcherLabel:
+        "$ref": "#/definitions/localizedStringMap"
+      navLabel:
+        "$ref": "#/definitions/localizedStringMap"
+      skipToContent:
+        "$ref": "#/definitions/localizedStringMap"
+      theme:
+        type: "object"
+        required:
+          - "toDark"
+          - "toLight"
+          - "switcherLabel"
+        additionalProperties: false
+        properties:
+          toDark:
+            "$ref": "#/definitions/localizedStringMap"
+          toLight:
+            "$ref": "#/definitions/localizedStringMap"
+          switcherLabel:
+            "$ref": "#/definitions/localizedStringMap"
+      resumeDownloads:
+        type: "object"
+        required:
+          - "title"
+          - "labels"
+        additionalProperties: false
+        properties:
+          title:
+            "$ref": "#/definitions/localizedStringMap"
+          labels:
+            type: "object"
+            required:
+              - "pdf"
+              - "docx"
+              - "txt"
+            additionalProperties: false
+            properties:
+              pdf:
+                "$ref": "#/definitions/localizedStringMap"
+              docx:
+                "$ref": "#/definitions/localizedStringMap"
+              txt:
+                "$ref": "#/definitions/localizedStringMap"
+      footer:
+        "$ref": "#/definitions/localizedStringMap"
+  site:
+    type: "object"
+    required:
+      - "url"
+    additionalProperties: false
+    properties:
+      url:
+        type: "string"
+        pattern: "^https://[^\\s/$.?#].[^\\s]*$"
+  person:
+    type: "object"
+    required:
+      - "name"
+      - "headline"
+      - "role"
+      - "summary"
+      - "photo"
+      - "facts"
+    additionalProperties: false
+    properties:
+      name:
+        "$ref": "#/definitions/localizedString"
+      headline:
+        "$ref": "#/definitions/stringValue"
+      role:
+        "$ref": "#/definitions/localizedString"
+      summary:
+        "$ref": "#/definitions/localizedString"
+      photo:
+        "$ref": "#/definitions/imageAsset"
+      facts:
+        type: "array"
+        minItems: 1
+        items:
+          "$ref": "#/definitions/fact"
+  contact:
+    type: "object"
+    required:
+      - "value"
+    additionalProperties: false
+    properties:
+      value:
+        "$ref": "#/definitions/stringValue"
+      icon:
+        "$ref": "#/definitions/assetPath"
+  websiteContact:
+    type: "object"
+    required:
+      - "icon"
+    additionalProperties: false
+    not:
+      required:
+        - "value"
+    properties:
+      icon:
+        "$ref": "#/definitions/assetPath"
+  imageAsset:
+    type: "object"
+    required:
+      - "src"
+      - "caption"
+      - "filter"
+    additionalProperties: false
+    properties:
+      src:
+        "$ref": "#/definitions/assetPath"
+      caption:
+        "$ref": "#/definitions/localizedString"
+      position:
+        "$ref": "#/definitions/stringValue"
+      filter:
+        "$ref": "#/definitions/stringValue"
+  assetPath:
+    type: "string"
+    minLength: 1
+    pattern: "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+  fact:
+    type: "object"
+    required:
+      - "icon"
+      - "label"
+      - "value"
+    additionalProperties: false
+    properties:
+      icon:
+        "$ref": "#/definitions/assetPath"
+      # Опознавательный ключ факта для ВЫГРУЗОК: по нему генератор берёт из
+      # фактов место жительства и формат работы, не заводя им второй копии.
+      # Искать факт по подписи нельзя — она локализована и меняется.
+      key:
+        enum:
+          - "location"
+          - "format"
+      label:
+        "$ref": "#/definitions/localizedString"
+      value:
+        "$ref": "#/definitions/localizedString"
+  experienceSection:
+    type: "object"
+    required:
+      - "title"
+      - "companySiteLabel"
+      - "items"
+    additionalProperties: false
+    properties:
+      title:
+        "$ref": "#/definitions/localizedString"
+      # Название раздела в ВЫГРУЗКАХ, если оно должно отличаться от
+      # сайтового. Парсеры узнают раздел по слову в заголовке, и словарь
+      # у них короткий; на сайте же уместнее человеческие названия.
+      # Не задан — берётся title.
+      downloadTitle:
+        "$ref": "#/definitions/localizedString"
+      companySiteLabel:
+        "$ref": "#/definitions/localizedString"
+      items:
+        type: "array"
+        minItems: 1
+        items:
+          "$ref": "#/definitions/experienceItem"
+  experienceItem:
+    type: "object"
+    required:
+      - "company"
+      - "role"
+      - "startDate"
+      - "location"
+      - "summary"
+      - "highlights"
+      - "stack"
+    additionalProperties: false
+    not:
+      anyOf:
+        - required:
+            - "id"
+        - required:
+            - "period"
+    properties:
+      company:
+        "$ref": "#/definitions/localizedString"
+      role:
+        "$ref": "#/definitions/stringValue"
+      employmentType:
+        "$ref": "#/definitions/localizedString"
+      startDate:
+        "$ref": "#/definitions/yearMonth"
+      endDate:
+        "$ref": "#/definitions/yearMonth"
+      location:
+        "$ref": "#/definitions/localizedString"
+      summary:
+        "$ref": "#/definitions/localizedString"
+      highlights:
+        type: "array"
+        minItems: 1
+        items:
+          "$ref": "#/definitions/localizedString"
+      stack:
+        "$ref": "#/definitions/stringList"
+      url:
+        type: "string"
+        minLength: 1
+        format: "uri"
+      icon:
+        "$ref": "#/definitions/assetPath"
+  educationSection:
+    type: "object"
+    required:
+      - "title"
+      - "subtitle"
+      - "items"
+    additionalProperties: false
+    properties:
+      title:
+        "$ref": "#/definitions/localizedString"
+      # Название раздела в ВЫГРУЗКАХ, если оно должно отличаться от
+      # сайтового. Парсеры узнают раздел по слову в заголовке, и словарь
+      # у них короткий; на сайте же уместнее человеческие названия.
+      # Не задан — берётся title.
+      downloadTitle:
+        "$ref": "#/definitions/localizedString"
+      subtitle:
+        "$ref": "#/definitions/localizedString"
+      institutionSiteLabel:
+        "$ref": "#/definitions/localizedString"
+      items:
+        type: "array"
+        minItems: 1
+        items:
+          "$ref": "#/definitions/educationItem"
+  educationItem:
+    type: "object"
+    required:
+      - "institution"
+      - "degree"
+      - "startDate"
+      - "endDate"
+    additionalProperties: false
+    properties:
+      institution:
+        "$ref": "#/definitions/localizedString"
+      degree:
+        "$ref": "#/definitions/localizedString"
+      startDate:
+        "$ref": "#/definitions/yearOrYearMonth"
+      endDate:
+        "$ref": "#/definitions/yearOrYearMonth"
+      url:
+        type: "string"
+        minLength: 1
+        format: "uri"
+      icon:
+        "$ref": "#/definitions/assetPath"
+  strengthsSection:
+    type: "object"
+    required:
+      - "title"
+      - "subtitle"
+      - "cards"
+    additionalProperties: false
+    properties:
+      title:
+        "$ref": "#/definitions/localizedString"
+      # Название раздела в ВЫГРУЗКАХ, если оно должно отличаться от
+      # сайтового. Парсеры узнают раздел по слову в заголовке, и словарь
+      # у них короткий; на сайте же уместнее человеческие названия.
+      # Не задан — берётся title.
+      downloadTitle:
+        "$ref": "#/definitions/localizedString"
+      subtitle:
+        "$ref": "#/definitions/localizedString"
+      cards:
+        type: "array"
+        minItems: 1
+        items:
+          "$ref": "#/definitions/titleBodyCard"
+  titleBodyCard:
+    type: "object"
+    required:
+      - "title"
+      - "body"
+    additionalProperties: false
+    properties:
+      title:
+        "$ref": "#/definitions/localizedString"
+      body:
+        "$ref": "#/definitions/localizedString"
+  skillsSection:
+    type: "object"
+    required:
+      - "title"
+      - "groups"
+    additionalProperties: false
+    properties:
+      title:
+        "$ref": "#/definitions/localizedString"
+      # Название раздела в ВЫГРУЗКАХ, если оно должно отличаться от
+      # сайтового. Парсеры узнают раздел по слову в заголовке, и словарь
+      # у них короткий; на сайте же уместнее человеческие названия.
+      # Не задан — берётся title.
+      downloadTitle:
+        "$ref": "#/definitions/localizedString"
+      groups:
+        type: "array"
+        minItems: 1
+        items:
+          "$ref": "#/definitions/skillGroup"
+  skillGroup:
+    type: "object"
+    required:
+      - "title"
+      - "items"
+    additionalProperties: false
+    properties:
+      title:
+        "$ref": "#/definitions/localizedString"
+      items:
+        "$ref": "#/definitions/stringList"
+  preferencesSection:
+    type: "object"
+    required:
+      - "title"
+      - "items"
+    additionalProperties: false
+    properties:
+      title:
+        "$ref": "#/definitions/localizedString"
+      items:
+        type: "array"
+        minItems: 1
+        items:
+          "$ref": "#/definitions/localizedString"
+  stringList:
+    type: "array"
+    minItems: 1
+    items:
+      "$ref": "#/definitions/localizedString"
+  yearMonth:
+    type: "string"
+    pattern: '^\d{4}-(0[1-9]|1[0-2])$'
+  yearOrYearMonth:
+    type: "string"
+    pattern: '^\d{4}(-(0[1-9]|1[0-2]))?$'
+x-jorqenCustomValidations:
+  - path: "/experience/items"
+    rule: "sortedByStartDateDescending"
+  - path: "/experience/items/*"
+    rule: "endDateGreaterThanOrEqualStartDate"
+  - path: "/education/items/*"
+    rule: "endDateGreaterThanOrEqualStartDate"
+  - path: "/**/*"
+    rule: "localizedValuesMustCoverConfiguredLanguages"
+  - path: "/**/*"
+    rule: "assetPathMustExistUnderAssetsMedia"

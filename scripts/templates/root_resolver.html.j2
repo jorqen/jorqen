@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="{{ default_lang }}">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, follow" />
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
+    <link rel="canonical" href="{{ canonical_url }}" />
+{{ alternate_links }}
+    <noscript>
+      <meta http-equiv="refresh" content="0; url={{ default_path }}" />
+    </noscript>
+    <title>{{ title }}</title>
+    <script>
+      (function () {
+        "use strict";
+        var languageStorageKey = {{ language_storage_key_json }};
+        var pages = {{ pages_json }};
+        var defaultLang = {{ default_lang_json }};
+
+        function hasPage(lang) {
+          return Object.prototype.hasOwnProperty.call(pages, lang);
+        }
+        function normalizeLanguage(value) {
+          return String(value).toLowerCase().split(/[-_]/)[0];
+        }
+        function supportedLanguage(value) {
+          if (value === null || value === undefined || value === "") {
+            return "";
+          }
+          var lang = normalizeLanguage(value);
+          return hasPage(lang) ? lang : "";
+        }
+        function storedLanguage() {
+          try {
+            return supportedLanguage(window.localStorage.getItem(languageStorageKey));
+          } catch (storageError) {
+            return "";
+          }
+        }
+        function browserCandidates() {
+          var candidates = [];
+          try {
+            var nav = window.navigator || {};
+            if (Array.isArray(nav.languages)) {
+              candidates = candidates.concat(nav.languages);
+            }
+            if (typeof nav.language === "string") {
+              candidates.push(nav.language);
+            }
+            if (typeof nav.userLanguage === "string") {
+              candidates.push(nav.userLanguage);
+            }
+          } catch (navigatorError) {
+            return [];
+          }
+          return candidates;
+        }
+        function browserLanguage() {
+          var candidates = browserCandidates();
+          for (var i = 0; i < candidates.length; i += 1) {
+            var lang = supportedLanguage(candidates[i]);
+            if (lang) {
+              return lang;
+            }
+          }
+          return "";
+        }
+        function resolveLanguage() {
+          var lang = storedLanguage() || browserLanguage() || defaultLang;
+          return hasPage(lang) ? lang : defaultLang;
+        }
+        function targetHref(lang) {
+          var page = pages[lang];
+          var search = "";
+          var hash = "";
+          try {
+            search = window.location.search || "";
+            hash = window.location.hash || "";
+            var url = new URL(page, window.location.href);
+            url.search = search;
+            url.hash = hash;
+            return url.href;
+          } catch (urlError) {
+            return page + search + hash;
+          }
+        }
+        function redirect(href) {
+          try {
+            window.location.replace(href);
+          } catch (replaceError) {
+            window.location.href = href;
+          }
+        }
+        try {
+          redirect(targetHref(resolveLanguage()));
+        } catch (resolveError) {
+          redirect(pages[defaultLang]);
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <nav aria-label="Language selection">
+      {%- for link in language_links %}
+      <a href="{{ link.path }}" hreflang="{{ link.code | lower }}">{{ link.code }}</a>
+      {%- endfor %}
+    </nav>
+  </body>
+</html>
