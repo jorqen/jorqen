@@ -1274,10 +1274,28 @@ def env_font_path(name: str) -> Path | None:
 
 
 def download_font_paths() -> dict[str, str | None]:
+    """Пути к шрифту выгрузок. Порядок — от метрик Arial к чему угодно.
+
+    🔴 Порядок здесь решает, влезет ли резюме в две страницы, а расхождение
+    между машиной и сборкой ломает деплой МОЛЧА — до тех пор, пока не упрётся в
+    потолок страниц. Ровно это и случилось: с 10.08.2026 GitHub Pages падал на
+    «Generated RU PDF has 3 pages at minimum scale 0.72», хотя локально всё
+    собиралось. Причина — один отсутствующий путь: пакет `fonts-liberation`
+    кладёт шрифты в `truetype/liberation/`, а `fonts-liberation2` — в
+    `liberation2/`; в списке был только второй, поэтому на раннере Liberation
+    не находился и брался DejaVu Sans. DejaVu заметно шире Arial, и русский
+    текст переставал помещаться.
+
+    Liberation Sans метрически совместим с Arial — именно поэтому он идёт
+    сразу за ним и раньше DejaVu: подмена не меняет вёрстку. DejaVu остаётся
+    последним запасом, чтобы сборка не падала вовсе там, где больше ничего нет.
+    """
     regular = env_font_path("RESUME_DOWNLOAD_FONT_REGULAR") or find_font([
         "/System/Library/Fonts/Supplemental/Arial.ttf",
         "/Library/Fonts/Arial.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
         "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/liberation-sans/LiberationSans-Regular.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
         "/Library/Fonts/Arial Unicode.ttf",
@@ -1285,9 +1303,14 @@ def download_font_paths() -> dict[str, str | None]:
     bold = env_font_path("RESUME_DOWNLOAD_FONT_BOLD") or find_font([
         "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
         "/Library/Fonts/Arial Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
         "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/liberation-sans/LiberationSans-Bold.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     ]) or regular
+    # Какой шрифт взят — печатаем всегда. Неназванный выбор и был тем, что
+    # позволило расхождению прожить девятнадцать дней.
+    print(f"Download font: {regular} (bold: {bold})")
     return {
         "regular": regular.resolve().as_uri() if regular else None,
         "bold": bold.resolve().as_uri() if bold else None,
@@ -1386,9 +1409,17 @@ def resolve_download_pdf(source: dict[str, Any], lang: str) -> tuple[float, Any]
 
     min_document = render_download_pdf_document(source, lang, min_scale)
     if len(min_document.pages) > max_pages:
+        # Причину называем здесь же: почти всегда это не «текста стало больше»,
+        # а другой шрифт (см. `download_font_paths`). Без этой подсказки ошибка
+        # девятнадцать дней читалась как «резюме разрослось».
+        fonts = download_font_paths()
         raise RuntimeError(
-            f"Generated {lang.upper()} PDF has {len(min_document.pages)} pages at minimum scale {min_scale:.2f}; "
-            f"target is {max_pages} pages."
+            f"Generated {lang.upper()} PDF has {len(min_document.pages)} pages at "
+            f"minimum scale {min_scale:.2f}; target is {max_pages} pages. "
+            f"Font in use: {fonts['regular']}. If this is not an Arial-metric "
+            f"font (Arial, Liberation Sans), the layout will differ from the "
+            f"reference build — install fonts-liberation or set "
+            f"RESUME_DOWNLOAD_FONT_REGULAR/BOLD."
         )
 
     max_document = render_download_pdf_document(source, lang, max_scale)
