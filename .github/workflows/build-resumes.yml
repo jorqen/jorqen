@@ -1,0 +1,62 @@
+name: Build And Deploy Pages
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - "assets/**"
+      - "resume/*.yaml"
+      - "scripts/**"
+      - ".github/workflows/build-resumes.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-dejavu-core fonts-liberation imagemagick libheif-plugin-aomenc libpango-1.0-0 libpangoft2-1.0-0 librsvg2-bin
+          python3 -m pip install --user babel jinja2 jsonschema python-docx pillow pyyaml weasyprint
+
+      - name: Generate resume files
+        run: |
+          ./scripts/build_resume_formats.sh
+          site_dir="${RUNNER_TEMP}/site"
+          mkdir -p "$site_dir"
+          cp -R index.html en ru assets "$site_dir/"
+          find "$site_dir" -name ".DS_Store" -delete
+          touch "$site_dir/.nojekyll"
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ runner.temp }}/site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

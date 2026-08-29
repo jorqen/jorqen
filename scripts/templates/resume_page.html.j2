@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="{{ lang }}" data-page-lang="{{ lang }}" data-canonical-path="{{ canonical_path }}">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
+    <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png" />
+    <meta name="description" content="{{ description }}" />
+    <link rel="canonical" href="{{ canonical_url }}" />
+{{ alternate_links }}
+    <link rel="image_src" href="{{ cover_url }}" />
+    <link rel="preload" as="image" type="image/avif" href="{{ hero_preload_href }}" imagesrcset="{{ hero_preload_srcset }}" imagesizes="{{ hero_sizes }}" fetchpriority="high" />
+    <meta property="og:type" content="profile" />
+    <meta property="og:locale" content="{{ og_locale }}" />
+    <meta property="og:site_name" content="{{ site_host }}" />
+    <meta property="og:title" content="{{ title }}" />
+    <meta property="og:description" content="{{ description }}" />
+    <meta property="og:url" content="{{ canonical_url }}" />
+    <meta property="og:image" content="{{ cover_url }}" />
+    <meta property="og:image:url" content="{{ cover_url }}" />
+    <meta property="og:image:secure_url" content="{{ cover_url }}" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:alt" content="{{ title }}" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="{{ title }}" />
+    <meta name="twitter:description" content="{{ description }}" />
+    <meta name="twitter:image" content="{{ cover_url }}" />
+    <meta name="twitter:image:alt" content="{{ title }}" />
+    <title>{{ title }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <!-- Тема ставится ДО первой отрисовки. app.js отложен, и без этого
+         кусочка тёмная страница успевала мигнуть светлым фоном. -->
+    <script>{{ theme_preload_script }}</script>
+    <script type="application/ld+json">{{ json_ld_json }}</script>
+    <script type="application/json" id="resume-data">{{ embedded_resume_data_json }}</script>
+    <script defer src="../assets/analytics.js"></script>
+    <script defer src="../assets/app.js"></script>
+  </head>
+  <body>
+    <noscript><div><img src="{{ yandex_metrika_origin }}/watch/{{ yandex_metrika_id }}" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
+    <a class="skip-link" href="#top">{{ skip_to_content }}</a>
+    <header class="site-header container">
+      <div class="lang-switch" role="group" aria-label="{{ lang_switcher_label }}" id="lang-switch">
+          {{ language_switch }}
+      </div>
+
+      <nav class="site-nav" aria-label="{{ nav_label }}">
+        <a id="nav-resume" href="#resume">{{ nav_resume }}</a>
+        <a id="nav-experience" href="#experience">{{ experience_title }}</a>
+        <a id="nav-education" href="#education">{{ education_title }}</a>
+        <a id="nav-strengths" href="#strengths">{{ strengths_title }}</a>
+        <a id="nav-skills" href="#skills">{{ stack_label }}</a>
+      </nav>
+
+      <div class="header-controls">
+        <div class="theme-switch" role="group" aria-label="{{ theme_switcher_label }}" id="theme-switch">
+          <button type="button" data-theme-switch="light" aria-label="{{ theme_to_light }}">{{ sun_icon }}</button>
+          <button type="button" data-theme-switch="dark" aria-label="{{ theme_to_dark }}">{{ moon_icon }}</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="container" id="top">
+      <section class="hero reveal" data-section="hero">
+        <div class="hero-layout">
+          <div class="hero-copy">
+            <p class="kicker" id="hero-kicker">{{ headline }}</p>
+            <h1 id="hero-name">{{ person_name }}</h1>
+            <p class="hero-role" id="hero-role">{{ role }}</p>
+            <p class="hero-summary" id="hero-summary">{{ summary }}</p>
+
+            <div class="hero-links">
+              {{ contact_links }}
+            </div>
+          </div>
+
+          <aside class="hero-visual">
+            <div class="hero-photo-card">
+{{ hero_photo }}
+            </div>
+          </aside>
+        </div>
+        <div id="hero-facts" class="facts-grid hero-facts">
+          {{ facts }}
+        </div>
+      </section>
+
+      <section class="panel reveal" id="resume" data-section="resume">
+        <div class="panel-header">
+          <h2>{{ download_panel_icon }}<span id="resume-title">{{ resume_downloads_title }}</span></h2>
+        </div>
+        <div class="resume-actions">
+        {{ resume_actions }}
+        </div>
+      </section>
+
+      <section class="panel reveal" id="experience" data-section="experience">
+        <div class="panel-header"><h2>{{ briefcase_panel_icon }}<span id="experience-title">{{ experience_title }}</span></h2></div>
+        <div class="timeline" id="experience-list">
+      {{ experience_items }}
+        </div>
+      </section>
+
+      <section class="panel reveal" id="education" data-section="education">
+        <div class="panel-header">
+          <h2>{{ education_panel_icon }}<span id="education-title">{{ education_title }}</span></h2>
+          <p id="education-subtitle">{{ education_subtitle }}</p>
+        </div>
+        <div class="education-list" id="education-list">
+      {{ education_items }}
+        </div>
+      </section>
+
+      <section class="panel reveal" id="strengths" data-section="strengths">
+        <div class="panel-header">
+          <h2>{{ star_panel_icon }}<span id="strengths-title">{{ strengths_title }}</span></h2>
+          <p id="strengths-subtitle">{{ strengths_subtitle }}</p>
+        </div>
+        <div class="strengths-grid" id="strengths-grid">
+          {{ strengths_cards }}
+        </div>
+      </section>
+
+      <section class="panel reveal" id="skills" data-section="skills">
+        <div class="panel-header"><h2>{{ layers_panel_icon }}<span id="skills-title">{{ skills_title }}</span></h2></div>
+        <div class="skills-grid" id="skills-grid">
+          {{ skills_groups }}
+        </div>
+      </section>
+
+      <section class="panel reveal" id="preferences" data-section="preferences">
+        <div class="panel-header"><h2>{{ star_panel_icon }}<span id="preferences-title">{{ preferences_title }}</span></h2></div>
+        <ul class="preferences-list" id="preferences-list">
+          {{ preferences_items }}
+        </ul>
+      </section>
+    </main>
+
+    <footer class="container site-footer" data-section="footer">
+      <p id="footer-text">{{ footer_text }}</p>
+    </footer>
+  </body>
+</html>
