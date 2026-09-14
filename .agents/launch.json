@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "servers": [
+    {
+      "name": "site",
+      "command": [".venv/bin/python", "-m", "http.server", "8000"],
+      "url": "http://127.0.0.1:8000"
+    }
+  ]
+}

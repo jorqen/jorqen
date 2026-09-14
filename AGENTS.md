@@ -1,6 +1,7 @@
 # jorqen
 Статический сайт-резюме на GitHub Pages; язык документации и коммитов — русский.
 Карта: `resume/resume.yaml` — источник, `scripts/` — генератор и тесты, `assets/` — сайт.
+Не читай файлы `.venv/**`; зависимости запускай штатными командами проекта.
 Не добавляй сюда поиск работы: он полностью живёт в отдельном `~/Projects/kadr`.
 
 ## Инварианты
@@ -18,6 +19,6 @@ PDF и DOCX должны совпадать по содержанию.
 `make test` проверяет выгрузки так, как их читает ATS; для PDF нужен `pdftotext` из poppler.
 
 ## Skills
-UI-задачи: `better-accessibility`, `better-colors`, `better-layout`, `better-typography`, `better-ui`, `better-writing`.
-Полный UI-обзор вызывай через `better-interface`; обзор изменений — через `interface-review`.
-Правила skills: `.agents/skills/`; `.claude/` оставлен только для временной совместимости.
+Источники и политика вызова навыков — `.agents/skills/`. Для UI-задач используй
+навыки этого каталога; полный UI-обзор — `better-interface`, обзор изменений —
+`interface-review`.

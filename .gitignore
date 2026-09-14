@@ -16,3 +16,8 @@ resume/resume.local.yaml
 
 __pycache__/
 *.pyc
+
+# Retired client state is rejected by shared health and stays out of Git.
+/.claude/
+/.codex/
+/CLAUDE.md
